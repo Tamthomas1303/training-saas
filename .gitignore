@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+*.sqlite3
+staticfiles/
+media/
+
+# Django
+backend/.env
+backend/*.log
+
+# Node / React
+node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+npm-debug.log*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Env files (never commit secrets)
+.env
+*.env
+!.env.example
+
+# Claude Code local settings
+.claude/settings.local.json
