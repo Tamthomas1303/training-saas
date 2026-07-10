@@ -51,6 +51,12 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'corsheaders',
     'accounts',
+    'restaurants',
+    'employees',
+    'checklist',
+    'evaluation',
+    'kpi',
+    'cls_sync',
 ]
 
 MIDDLEWARE = [
