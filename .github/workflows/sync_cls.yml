@@ -1,0 +1,27 @@
+name: Sync CLS & Recruitment
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # moi 6 gio (UTC)
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
+      DJANGO_DEBUG: 'False'
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      CLS_SECRET_KEY: ${{ secrets.CLS_SECRET_KEY }}
+      RECRUITMENT_SOURCE_CSV_URL: ${{ secrets.RECRUITMENT_SOURCE_CSV_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python manage.py sync_recruitment --tenant "Demo Tenant"
+      - run: python manage.py sync_cls --tenant "Demo Tenant"

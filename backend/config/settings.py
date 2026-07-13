@@ -171,3 +171,17 @@ CORS_ALLOWED_ORIGINS = [
     for o in os.environ.get('CORS_ALLOWED_ORIGINS', 'http://localhost:5173').split(',')
     if o.strip()
 ]
+
+# CLS (hệ thống LMS ngoài) — đồng bộ kết quả học/thi, xem cls_sync/management/commands/sync_cls.py
+CLS_SECRET_KEY = os.environ.get('CLS_SECRET_KEY', '')
+CLS_API_BASE = os.environ.get('CLS_API_BASE', 'https://eapiv4.cls.vn/api/HRM')
+CLS_EXAM_START_DATE = os.environ.get('CLS_EXAM_START_DATE', '2024-01-01')
+CLS_PROBATION_EXAM_TYPES = [
+    t.strip().upper()
+    for t in os.environ.get('CLS_PROBATION_EXAM_TYPES', 'NV,10N,15N,30N').split(',')
+    if t.strip()
+]
+CLS_ONBOARDING_PASS_SCORE = float(os.environ.get('CLS_ONBOARDING_PASS_SCORE', '80'))
+
+# Nguồn tuyển dụng (CSV export, vd Google Sheet Publish to web > CSV) cho sync_recruitment
+RECRUITMENT_SOURCE_CSV_URL = os.environ.get('RECRUITMENT_SOURCE_CSV_URL', '')

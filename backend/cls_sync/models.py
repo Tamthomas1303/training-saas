@@ -13,6 +13,9 @@ class CourseResult(models.Model):
     cls_id = models.CharField(max_length=100, blank=True)
     synced_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        unique_together = ('employee', 'course_name')
+
     def __str__(self):
         return f'{self.employee_id} - {self.course_name}'
 
