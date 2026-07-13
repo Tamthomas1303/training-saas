@@ -36,12 +36,13 @@ class TrainingProgress(models.Model):
         User, on_delete=models.SET_NULL, related_name='training_progress', null=True, blank=True
     )
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
-    img_tailieu = models.URLField(blank=True)
-    img_lythuyet = models.URLField(blank=True)
-    img_thuchanh = models.URLField(blank=True)
-    sign_trainer = models.URLField(blank=True)
-    sign_trainee = models.URLField(blank=True)
-    pdf_url = models.URLField(blank=True)
+    img_tailieu = models.URLField(max_length=500, blank=True)
+    img_lythuyet = models.URLField(max_length=500, blank=True)
+    img_thuchanh = models.URLField(max_length=500, blank=True)
+    sign_trainer = models.URLField(max_length=500, blank=True)
+    sign_trainee = models.URLField(max_length=500, blank=True)
+    pdf_url = models.URLField(max_length=500, blank=True)
+    note = models.TextField(blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

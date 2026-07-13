@@ -12,6 +12,7 @@ export default function NavBar() {
         <Link to="/restaurants">Nhà hàng</Link>
         <Link to="/employees">Nhân sự</Link>
         <Link to="/checklist">Checklist</Link>
+        <Link to="/training">Đào tạo</Link>
       </div>
       <div>
         <span style={{ marginRight: 12 }}>{user?.full_name || user?.username}</span>
