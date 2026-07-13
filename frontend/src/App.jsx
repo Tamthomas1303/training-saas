@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthContext'
 import ProtectedRoute from './auth/ProtectedRoute'
@@ -7,8 +8,16 @@ import RestaurantsPage from './pages/RestaurantsPage'
 import EmployeesPage from './pages/EmployeesPage'
 import ChecklistPage from './pages/ChecklistPage'
 import TrainingPage from './pages/TrainingPage'
+import EvaluationPage from './pages/EvaluationPage'
+import api from './api/client'
+import { flushQueue, initOfflineSync } from './utils/offlineQueue'
 
 function App() {
+  useEffect(() => {
+    initOfflineSync(api)
+    flushQueue(api)
+  }, [])
+
   return (
     <BrowserRouter>
       <AuthProvider>
@@ -51,6 +60,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <TrainingPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/evaluation"
+            element={
+              <ProtectedRoute>
+                <EvaluationPage />
               </ProtectedRoute>
             }
           />

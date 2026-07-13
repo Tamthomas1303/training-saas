@@ -1,0 +1,438 @@
+import { useEffect, useRef, useState } from 'react'
+import NavBar from '../components/NavBar'
+import Pager from '../components/Pager'
+import SignaturePad from '../components/SignaturePad'
+import CouncilForm from '../components/CouncilForm'
+import api from '../api/client'
+import { usePaginatedList } from '../hooks/usePaginatedList'
+import { submitGuarded } from '../utils/offlineQueue'
+import { compressImageFile } from '../utils/compressImage'
+import * as s from './listPageStyles'
+
+const PAGE_SIZE = 20
+
+const EVAL_TYPE_OPTIONS = [
+  { value: 'Skill_BQL', label: 'BQL đánh giá kỹ năng' },
+  { value: 'AM_KCS', label: 'AM/KCS kiểm tra random' },
+]
+
+function clamp(value, min, max) {
+  if (Number.isNaN(value)) return min
+  return Math.min(max, Math.max(min, value))
+}
+
+function EvalPhotoButton({ value, onChange }) {
+  const inputRef = useRef(null)
+
+  async function handleFile(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    const dataUrl = await compressImageFile(file)
+    onChange(dataUrl)
+  }
+
+  return (
+    <div style={{ textAlign: 'center' }}>
+      <div
+        onClick={() => inputRef.current?.click()}
+        style={{
+          width: 48,
+          height: 38,
+          border: '1px dashed #cfd6d3',
+          borderRadius: 6,
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden',
+          background: '#fafafa',
+          margin: '0 auto',
+        }}
+      >
+        {value ? (
+          <img src={value} alt="minh chứng" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        ) : (
+          <span style={{ fontSize: 16 }}>📷</span>
+        )}
+      </div>
+      <input ref={inputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFile} />
+    </div>
+  )
+}
+
+export default function EvaluationPage() {
+  const [employeeSearch, setEmployeeSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const [selectedEmployee, setSelectedEmployee] = useState(null)
+  const [evalType, setEvalType] = useState('Skill_BQL')
+
+  const [criteriaData, setCriteriaData] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState('')
+
+  const [scores, setScores] = useState({})
+  const [photos, setPhotos] = useState({})
+  const [notes, setNotes] = useState({})
+  const [generalNote, setGeneralNote] = useState('')
+  const [signEvaluator, setSignEvaluator] = useState('')
+  const [signTrainee, setSignTrainee] = useState('')
+  const [existingSignEvaluator, setExistingSignEvaluator] = useState('')
+  const [existingSignTrainee, setExistingSignTrainee] = useState('')
+
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [saveMessage, setSaveMessage] = useState('')
+  const [pdfUrl, setPdfUrl] = useState('')
+  const [showCouncil, setShowCouncil] = useState(false)
+
+  const { data: employeeOptions } = usePaginatedList('/employees/', {
+    search: employeeSearch,
+    page,
+    page_size: PAGE_SIZE,
+  })
+
+  function resetForm() {
+    setScores({})
+    setPhotos({})
+    setNotes({})
+    setGeneralNote('')
+    setSignEvaluator('')
+    setSignTrainee('')
+    setExistingSignEvaluator('')
+    setExistingSignTrainee('')
+    setSaveError('')
+    setSaveMessage('')
+    setPdfUrl('')
+  }
+
+  async function loadEvaluation(employeeId, type) {
+    setLoading(true)
+    setLoadError('')
+    resetForm()
+    try {
+      const [criteriaResp, draftResp] = await Promise.all([
+        api.get('/evaluation/criteria/', { params: { employee: employeeId, eval_type: type } }),
+        api.get('/evaluation/draft/', { params: { employee: employeeId, eval_type: type } }),
+      ])
+      setCriteriaData(criteriaResp.data)
+
+      const draft = draftResp.data.draft
+      if (draft) {
+        const scoreMap = {}
+        const photoMap = {}
+        const noteMap = {}
+        draft.details.forEach((d) => {
+          scoreMap[d.criteria_id] = Number(d.score)
+          photoMap[d.criteria_id] = d.photo_url
+          noteMap[d.criteria_id] = d.note
+        })
+        setScores(scoreMap)
+        setPhotos(photoMap)
+        setNotes(noteMap)
+        setGeneralNote(draft.note || '')
+        setExistingSignEvaluator(draft.sign_evaluator || '')
+        setExistingSignTrainee(draft.sign_trainee || '')
+      }
+    } catch {
+      setLoadError('Không tải được dữ liệu đánh giá.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function selectEmployee(emp) {
+    setSelectedEmployee(emp)
+    setShowCouncil(false)
+    loadEvaluation(emp.id, evalType)
+  }
+
+  function changeEvalType(type) {
+    setEvalType(type)
+    if (selectedEmployee) loadEvaluation(selectedEmployee.id, type)
+  }
+
+  function backToPicker() {
+    setSelectedEmployee(null)
+    setCriteriaData(null)
+  }
+
+  const items = criteriaData?.items || []
+  const total = items.reduce((sum, c) => sum + (scores[c.criteria_id] ?? 0), 0)
+  const maxTotal = items.reduce((sum, c) => sum + c.max_score, 0)
+  const percent = maxTotal ? Math.round((total / maxTotal) * 100) : 0
+  const mandatoryFail = items.some((c) => c.is_mandatory && (scores[c.criteria_id] ?? 0) <= 0)
+  const pass = percent >= 70 && !mandatoryFail
+
+  async function submit(complete) {
+    setSaving(true)
+    setSaveError('')
+    setSaveMessage('')
+    const payload = {
+      employee: selectedEmployee.id,
+      eval_type: evalType,
+      details: items.map((c) => ({
+        criteria_id: c.criteria_id,
+        score: scores[c.criteria_id] ?? 0,
+        photo: photos[c.criteria_id] || undefined,
+        note: notes[c.criteria_id] || '',
+      })),
+      note: generalNote,
+      sign_evaluator: signEvaluator || existingSignEvaluator,
+      sign_trainee: signTrainee || existingSignTrainee,
+      complete,
+    }
+    await submitGuarded(
+      'evaluation',
+      (p) => api.post('/evaluation/save/', p).then((r) => r.data),
+      payload,
+      {
+        onOk: (data) => {
+          setSaveMessage(`Đã lưu (${data.status === 'done' ? 'Hoàn thành' : 'Nháp'}).`)
+          setPdfUrl(data.pdf_url || '')
+        },
+        onErr: setSaveError,
+        onQueued: () => setSaveMessage('Mất mạng - đã lưu nháp offline, sẽ tự đồng bộ khi có mạng.'),
+      }
+    )
+    setSaving(false)
+  }
+
+  return (
+    <div style={s.page}>
+      <NavBar />
+      <h2>Đánh giá kỹ năng</h2>
+
+      {!selectedEmployee && (
+        <>
+          <div style={s.toolbar}>
+            <input
+              style={s.input}
+              placeholder="Tìm nhân sự theo mã / tên để đánh giá..."
+              value={employeeSearch}
+              onChange={(e) => {
+                setEmployeeSearch(e.target.value)
+                setPage(1)
+              }}
+            />
+          </div>
+          <table style={s.table}>
+            <thead>
+              <tr>
+                <th style={s.th}>Mã NV</th>
+                <th style={s.th}>Họ tên</th>
+                <th style={s.th}>Nhà hàng</th>
+                <th style={s.th}>Vị trí</th>
+                <th style={s.th}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {employeeOptions.results.map((emp) => (
+                <tr key={emp.id}>
+                  <td style={s.td}>{emp.code}</td>
+                  <td style={s.td}>{emp.name}</td>
+                  <td style={s.td}>{emp.restaurant_name}</td>
+                  <td style={s.td}>{emp.position}</td>
+                  <td style={s.td}>
+                    <button onClick={() => selectEmployee(emp)}>Chọn</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <Pager page={page} pageSize={PAGE_SIZE} count={employeeOptions.count} onChange={setPage} />
+        </>
+      )}
+
+      {selectedEmployee && (
+        <>
+          <p>
+            <button onClick={backToPicker}>« Chọn nhân sự khác</button>
+          </p>
+          <h3>
+            {selectedEmployee.name} — {selectedEmployee.position} — {selectedEmployee.restaurant_name}
+          </h3>
+
+          <div style={s.toolbar}>
+            {EVAL_TYPE_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                onClick={() => changeEvalType(opt.value)}
+                style={{ fontWeight: evalType === opt.value ? 'bold' : 'normal' }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {loading && <p>Đang tải...</p>}
+          {loadError && <p style={{ color: 'red' }}>{loadError}</p>}
+
+          {criteriaData && !loading && (
+            <>
+              {criteriaData.source === 'fallback_checklist' && (
+                <p style={{ color: '#92400e', fontSize: 13 }}>
+                  * Tiêu chí tạm suy từ checklist (chưa nhập bộ tiêu chí đánh giá riêng).
+                </p>
+              )}
+              <p style={{ fontSize: 13, color: '#666' }}>
+                Tiến độ đào tạo: {criteriaData.training_progress_percent}%
+                {evalType === 'AM_KCS' && (
+                  <> · Đã qua BQL đánh giá: {criteriaData.has_bql_evaluation ? 'Có' : 'Chưa'}</>
+                )}
+              </p>
+
+              {evalType === 'AM_KCS' && !criteriaData.has_bql_evaluation ? (
+                <p style={{ color: 'red' }}>
+                  Nhân sự này chưa được BQL đánh giá kỹ năng, chưa thể kiểm tra random.
+                </p>
+              ) : (
+                <>
+                  <table style={s.table}>
+                    <thead>
+                      <tr>
+                        <th style={s.th}>Nội dung</th>
+                        <th style={s.th}>Điểm tối đa</th>
+                        <th style={s.th}>Chấm điểm</th>
+                        <th style={s.th}>Ảnh KN</th>
+                        <th style={s.th}>Ghi chú</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map((c) => (
+                        <tr key={c.criteria_id}>
+                          <td style={s.td}>
+                            {c.content}
+                            {c.is_mandatory && (
+                              <span
+                                style={{
+                                  marginLeft: 6,
+                                  fontSize: 11,
+                                  color: '#c0392b',
+                                  background: '#fde8e8',
+                                  padding: '2px 6px',
+                                  borderRadius: 10,
+                                }}
+                              >
+                                Bắt buộc
+                              </span>
+                            )}
+                          </td>
+                          <td style={{ ...s.td, textAlign: 'center' }}>{c.max_score}</td>
+                          <td style={{ ...s.td, textAlign: 'center' }}>
+                            <input
+                              type="number"
+                              min="0"
+                              max={c.max_score}
+                              value={scores[c.criteria_id] ?? 0}
+                              onChange={(e) =>
+                                setScores((sc) => ({
+                                  ...sc,
+                                  [c.criteria_id]: clamp(Number(e.target.value), 0, c.max_score),
+                                }))
+                              }
+                              style={{ width: 70 }}
+                            />
+                          </td>
+                          <td style={{ ...s.td, textAlign: 'center' }}>
+                            <EvalPhotoButton
+                              value={photos[c.criteria_id]}
+                              onChange={(v) => setPhotos((p) => ({ ...p, [c.criteria_id]: v }))}
+                            />
+                            {c.require_photo && (
+                              <div style={{ fontSize: 10, color: '#c0392b' }}>Bắt buộc</div>
+                            )}
+                          </td>
+                          <td style={s.td}>
+                            <input
+                              type="text"
+                              value={notes[c.criteria_id] || ''}
+                              onChange={(e) => setNotes((n) => ({ ...n, [c.criteria_id]: e.target.value }))}
+                              style={{ width: '100%' }}
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: 16,
+                      alignItems: 'center',
+                      margin: '12px 0',
+                      fontWeight: 'bold',
+                    }}
+                  >
+                    <span>Tổng: {total}/{maxTotal}</span>
+                    <span
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: 12,
+                        background: pass ? '#e3f3ec' : '#fde8e8',
+                        color: pass ? '#1e7a55' : '#c0392b',
+                      }}
+                    >
+                      {pass ? 'Đạt' : 'Không đạt'} ({percent}%)
+                    </span>
+                  </div>
+
+                  <textarea
+                    placeholder="Ghi chú chung..."
+                    value={generalNote}
+                    onChange={(e) => setGeneralNote(e.target.value)}
+                    style={{ width: '100%', minHeight: 60, marginBottom: 12 }}
+                  />
+
+                  <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
+                    <SignaturePad
+                      label="Người đánh giá ký"
+                      existingUrl={existingSignEvaluator}
+                      value={signEvaluator}
+                      onChange={setSignEvaluator}
+                    />
+                    <SignaturePad
+                      label="Nhân viên ký"
+                      existingUrl={existingSignTrainee}
+                      value={signTrainee}
+                      onChange={setSignTrainee}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button disabled={saving} onClick={() => submit(false)}>
+                      Lưu nháp
+                    </button>
+                    <button disabled={saving} onClick={() => submit(true)}>
+                      Hoàn thành & xuất PDF
+                    </button>
+                  </div>
+
+                  {saving && <p>Đang lưu...</p>}
+                  {saveError && <p style={{ color: 'red' }}>{saveError}</p>}
+                  {saveMessage && (
+                    <p style={{ color: 'green' }}>
+                      {saveMessage}{' '}
+                      {pdfUrl && (
+                        <a href={pdfUrl} target="_blank" rel="noreferrer">
+                          Xem phiếu đánh giá PDF
+                        </a>
+                      )}
+                    </p>
+                  )}
+                </>
+              )}
+
+              <p>
+                <button onClick={() => setShowCouncil((v) => !v)}>
+                  {showCouncil ? 'Ẩn' : 'Hiện'} Chấm điểm hội đồng
+                </button>
+              </p>
+              {showCouncil && <CouncilForm employeeId={selectedEmployee.id} />}
+            </>
+          )}
+        </>
+      )}
+    </div>
+  )
+}

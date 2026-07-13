@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { nav } from '../pages/listPageStyles'
+import OfflineBadge from './OfflineBadge'
 
 export default function NavBar() {
   const { user, logout } = useAuth()
@@ -13,9 +14,11 @@ export default function NavBar() {
         <Link to="/employees">Nhân sự</Link>
         <Link to="/checklist">Checklist</Link>
         <Link to="/training">Đào tạo</Link>
+        <Link to="/evaluation">Đánh giá</Link>
       </div>
-      <div>
-        <span style={{ marginRight: 12 }}>{user?.full_name || user?.username}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <OfflineBadge />
+        <span style={{ marginRight: 4 }}>{user?.full_name || user?.username}</span>
         <button onClick={logout}>Đăng xuất</button>
       </div>
     </div>

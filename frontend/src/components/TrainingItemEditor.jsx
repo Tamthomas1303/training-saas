@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import api from '../api/client'
+import { submitGuarded } from '../utils/offlineQueue'
 import PhotoSlot from './PhotoSlot'
 import SignaturePad from './SignaturePad'
 
@@ -30,22 +31,27 @@ export default function TrainingItemEditor({ employeeId, checklist, progress, on
     setSaving(true)
     setError('')
     setMessage(null)
-    try {
-      const payload = {
-        employee: employeeId,
-        checklist: checklist.id,
-        note,
-        complete,
-        ...Object.fromEntries(Object.entries(draft).filter(([, v]) => v)),
-      }
-      const { data } = await api.post('/checklist/training/save/', payload)
-      setMessage(data)
-      onSaved(data)
-    } catch (err) {
-      setError(err.response?.data?.detail || 'Lưu thất bại.')
-    } finally {
-      setSaving(false)
+    const payload = {
+      employee: employeeId,
+      checklist: checklist.id,
+      note,
+      complete,
+      ...Object.fromEntries(Object.entries(draft).filter(([, v]) => v)),
     }
+    await submitGuarded(
+      'training',
+      (p) => api.post('/checklist/training/save/', p).then((r) => r.data),
+      payload,
+      {
+        onOk: (data) => {
+          setMessage(data)
+          onSaved(data)
+        },
+        onErr: setError,
+        onQueued: () => setMessage({ status: 'offline', pdf_url: '' }),
+      }
+    )
+    setSaving(false)
   }
 
   return (
@@ -96,7 +102,10 @@ export default function TrainingItemEditor({ employeeId, checklist, progress, on
       </div>
       {saving && <p>Đang lưu...</p>}
       {error && <p style={{ color: 'red' }}>{error}</p>}
-      {message && (
+      {message && message.status === 'offline' && (
+        <p style={{ color: '#92400e' }}>Mất mạng - đã lưu nháp offline, sẽ tự đồng bộ khi có mạng.</p>
+      )}
+      {message && message.status !== 'offline' && (
         <p style={{ color: 'green' }}>
           Đã lưu ({message.status}).{' '}
           {message.pdf_url && (

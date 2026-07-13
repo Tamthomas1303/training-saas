@@ -3,7 +3,9 @@ import NavBar from '../components/NavBar'
 import Pager from '../components/Pager'
 import TrainingItemEditor from '../components/TrainingItemEditor'
 import api from '../api/client'
+import { useAuth } from '../auth/AuthContext'
 import { usePaginatedList } from '../hooks/usePaginatedList'
+import { canTrainPosition } from '../utils/canTrainPosition'
 import * as s from './listPageStyles'
 
 const PAGE_SIZE = 20
@@ -27,6 +29,7 @@ function groupByDayAndCategory(items) {
 }
 
 export default function TrainingPage() {
+  const { user } = useAuth()
   const [employeeSearch, setEmployeeSearch] = useState('')
   const [page, setPage] = useState(1)
   const [selectedEmployee, setSelectedEmployee] = useState(null)
@@ -149,6 +152,7 @@ export default function TrainingPage() {
                   <div style={{ fontWeight: 'bold', color: '#555', margin: '8px 0 4px' }}>{category}</div>
                   {items.map((item) => {
                     const status = item.progress?.status || 'pending'
+                    const allowed = canTrainPosition(user?.role, selectedEmployee.position)
                     return (
                       <div key={item.checklist.id} style={{ borderBottom: '1px solid #eee', padding: '8px 0' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -167,16 +171,20 @@ export default function TrainingPage() {
                                 Xem biên bản
                               </a>
                             )}
-                            <button
-                              onClick={() =>
-                                setOpenItemId(openItemId === item.checklist.id ? null : item.checklist.id)
-                              }
-                            >
-                              {status === 'done' ? 'Sửa' : 'Đào tạo'}
-                            </button>
+                            {allowed ? (
+                              <button
+                                onClick={() =>
+                                  setOpenItemId(openItemId === item.checklist.id ? null : item.checklist.id)
+                                }
+                              >
+                                {status === 'done' ? 'Sửa' : 'Đào tạo'}
+                              </button>
+                            ) : (
+                              <span style={{ fontSize: 12, color: '#999' }}>Không có quyền đào tạo vị trí này</span>
+                            )}
                           </div>
                         </div>
-                        {openItemId === item.checklist.id && (
+                        {allowed && openItemId === item.checklist.id && (
                           <TrainingItemEditor
                             employeeId={selectedEmployee.id}
                             checklist={item.checklist}
