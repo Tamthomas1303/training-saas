@@ -9,6 +9,9 @@ import EmployeesPage from './pages/EmployeesPage'
 import ChecklistPage from './pages/ChecklistPage'
 import TrainingPage from './pages/TrainingPage'
 import EvaluationPage from './pages/EvaluationPage'
+import KpiPage from './pages/KpiPage'
+import CommissionPage from './pages/CommissionPage'
+import KpiDashboardPage from './pages/KpiDashboardPage'
 import api from './api/client'
 import { flushQueue, initOfflineSync } from './utils/offlineQueue'
 
@@ -68,6 +71,30 @@ function App() {
             element={
               <ProtectedRoute>
                 <EvaluationPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/kpi"
+            element={
+              <ProtectedRoute>
+                <KpiPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/commission"
+            element={
+              <ProtectedRoute>
+                <CommissionPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/kpi-dashboard"
+            element={
+              <ProtectedRoute>
+                <KpiDashboardPage />
               </ProtectedRoute>
             }
           />

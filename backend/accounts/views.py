@@ -30,6 +30,8 @@ class SyncDraftsView(APIView):
         from checklist.services import save_training_progress
         from evaluation.services import ValidationError as EvaluationValidationError
         from evaluation.services import save_evaluation
+        from kpi.services import ValidationError as KpiValidationError
+        from kpi.services import save_kpi_session
 
         items = request.data if isinstance(request.data, list) else request.data.get('items', [])
         results = []
@@ -42,10 +44,12 @@ class SyncDraftsView(APIView):
                     save_training_progress(request.user, payload)
                 elif kind == 'evaluation':
                     save_evaluation(request.user, payload)
+                elif kind == 'kpi':
+                    save_kpi_session(request.user, payload)
                 else:
                     raise ValueError(f'Loại nháp không hỗ trợ: {kind}')
                 results.append({'client_uuid': client_uuid, 'ok': True})
-            except (ChecklistValidationError, EvaluationValidationError, ValueError) as exc:
+            except (ChecklistValidationError, EvaluationValidationError, KpiValidationError, ValueError) as exc:
                 results.append({'client_uuid': client_uuid, 'ok': False, 'message': str(exc)})
 
         return Response({'results': results})

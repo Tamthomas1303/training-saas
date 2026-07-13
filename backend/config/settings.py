@@ -198,3 +198,19 @@ RECRUITMENT_SOURCE_CSV_URL = os.environ.get('RECRUITMENT_SOURCE_CSV_URL', '')
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
 SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY', '')
 SUPABASE_STORAGE_BUCKET = os.environ.get('SUPABASE_STORAGE_BUCKET', 'training-evidence')
+
+# Phụ cấp/Hoa hồng trainer — port CommissionService.gs (giá trị mặc định của bản Apps Script cũ,
+# đọc từ sheet Config trong bản gốc; ở đây cấu hình qua .env, có thể chỉnh khi cần)
+COMMISSION_AMOUNT = float(os.environ.get('COMMISSION_AMOUNT', '300000'))
+COMMISSION_SKILL_THRESHOLD = float(os.environ.get('COMMISSION_SKILL_THRESHOLD', '85'))
+COMMISSION_EXAM_THRESHOLD = float(os.environ.get('COMMISSION_EXAM_THRESHOLD', '80'))
+COMMISSION_WORKED_DAYS = int(os.environ.get('COMMISSION_WORKED_DAYS', '30'))
+# Danh sách Restaurant.code được áp dụng hoa hồng; để trống = áp dụng tất cả nhà hàng
+# (khác bản gốc: bản gốc mặc định giới hạn 4 nhà hàng pilot của công ty cũ, không phù hợp
+# dữ liệu tenant mới nên mặc định ở đây là không giới hạn — xem trao đổi trong sprint KPI).
+COMMISSION_RESTAURANT_ALLOWLIST = [
+    c.strip() for c in os.environ.get('COMMISSION_RESTAURANT_ALLOWLIST', '').split(',') if c.strip()
+]
+
+# KPI đào tạo — số buổi/tháng mục tiêu cho mỗi nhà hàng (Config.kpiTarget() bản gốc, mặc định 3)
+KPI_TARGET_PER_MONTH = int(os.environ.get('KPI_TARGET_PER_MONTH', '3'))

@@ -44,6 +44,12 @@ class User(AbstractUser):
     tenant = models.ForeignKey(
         Tenant, on_delete=models.CASCADE, related_name='users', null=True, blank=True
     )
+    # Pham vi nha hang cho BQL/Trainer/KCS (port AuthService.gs::getScope). Admin/OM/BOD/AM
+    # khong dung truong nay - vai tro cua ho la "toan he thong" (xem employees/permissions.py).
+    restaurant = models.ForeignKey(
+        'restaurants.Restaurant', on_delete=models.SET_NULL, related_name='staff_users',
+        null=True, blank=True,
+    )
     full_name = models.CharField(max_length=255, blank=True)
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.TRAINER)
     job_title = models.CharField(max_length=20, choices=JobTitle.choices, blank=True, null=True)

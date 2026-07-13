@@ -6,6 +6,7 @@ from .models import User
 
 class UserSerializer(serializers.ModelSerializer):
     tenant_name = serializers.CharField(source='tenant.name', read_only=True)
+    restaurant_name = serializers.CharField(source='restaurant.name', read_only=True, default='')
 
     class Meta:
         model = User
@@ -20,6 +21,8 @@ class UserSerializer(serializers.ModelSerializer):
             'status',
             'tenant',
             'tenant_name',
+            'restaurant',
+            'restaurant_name',
         ]
         read_only_fields = fields
 
@@ -31,6 +34,7 @@ class TenantAwareTokenObtainPairSerializer(TokenObtainPairSerializer):
         token['tenant_id'] = user.tenant_id
         token['role'] = user.role
         token['full_name'] = user.full_name
+        token['restaurant_id'] = user.restaurant_id
         return token
 
     def validate(self, attrs):

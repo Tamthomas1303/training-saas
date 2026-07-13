@@ -5,17 +5,17 @@ from .models import Commission, KpiParticipant, KpiSession
 
 @admin.register(KpiSession)
 class KpiSessionAdmin(admin.ModelAdmin):
-    list_display = ('name', 'tenant', 'session_date', 'trainer', 'status')
-    list_filter = ('tenant', 'status')
+    list_display = ('topic', 'restaurant', 'trainer', 'date', 'tenant')
+    list_filter = ('tenant', 'restaurant')
 
 
 @admin.register(KpiParticipant)
 class KpiParticipantAdmin(admin.ModelAdmin):
-    list_display = ('session', 'employee', 'score', 'result', 'tenant')
+    list_display = ('session', 'employee', 'tenant')
     list_filter = ('tenant',)
 
 
 @admin.register(Commission)
 class CommissionAdmin(admin.ModelAdmin):
-    list_display = ('trainer', 'period', 'amount', 'status', 'tenant')
+    list_display = ('employee', 'trainer', 'amount', 'status', 'month', 'year', 'tenant')
     list_filter = ('tenant', 'status')

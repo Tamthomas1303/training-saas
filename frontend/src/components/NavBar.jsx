@@ -15,6 +15,9 @@ export default function NavBar() {
         <Link to="/checklist">Checklist</Link>
         <Link to="/training">Đào tạo</Link>
         <Link to="/evaluation">Đánh giá</Link>
+        <Link to="/kpi">KPI</Link>
+        <Link to="/commission">Phụ cấp</Link>
+        <Link to="/kpi-dashboard">Thống kê KPI</Link>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <OfflineBadge />
