@@ -214,3 +214,10 @@ COMMISSION_RESTAURANT_ALLOWLIST = [
 
 # KPI đào tạo — số buổi/tháng mục tiêu cho mỗi nhà hàng (Config.kpiTarget() bản gốc, mặc định 3)
 KPI_TARGET_PER_MONTH = int(os.environ.get('KPI_TARGET_PER_MONTH', '3'))
+
+# Thời hạn thử việc mặc định (ngày) khi Employee.probation_days chưa được gán — port
+# Config.gs PROBATION_S_DAYS/PROBATION_O_DAYS. S = nhân viên thường, O = quản lý/giám sát.
+PROBATION_S_DAYS = int(os.environ.get('PROBATION_S_DAYS', '15'))
+PROBATION_O_DAYS = int(os.environ.get('PROBATION_O_DAYS', '60'))
+# Ngưỡng "sắp đến hạn thử việc" trên dashboard (days_left <= ngưỡng này, gồm cả quá hạn/âm)
+PROBATION_DEADLINE_WARN_DAYS = int(os.environ.get('PROBATION_DEADLINE_WARN_DAYS', '10'))

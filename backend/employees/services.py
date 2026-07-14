@@ -1,3 +1,8 @@
+import datetime
+
+FINAL_RESULT_CUTOFF_DATE = datetime.date(2026, 4, 6)
+
+
 def normalize_key(value):
     return (value or '').strip().lower()
 
@@ -83,6 +88,74 @@ def trainer_of(employee):
 
     progress = TrainingProgress.objects.filter(employee=employee, trainer__isnull=False).first()
     return progress.trainer if progress else None
+
+
+def best_exam_score(employee):
+    from cls_sync.models import ExamResult
+
+    best = (
+        ExamResult.objects.filter(employee=employee, score__isnull=False)
+        .order_by('-score')
+        .first()
+    )
+    return float(best.score) if best else 0
+
+
+def compute_final_result(employee):
+    """Ket qua thu viec (cot T). Port ProbationService.gs::computeFinalResult, phan theo
+    Operation_Unit/Job_Position dung y ban goc. Don gian hoa 2 diem (theo quyet dinh khi lam
+    ĐỢT 2 - "cong thuc thu viec"): 'eligible' (du DK thi) dung lms_done() thay vi diem khoa
+    'Hoi nhap' rieng; 'theory' dung diem thi cao nhat cua NV (khong tach lan 1/lan 2-3)."""
+    from .models import Employee
+
+    if employee.employee_status == Employee.EmployeeStatus.RESIGNED:
+        return 'Đã nghỉ việc'
+
+    position = (employee.position or '').lower()
+    unit = employee.operation_unit
+    eligible = lms_done(employee)
+
+    if unit == Employee.OperationUnit.PRODUCTION:
+        return 'Pass thử việc'
+
+    if unit == Employee.OperationUnit.OFFICE:
+        return 'Pass thử việc' if (eligible and employee.office_result == 'Đạt') else 'Tiếp tục thử việc'
+
+    is_bep_truong_pho = 'bếp trưởng' in position or 'bếp phó' in position
+    is_quan_ly_giam_sat = 'quản lý' in position or 'giám sát' in position
+
+    if is_bep_truong_pho:
+        ok = eligible and exam_pass(employee) and employee.skill_result == 'Đạt' and employee.shift_ops == 'Đạt'
+        return 'Pass thử việc' if ok else 'Tiếp tục thử việc'
+
+    if is_quan_ly_giam_sat:
+        ok = eligible and exam_pass(employee) and employee.shift_ops == 'Đạt'
+        return 'Pass thử việc' if ok else 'Tiếp tục thử việc'
+
+    # Nhan vien thuong (cap S)
+    if not eligible:
+        return 'Tiếp tục thử việc'
+    theory = best_exam_score(employee)
+    skill_percent = float(employee.skill_score) * 100 if employee.skill_score is not None else 0
+    weighted = theory * 0.4 + skill_percent * 0.6
+    if employee.start_date and employee.start_date < FINAL_RESULT_CUTOFF_DATE:
+        return 'Pass thử việc' if weighted >= 80 else 'Tiếp tục thử việc'
+    return 'Pass thử việc' if (weighted >= 80 and exam_pass(employee)) else 'Tiếp tục thử việc'
+
+
+def recompute_final_result(employee):
+    employee.final_result = compute_final_result(employee)
+    employee.save(update_fields=['final_result'])
+    return employee.final_result
+
+
+def change_employee_status(employee, new_status):
+    """Doi trang thai lam viec cua nhan su + tinh lai ket qua thu viec. Port
+    EmployeeService.gs::changeStatus (khong co state-machine kiem tra chuyen trang thai,
+    giong ban goc)."""
+    employee.employee_status = new_status
+    employee.save(update_fields=['employee_status'])
+    return recompute_final_result(employee)
 
 
 def probation_conditions(employee):

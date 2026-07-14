@@ -9,6 +9,7 @@ from .models import Employee
 class EmployeeSerializer(serializers.ModelSerializer):
     restaurant_name = serializers.CharField(source='restaurant.name', read_only=True, default='')
     trainer_name = serializers.CharField(source='trainer.full_name', read_only=True, default='')
+    progress_percent = serializers.SerializerMethodField()
 
     class Meta:
         model = Employee
@@ -16,8 +17,13 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'id', 'code', 'name', 'position', 'operation_unit', 'job_level', 'level_group',
             'start_date', 'restaurant', 'restaurant_name', 'employee_status', 'probation_days',
             'skill_score', 'skill_result', 'shift_ops', 'office_result', 'final_result',
-            'trainer', 'trainer_name', 'commission_status', 'retrain_deadline',
+            'trainer', 'trainer_name', 'commission_status', 'retrain_deadline', 'progress_percent',
         ]
+
+    def get_progress_percent(self, obj):
+        from .services import checklist_progress_percent
+
+        return checklist_progress_percent(obj)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

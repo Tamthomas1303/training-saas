@@ -1,11 +1,13 @@
 import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import { AuthProvider } from './auth/AuthContext'
+import { AuthProvider, useAuth } from './auth/AuthContext'
 import ProtectedRoute from './auth/ProtectedRoute'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
+import HomePage from './pages/HomePage'
 import RestaurantsPage from './pages/RestaurantsPage'
 import EmployeesPage from './pages/EmployeesPage'
+import StudentDetailPage from './pages/StudentDetailPage'
 import ChecklistPage from './pages/ChecklistPage'
 import TrainingPage from './pages/TrainingPage'
 import EvaluationPage from './pages/EvaluationPage'
@@ -13,7 +15,13 @@ import KpiPage from './pages/KpiPage'
 import CommissionPage from './pages/CommissionPage'
 import KpiDashboardPage from './pages/KpiDashboardPage'
 import api from './api/client'
+import { isMobileRole } from './config/menu'
 import { flushQueue, initOfflineSync } from './utils/offlineQueue'
+
+function HomeRouter() {
+  const { user } = useAuth()
+  return isMobileRole(user.role) ? <HomePage /> : <DashboardPage />
+}
 
 function App() {
   useEffect(() => {
@@ -30,7 +38,7 @@ function App() {
             path="/"
             element={
               <ProtectedRoute>
-                <DashboardPage />
+                <HomeRouter />
               </ProtectedRoute>
             }
           />
@@ -47,6 +55,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <EmployeesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/employees/:id"
+            element={
+              <ProtectedRoute>
+                <StudentDetailPage />
               </ProtectedRoute>
             }
           />

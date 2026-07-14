@@ -1,8 +1,10 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import AppShell from '../components/AppShell'
 import Badge from '../components/Badge'
 import FilterBar from '../components/FilterBar'
 import Pager from '../components/Pager'
+import ProgressBar from '../components/ProgressBar'
 import Table from '../components/Table'
 import { usePaginatedList } from '../hooks/usePaginatedList'
 import * as s from './listPageStyles'
@@ -88,7 +90,9 @@ export default function EmployeesPage() {
                 <th>Vị trí</th>
                 <th>Ngày vào</th>
                 <th>Trạng thái</th>
+                <th>Tiến độ</th>
                 <th>Kết quả TV</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -104,12 +108,23 @@ export default function EmployeesPage() {
                       {STATUS_LABELS[e.employee_status] || e.employee_status}
                     </Badge>
                   </td>
+                  <td style={{ minWidth: 100 }}>
+                    <ProgressBar percent={e.progress_percent} />
+                    <div className="muted-note" style={{ fontSize: 12 }}>
+                      {e.progress_percent}%
+                    </div>
+                  </td>
                   <td>{e.final_result}</td>
+                  <td>
+                    <Link to={`/employees/${e.id}`}>
+                      <button className="btn-outline btn-sm">Chi tiết</button>
+                    </Link>
+                  </td>
                 </tr>
               ))}
               {data.results.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="muted-note">
+                  <td colSpan={9} className="muted-note">
                     Không có dữ liệu.
                   </td>
                 </tr>

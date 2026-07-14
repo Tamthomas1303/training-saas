@@ -5,7 +5,7 @@ from django.utils import timezone
 from checklist.storage import StorageError, is_data_url, upload_data_url, upload_pdf_bytes
 from employees.models import Employee
 from employees.permissions import can_evaluate
-from employees.services import matching_checklist_items, normalize_key
+from employees.services import matching_checklist_items, normalize_key, recompute_final_result
 
 from .models import Evaluation, EvaluationCriteria, EvaluationDetail
 from .pdf import build_evaluation_pdf
@@ -244,6 +244,7 @@ def save_evaluation(user, payload):
             employee.skill_score = percent / 100
             employee.skill_result = 'Đạt' if result == Evaluation.Result.PASS else 'Không đạt'
             employee.save(update_fields=['skill_score', 'skill_result'])
+            recompute_final_result(employee)
 
         eval_type_label = dict(Evaluation._meta.get_field('eval_type').choices).get(eval_type, eval_type)
         pdf_bytes = build_evaluation_pdf({
@@ -396,6 +397,7 @@ def finalize_council(employee):
     employee.skill_result = 'Đạt' if tay_nghe >= SKILL_PASS_THRESHOLD else 'Không đạt'
     employee.shift_ops = 'Đạt' if van_hanh >= SKILL_PASS_THRESHOLD else 'Không đạt'
     employee.save(update_fields=['skill_score', 'skill_result', 'shift_ops'])
+    recompute_final_result(employee)
 
     return {
         'tay_nghe': tay_nghe, 'van_hanh': van_hanh,

@@ -3,6 +3,7 @@
 // Users rieng nen tam khong dua vao menu - se bo sung o dot sau).
 export const MENU_ITEMS = {
   home: { label: 'Trang chủ', icon: '🏠', path: '/' },
+  dashboard: { label: 'Dashboard', icon: '📊', path: '/' },
   restaurants: { label: 'Nhà hàng', icon: '🏬', path: '/restaurants' },
   students: { label: 'Nhân sự', icon: '👥', path: '/employees' },
   checklist: { label: 'Checklist', icon: '📋', path: '/checklist' },
@@ -17,9 +18,9 @@ export const MENU_ITEMS = {
 const MOBILE_ROLES = new Set(['trainer', 'bql', 'am', 'kcs'])
 
 const ROLE_MENU = {
-  admin: ['home', 'students', 'restaurants', 'checklist', 'kpi', 'kpiDashboard', 'commission'],
-  om: ['home', 'students', 'restaurants', 'checklist', 'kpi', 'kpiDashboard', 'commission'],
-  bod: ['home', 'students', 'restaurants', 'checklist', 'kpi', 'kpiDashboard', 'commission'],
+  admin: ['dashboard', 'students', 'restaurants', 'checklist', 'kpi', 'kpiDashboard', 'commission'],
+  om: ['dashboard', 'students', 'restaurants', 'checklist', 'kpi', 'kpiDashboard', 'commission'],
+  bod: ['dashboard', 'students', 'restaurants', 'checklist', 'kpi', 'kpiDashboard', 'commission'],
   am: ['home', 'evaluation', 'kpi'],
   kcs: ['home', 'evaluation', 'kpi'],
   bql: ['home', 'training', 'evaluation', 'kpi'],
