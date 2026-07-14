@@ -11,6 +11,7 @@ django-filter==26.1
 djangorestframework==3.17.1
 djangorestframework_simplejwt==5.5.1
 fonttools==4.63.0
+gunicorn==23.0.0
 idna==3.18
 pillow==12.3.0
 psycopg2-binary==2.9.12
@@ -27,4 +28,5 @@ tinyhtml5==2.1.0
 tzdata==2026.2
 urllib3==2.7.0
 webencodings==0.5.1
+whitenoise==6.11.0
 zopfli==0.4.3
