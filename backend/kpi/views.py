@@ -1,6 +1,5 @@
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -39,7 +38,6 @@ class KpiTopicsView(APIView):
     """GET /api/kpi/topics/ — danh muc chu de dao tao chuan (tu Document), dung cho datalist.
     Port KPIService.gs::topics (DB_Document)."""
 
-    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         docs = Document.objects.filter(tenant=request.user.tenant).order_by('name')
@@ -62,7 +60,6 @@ class KpiSessionViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class KpiSessionSaveView(APIView):
-    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         try:
@@ -73,14 +70,12 @@ class KpiSessionSaveView(APIView):
 
 
 class KpiStatsView(APIView):
-    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         return Response(kpi_stats(request.user))
 
 
 class CommissionListView(APIView):
-    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         qs = commission_queryset_for_user(request.user).order_by('-updated_at')
@@ -94,7 +89,6 @@ class CommissionListView(APIView):
 
 
 class CommissionMarkPaidView(APIView):
-    permission_classes = [IsAuthenticated]
 
     def post(self, request, pk):
         if (request.user.role or '').lower() != 'admin':
@@ -105,7 +99,6 @@ class CommissionMarkPaidView(APIView):
 
 
 class CommissionRecomputeAllView(APIView):
-    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         if (request.user.role or '').lower() != 'admin':
@@ -117,7 +110,6 @@ class CommissionRecomputeAllView(APIView):
 class KpiReportDataView(APIView):
     """GET /api/kpi/report/?month=&year= — so lieu 'Bao cao KPI BQL' theo thang, chi Admin/OM."""
 
-    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         if (request.user.role or '').lower() not in REPORT_ROLES:
@@ -129,7 +121,6 @@ class KpiReportDataView(APIView):
 class KpiReportExportView(APIView):
     """POST /api/kpi/report/export/?month=&year= — xuat PDF 'Bao cao KPI BQL', chi Admin/OM."""
 
-    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         if (request.user.role or '').lower() not in REPORT_ROLES:
@@ -142,7 +133,6 @@ class KpiReportExportView(APIView):
 class AllowanceDataView(APIView):
     """GET /api/kpi/allowance/?month=&year= — danh sach phu cap trainer, chi Admin/OM."""
 
-    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         if (request.user.role or '').lower() not in REPORT_ROLES:
@@ -155,7 +145,6 @@ class AllowanceExportView(APIView):
     """POST /api/kpi/allowance/export/?month=&year= — xuat PDF 'Phieu phu cap trainer', chi
     Admin/OM."""
 
-    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         if (request.user.role or '').lower() not in REPORT_ROLES:

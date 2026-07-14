@@ -6,7 +6,7 @@ export default function TopBar({ menu, user, onLogout }) {
   return (
     <header className="topbar">
       <div className="topbar-inner">
-        <div className="topbar-brand">Training SaaS</div>
+        <div className="topbar-brand">Training System Manager</div>
         <nav className="topbar-nav">
           {menu.map((item) => (
             <Link

@@ -1,6 +1,5 @@
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -32,7 +31,6 @@ class DashboardStatsView(APIView):
     OM/BOD). Port Api.gs::api_dashboardStats. Khong gioi han role - moi role deu xem duoc
     (BOD chi xem, khong co thao tac ghi nao trong payload nay)."""
 
-    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         return Response(dashboard_payload(request.user))
@@ -42,7 +40,6 @@ class HomeStatsView(APIView):
     """GET /api/employees/home/ — so lieu ca nhan cho man Home (Trainer/BQL/AM/KCS). Port
     TrainingService.gs::listTrainees."""
 
-    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         return Response(home_payload(request.user))
@@ -52,7 +49,6 @@ class StudentDetailView(APIView):
     """GET /api/employees/<id>/detail/ — chi tiet hoc vien (thong tin + tien do + checklist +
     LMS + danh gia + hoi dong). Port EmployeeService.gs::getStudentDetail."""
 
-    permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
         employee = get_object_or_404(Employee, pk=pk, tenant=request.user.tenant)
@@ -63,7 +59,6 @@ class StudentChangeStatusView(APIView):
     """POST /api/employees/<id>/change-status/ — panel Quan tri nhan su, chi Admin/BQL. Port
     EmployeeService.gs::changeStatus (khong co state-machine, nhan bat ky gia tri hop le nao)."""
 
-    permission_classes = [IsAuthenticated]
 
     def post(self, request, pk):
         if (request.user.role or '').lower() not in STUDENT_ADMIN_ROLES:
@@ -81,7 +76,6 @@ class StudentExportProbationResultView(APIView):
     chi Admin/BQL va chi khi final_result la 'Pass thu viec' (enforce server-side, chat hon
     ban goc vi ban goc chi an nut o client)."""
 
-    permission_classes = [IsAuthenticated]
 
     def post(self, request, pk):
         if (request.user.role or '').lower() not in STUDENT_ADMIN_ROLES:

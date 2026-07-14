@@ -1,6 +1,5 @@
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -50,7 +49,6 @@ class EmployeeChecklistView(APIView):
     ghep voi TrainingProgress hien co (neu co). Khoa loc giong het EmployeeService.gs::_checklistFor
     trong ban Apps Script cu (chi Brand + Position, khong dung Level_Group)."""
 
-    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         employee_id = request.query_params.get('employee')
@@ -88,7 +86,6 @@ class TrainingProgressSaveView(APIView):
     hang doi offline SyncDraftsView).
     """
 
-    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         try:

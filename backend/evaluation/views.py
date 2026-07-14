@@ -1,5 +1,4 @@
 from django.shortcuts import get_object_or_404
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -27,7 +26,6 @@ class EvaluationCriteriaView(APIView):
     """GET /api/evaluation/criteria/?employee=<id>&eval_type=<type> — bo tieu chi (hoac fallback
     suy tu checklist), kem tinh trang du dieu kien (tien do dao tao, da qua BQL hay chua)."""
 
-    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         employee_id = request.query_params.get('employee')
@@ -57,7 +55,6 @@ class EvaluationDraftView(APIView):
     """GET /api/evaluation/draft/?employee=<id>&eval_type=<type> — ban nhap dang do (neu co)
     cua chinh nguoi dang danh nhap, de resume."""
 
-    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         employee_id = request.query_params.get('employee')
@@ -81,7 +78,6 @@ class EvaluationDraftView(APIView):
 
 
 class EvaluationSaveView(APIView):
-    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         try:
@@ -92,7 +88,6 @@ class EvaluationSaveView(APIView):
 
 
 class CouncilSummaryView(APIView):
-    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         employee_id = request.query_params.get('employee')
@@ -103,7 +98,6 @@ class CouncilSummaryView(APIView):
 
 
 class CouncilSaveView(APIView):
-    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         try:
@@ -114,7 +108,6 @@ class CouncilSaveView(APIView):
 
 
 class CouncilFinalizeView(APIView):
-    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         employee_id = request.data.get('employee')

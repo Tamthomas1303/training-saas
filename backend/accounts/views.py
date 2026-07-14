@@ -1,6 +1,5 @@
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
@@ -18,7 +17,6 @@ class LoginView(TokenObtainPairView):
 
 
 class MeView(APIView):
-    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         return Response(UserSerializer(request.user).data)
@@ -47,7 +45,6 @@ class UserAreasView(APIView):
     """GET/POST /api/auth/users/<id>/areas/ — "Phan vung" cho KCS (nhieu nha hang). Port
     UserService.gs::getUserAreas/setUserAreas."""
 
-    permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
         if (request.user.role or '').lower() != 'admin':
@@ -75,7 +72,6 @@ class SyncDraftsView(APIView):
     client_uuid}, ...]. Tra ve [{client_uuid, ok, message?}, ...] de client biet muc nao da dong
     bo xong (xoa khoi hang doi) va muc nao con loi (giu lai)."""
 
-    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         from checklist.services import ValidationError as ChecklistValidationError

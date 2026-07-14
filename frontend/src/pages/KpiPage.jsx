@@ -378,6 +378,7 @@ function KpiReportSection() {
 
 export default function KpiPage() {
   const { user } = useAuth()
+  const isBod = (user.role || '').toLowerCase() === 'bod'
   const [restaurantFilter, setRestaurantFilter] = useState('')
   const [page, setPage] = useState(1)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -396,7 +397,7 @@ export default function KpiPage() {
 
       {REPORT_ROLES.has((user.role || '').toLowerCase()) && <KpiReportSection />}
 
-      {restaurantOptions.results.length > 0 && (
+      {!isBod && restaurantOptions.results.length > 0 && (
         <KpiSessionForm
           restaurants={restaurantOptions.results}
           defaultRestaurantId={user?.restaurant || null}

@@ -36,6 +36,7 @@ export default function StudentDetailPage() {
   const [saving, setSaving] = useState(false)
 
   const role = (user.role || '').toLowerCase()
+  const isBod = role === 'bod'
   const isAdminPanel = ADMIN_ROLES.has(role)
   const canFinalizeCouncil = COUNCIL_FINALIZE_ROLES.has(role)
 
@@ -209,7 +210,7 @@ export default function StudentDetailPage() {
                         Xem
                       </a>
                     ) : (
-                      <Link to="/training">Đào tạo</Link>
+                      !isBod && <Link to="/training">Đào tạo</Link>
                     )}
                   </td>
                 </tr>
@@ -307,16 +308,18 @@ export default function StudentDetailPage() {
                   </div>
                 ))}
               </div>
-              <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-                <Link to="/evaluation">
-                  <button className="btn-outline btn-sm">Chấm điểm</button>
-                </Link>
-                {canFinalizeCouncil && (
-                  <button className="btn-sm" onClick={finalizeCouncil} disabled={saving || council.judge_count < 2}>
-                    Chốt hội đồng
-                  </button>
-                )}
-              </div>
+              {!isBod && (
+                <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+                  <Link to="/evaluation">
+                    <button className="btn-outline btn-sm">Chấm điểm</button>
+                  </Link>
+                  {canFinalizeCouncil && (
+                    <button className="btn-sm" onClick={finalizeCouncil} disabled={saving || council.judge_count < 2}>
+                      Chốt hội đồng
+                    </button>
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>

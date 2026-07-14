@@ -1,4 +1,16 @@
-from rest_framework.permissions import BasePermission
+from rest_framework.permissions import SAFE_METHODS, BasePermission
+
+
+class BodReadOnly(BasePermission):
+    """BOD (Ban Giam doc) chi xem - chan moi thao tac ghi (POST/PUT/PATCH/DELETE) tren toan
+    bo API. Ap dung toan cuc qua DEFAULT_PERMISSION_CLASSES de dam bao "moi man" deu bi
+    chan, khong can sua tung view rieng le - dung tinh than muc 6 ban thiet ke ("BOD read-only:
+    o moi man, khi vai tro la BOD thi an toan bo nut thao tac/xuat/chot")."""
+
+    def has_permission(self, request, view):
+        if request.method in SAFE_METHODS:
+            return True
+        return (getattr(request.user, 'role', '') or '').lower() != 'bod'
 
 
 class IsSameTenant(BasePermission):

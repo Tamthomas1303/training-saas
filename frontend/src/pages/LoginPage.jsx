@@ -28,8 +28,11 @@ export default function LoginPage() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <div className="login-logo">TS</div>
-        <h2 style={{ textAlign: 'center', marginTop: 0 }}>Đăng nhập</h2>
+        <div className="login-logo">TSM</div>
+        <h2 style={{ textAlign: 'center', margin: '0 0 4px' }}>Training System Manager</h2>
+        <p className="muted-note" style={{ textAlign: 'center', marginTop: 0, marginBottom: 16 }}>
+          Đăng nhập
+        </p>
         <form onSubmit={handleSubmit}>
           <div style={{ marginBottom: 14 }}>
             <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>
