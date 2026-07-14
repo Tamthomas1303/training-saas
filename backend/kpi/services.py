@@ -1,3 +1,4 @@
+import datetime
 from collections import defaultdict
 
 from django.conf import settings
@@ -5,13 +6,14 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date
 
 from checklist.storage import StorageError, is_data_url, upload_data_url, upload_pdf_bytes
+from employees.dashboard import _completion_date, _is_pass, scoped_employees
 from employees.models import Employee
 from employees.permissions import can_access_restaurant, get_restaurant_scope
 from employees.services import probation_conditions, trainer_of
 from restaurants.models import Restaurant
 
 from .models import Commission, KpiParticipant, KpiSession
-from .pdf import build_kpi_session_pdf
+from .pdf import build_allowance_pdf, build_kpi_report_pdf, build_kpi_session_pdf
 
 
 class ValidationError(Exception):
@@ -249,3 +251,115 @@ def mark_commission_paid(commission):
     commission.status = Commission.Status.PAID
     commission.save(update_fields=['status', 'updated_at'])
     return commission
+
+
+def _kpi_tier_days(position):
+    """Han "dung lo trinh" theo vi tri. Port KpiReportService.gs::TIER (S=15, O2=30, O3=60)."""
+    p = (position or '').lower()
+    if 'giám sát' in p or 'bếp phó' in p:
+        return 30
+    if 'quản lý' in p or 'bếp trưởng' in p:
+        return 60
+    return 15
+
+
+def kpi_bql_report_data(user, month, year):
+    """So lieu 'Bao cao KPI BQL' theo thang: % NV moi dung lo trinh + % dat kiem tra ky nang
+    lan dau, gom theo nha hang. Port KpiReportService.gs::trainingKpiData."""
+    from evaluation.models import Evaluation
+
+    by_restaurant = {}
+
+    for e in scoped_employees(user):
+        if not e.start_date:
+            continue
+        tier = _kpi_tier_days(e.position)
+        deadline = e.start_date + datetime.timedelta(days=tier)
+        if not (deadline.month == month and deadline.year == year):
+            continue
+        rid = e.restaurant_id or 0
+        row = by_restaurant.setdefault(rid, {
+            'restaurant': e.restaurant.name if e.restaurant else 'Khác',
+            'brand': e.restaurant.brand if e.restaurant else '',
+            'on_num': 0, 'on_den': 0, 'skill_pass': 0, 'skill_total': 0,
+        })
+        row['on_den'] += 1
+        completed = _completion_date(e)
+        on_track = _is_pass(e) and completed and (completed - e.start_date).days <= tier
+        if on_track:
+            row['on_num'] += 1
+
+    scope = get_restaurant_scope(user)
+    skill_evals = Evaluation.objects.filter(
+        tenant=user.tenant, eval_type='Skill_BQL', status='done', date__month=month, date__year=year,
+    ).select_related('employee', 'employee__restaurant')
+    if not scope['all']:
+        skill_evals = skill_evals.filter(employee__restaurant_id__in=scope['restaurant_ids'])
+
+    for ev in skill_evals:
+        e = ev.employee
+        rid = e.restaurant_id or 0
+        row = by_restaurant.setdefault(rid, {
+            'restaurant': e.restaurant.name if e.restaurant else 'Khác',
+            'brand': e.restaurant.brand if e.restaurant else '',
+            'on_num': 0, 'on_den': 0, 'skill_pass': 0, 'skill_total': 0,
+        })
+        row['skill_total'] += 1
+        if ev.result == Evaluation.Result.PASS:
+            row['skill_pass'] += 1
+
+    rows = []
+    totals = {'on_num': 0, 'on_den': 0, 'skill_pass': 0, 'skill_total': 0}
+    for row in by_restaurant.values():
+        row['on_rate'] = round(row['on_num'] / row['on_den'] * 100) if row['on_den'] else 0
+        row['skill_rate'] = round(row['skill_pass'] / row['skill_total'] * 100) if row['skill_total'] else 0
+        rows.append(row)
+        for key in ('on_num', 'on_den', 'skill_pass', 'skill_total'):
+            totals[key] += row[key]
+    totals['on_rate'] = round(totals['on_num'] / totals['on_den'] * 100) if totals['on_den'] else 0
+    totals['skill_rate'] = round(totals['skill_pass'] / totals['skill_total'] * 100) if totals['skill_total'] else 0
+
+    rows.sort(key=lambda r: r['restaurant'])
+    return {'rows': rows, 'totals': totals}
+
+
+def generate_kpi_report_pdf(user, month, year):
+    data = kpi_bql_report_data(user, month, year)
+    pdf_bytes = build_kpi_report_pdf({
+        'record_no': f'KPIRPT{month}{year}/{user.tenant_id}',
+        'tenant_name': user.tenant.name,
+        'month': month, 'year': year,
+        'rows': data['rows'], 'totals': data['totals'],
+    })
+    return upload_pdf_bytes(pdf_bytes, f'baocao/{user.tenant_id}/kpi', f'BaoCaoKPI_{year}_{month}')
+
+
+def allowance_report_data(user, month, year):
+    """Danh sach hoa hong dang Du dieu kien/Da chi (hien tai, khong loc theo thang - giong
+    ban goc). month/year chi dung de dat ten phieu/hien thi tieu de. Port
+    KpiReportService.gs::allowanceData."""
+    qs = commission_queryset_for_user(user).filter(
+        status__in=[Commission.Status.ELIGIBLE, Commission.Status.PAID]
+    )
+    rows = [
+        {
+            'trainer': c.trainer.full_name if c.trainer else '',
+            'employee': c.employee.name,
+            'status': c.get_status_display(),
+            'amount': float(c.amount),
+        }
+        for c in qs
+    ]
+    total_amount = sum(r['amount'] for r in rows)
+    return {'rows': rows, 'total_amount': total_amount}
+
+
+def generate_allowance_pdf(user, month, year):
+    data = allowance_report_data(user, month, year)
+    pdf_bytes = build_allowance_pdf({
+        'record_no': f'PC{month}{year}/{user.tenant_id}',
+        'tenant_name': user.tenant.name,
+        'month': month, 'year': year,
+        'rows': data['rows'], 'total_amount': data['total_amount'],
+    })
+    return upload_pdf_bytes(pdf_bytes, f'baocao/{user.tenant_id}/phucap', f'PhuCapTrainer_{year}_{month}')

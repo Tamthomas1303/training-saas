@@ -11,13 +11,28 @@ from .models import Commission
 from .serializers import CommissionSerializer, KpiSessionSerializer, KpiTopicSerializer
 from .services import (
     ValidationError,
+    allowance_report_data,
     commission_queryset_for_user,
+    generate_allowance_pdf,
+    generate_kpi_report_pdf,
+    kpi_bql_report_data,
     kpi_queryset_for_user,
     kpi_stats,
     mark_commission_paid,
     recompute_all_commissions,
     save_kpi_session,
 )
+
+REPORT_ROLES = {'admin', 'om'}
+
+
+def _parse_month_year(request):
+    from django.utils import timezone
+
+    now = timezone.now()
+    month = int(request.query_params.get('month') or now.month)
+    year = int(request.query_params.get('year') or now.year)
+    return month, year
 
 
 class KpiTopicsView(APIView):
@@ -69,6 +84,12 @@ class CommissionListView(APIView):
 
     def get(self, request):
         qs = commission_queryset_for_user(request.user).order_by('-updated_at')
+        month = request.query_params.get('month')
+        year = request.query_params.get('year')
+        if month:
+            qs = qs.filter(month=month)
+        if year:
+            qs = qs.filter(year=year)
         return Response(CommissionSerializer(qs, many=True).data)
 
 
@@ -91,3 +112,54 @@ class CommissionRecomputeAllView(APIView):
             return Response({'detail': 'Chỉ Admin được tính lại toàn bộ hoa hồng.'}, status=403)
         processed = recompute_all_commissions(request.user.tenant)
         return Response({'processed': processed})
+
+
+class KpiReportDataView(APIView):
+    """GET /api/kpi/report/?month=&year= — so lieu 'Bao cao KPI BQL' theo thang, chi Admin/OM."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if (request.user.role or '').lower() not in REPORT_ROLES:
+            return Response({'detail': 'Bạn không có quyền xem báo cáo này.'}, status=403)
+        month, year = _parse_month_year(request)
+        return Response(kpi_bql_report_data(request.user, month, year))
+
+
+class KpiReportExportView(APIView):
+    """POST /api/kpi/report/export/?month=&year= — xuat PDF 'Bao cao KPI BQL', chi Admin/OM."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if (request.user.role or '').lower() not in REPORT_ROLES:
+            return Response({'detail': 'Bạn không có quyền xuất báo cáo này.'}, status=403)
+        month, year = _parse_month_year(request)
+        pdf_url = generate_kpi_report_pdf(request.user, month, year)
+        return Response({'pdf_url': pdf_url})
+
+
+class AllowanceDataView(APIView):
+    """GET /api/kpi/allowance/?month=&year= — danh sach phu cap trainer, chi Admin/OM."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if (request.user.role or '').lower() not in REPORT_ROLES:
+            return Response({'detail': 'Bạn không có quyền xem phụ cấp trainer.'}, status=403)
+        month, year = _parse_month_year(request)
+        return Response(allowance_report_data(request.user, month, year))
+
+
+class AllowanceExportView(APIView):
+    """POST /api/kpi/allowance/export/?month=&year= — xuat PDF 'Phieu phu cap trainer', chi
+    Admin/OM."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if (request.user.role or '').lower() not in REPORT_ROLES:
+            return Response({'detail': 'Bạn không có quyền xuất phiếu phụ cấp.'}, status=403)
+        month, year = _parse_month_year(request)
+        pdf_url = generate_allowance_pdf(request.user, month, year)
+        return Response({'pdf_url': pdf_url})

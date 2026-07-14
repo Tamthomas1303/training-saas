@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import AppShell from '../components/AppShell'
 import Badge from '../components/Badge'
+import FilterBar from '../components/FilterBar'
 import StatCard from '../components/StatCard'
 import Table from '../components/Table'
 import api from '../api/client'
 import { useAuth } from '../auth/AuthContext'
+import * as s from './listPageStyles'
 
 const STATUS_LABELS = {
   waiting: 'Chờ',
@@ -30,11 +32,13 @@ export default function CommissionPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [month, setMonth] = useState('')
+  const [year, setYear] = useState('')
 
   function load() {
     setLoading(true)
     api
-      .get('/kpi/commission/')
+      .get('/kpi/commission/', { params: { month: month || undefined, year: year || undefined } })
       .then(({ data }) => setRows(data))
       .catch(() => setError('Không tải được dữ liệu phụ cấp.'))
       .finally(() => setLoading(false))
@@ -42,7 +46,7 @@ export default function CommissionPage() {
 
   useEffect(() => {
     load()
-  }, [])
+  }, [month, year])
 
   async function markPaid(id) {
     try {
@@ -77,6 +81,28 @@ export default function CommissionPage() {
       <p className="muted-note" style={{ fontSize: 13 }}>
         300.000đ/nhân sự khi đủ 5 điều kiện: LMS xong, thi ≥80%, checklist đào tạo 100%, BQL đánh
         giá kỹ năng ≥85%, làm đủ 30 ngày. AM/KCS kiểm tra random không đạt → tạm dừng (đào tạo lại).
+      </p>
+
+      <FilterBar>
+        <select style={s.select} value={month} onChange={(e) => setMonth(e.target.value)}>
+          <option value="">Tất cả tháng</option>
+          {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+            <option key={m} value={m}>
+              Tháng {m}
+            </option>
+          ))}
+        </select>
+        <select style={s.select} value={year} onChange={(e) => setYear(e.target.value)}>
+          <option value="">Tất cả năm</option>
+          {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map((y) => (
+            <option key={y} value={y}>
+              {y}
+            </option>
+          ))}
+        </select>
+      </FilterBar>
+      <p className="muted-note" style={{ fontSize: 12 }}>
+        Tháng/năm ghi lại lần tính gần nhất của mỗi nhân sự (không phải lịch sử các kỳ trước).
       </p>
 
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, marginBottom: 16 }}>
