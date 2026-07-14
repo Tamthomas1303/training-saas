@@ -14,6 +14,8 @@ import EvaluationPage from './pages/EvaluationPage'
 import KpiPage from './pages/KpiPage'
 import CommissionPage from './pages/CommissionPage'
 import KpiDashboardPage from './pages/KpiDashboardPage'
+import UsersPage from './pages/UsersPage'
+import DocumentsPage from './pages/DocumentsPage'
 import api from './api/client'
 import { isMobileRole } from './config/menu'
 import { flushQueue, initOfflineSync } from './utils/offlineQueue'
@@ -111,6 +113,22 @@ function App() {
             element={
               <ProtectedRoute>
                 <KpiDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/documents"
+            element={
+              <ProtectedRoute>
+                <DocumentsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/users"
+            element={
+              <ProtectedRoute roles={['admin']}>
+                <UsersPage />
               </ProtectedRoute>
             }
           />

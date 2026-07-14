@@ -12,19 +12,21 @@ export const MENU_ITEMS = {
   kpi: { label: 'KPI', icon: '📈', path: '/kpi' },
   kpiDashboard: { label: 'Thống kê KPI', icon: '📊', path: '/kpi-dashboard' },
   commission: { label: 'Phụ cấp', icon: '💰', path: '/commission' },
+  documents: { label: 'Tài liệu', icon: '📁', path: '/documents' },
+  users: { label: 'Người dùng', icon: '🧑‍💼', path: '/users' },
 }
 
 // Vai tro "toan he thong" -> shell desktop (topbar); con lai -> shell mobile (bottom-nav).
 const MOBILE_ROLES = new Set(['trainer', 'bql', 'am', 'kcs'])
 
 const ROLE_MENU = {
-  admin: ['dashboard', 'students', 'restaurants', 'checklist', 'kpi', 'kpiDashboard', 'commission'],
-  om: ['dashboard', 'students', 'restaurants', 'checklist', 'kpi', 'kpiDashboard', 'commission'],
-  bod: ['dashboard', 'students', 'restaurants', 'checklist', 'kpi', 'kpiDashboard', 'commission'],
-  am: ['home', 'evaluation', 'kpi'],
-  kcs: ['home', 'evaluation', 'kpi'],
-  bql: ['home', 'training', 'evaluation', 'kpi'],
-  trainer: ['home', 'training'],
+  admin: ['dashboard', 'students', 'restaurants', 'checklist', 'kpi', 'kpiDashboard', 'commission', 'documents', 'users'],
+  om: ['dashboard', 'students', 'restaurants', 'checklist', 'kpi', 'kpiDashboard', 'commission', 'documents'],
+  bod: ['dashboard', 'students', 'restaurants', 'checklist', 'kpi', 'kpiDashboard', 'commission', 'documents'],
+  am: ['home', 'evaluation', 'kpi', 'documents'],
+  kcs: ['home', 'evaluation', 'kpi', 'documents'],
+  bql: ['home', 'training', 'evaluation', 'kpi', 'documents'],
+  trainer: ['home', 'training', 'documents'],
 }
 
 export function isMobileRole(role) {

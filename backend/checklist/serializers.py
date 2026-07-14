@@ -1,6 +1,16 @@
 from rest_framework import serializers
 
-from .models import Checklist, TrainingProgress
+from .models import Checklist, Document, TrainingProgress
+
+
+class DocumentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Document
+        fields = [
+            'id', 'name', 'code', 'brand', 'position', 'category', 'version', 'status',
+            'file_url', 'uploaded_at',
+        ]
+        read_only_fields = ['id', 'uploaded_at']
 
 
 class ChecklistSerializer(serializers.ModelSerializer):

@@ -10,8 +10,8 @@ from employees.models import Employee
 from employees.serializers import EmployeeSerializer
 from employees.services import matching_checklist_items
 
-from .models import Checklist, TrainingProgress
-from .serializers import ChecklistSerializer, TrainingProgressSerializer
+from .models import Checklist, Document, TrainingProgress
+from .serializers import ChecklistSerializer, DocumentSerializer, TrainingProgressSerializer
 from .services import ValidationError, save_training_progress
 
 
@@ -23,6 +23,26 @@ class ChecklistViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
     search_fields = ['task_name', 'description']
     ordering_fields = ['order', 'day']
     ordering = ['order']
+
+
+class DocumentViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
+    """CRUD tai lieu - man 5.8. Doc: moi role dang nhap. Ghi (them/sua/xoa): chi Admin. Port
+    DocumentService.gs::upsert (requireRole Admin/Training)."""
+
+    serializer_class = DocumentSerializer
+    queryset = Document.objects.all()
+    pagination_class = DefaultPagination
+    filterset_fields = ['brand', 'position', 'status']
+    search_fields = ['name', 'code']
+    ordering_fields = ['name', 'uploaded_at']
+    ordering = ['name']
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.method not in ('GET', 'HEAD', 'OPTIONS') and (request.user.role or '').lower() != 'admin':
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied('Chỉ Admin được thêm/sửa/xóa tài liệu.')
 
 
 class EmployeeChecklistView(APIView):

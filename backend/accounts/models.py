@@ -59,3 +59,20 @@ class User(AbstractUser):
 
     def __str__(self):
         return f"{self.username} ({self.tenant_id})"
+
+
+class UserRestaurantAssignment(models.Model):
+    """"Phan vung" cho KCS - 1 KCS co the phu trach nhieu nha hang. Port DB_AreaAssignment
+    (UserService.gs::setUserAreas). Chi dung cho KCS hien tai (xem employees/permissions.py::
+    get_restaurant_scope); User.restaurant (FK don) van la scope cho BQL/Trainer nhu truoc."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='restaurant_assignments')
+    restaurant = models.ForeignKey(
+        'restaurants.Restaurant', on_delete=models.CASCADE, related_name='assigned_users'
+    )
+
+    class Meta:
+        unique_together = ('user', 'restaurant')
+
+    def __str__(self):
+        return f'{self.user_id} -> {self.restaurant_id}'

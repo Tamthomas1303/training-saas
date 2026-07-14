@@ -53,10 +53,23 @@ class TrainingProgress(models.Model):
 
 
 class Document(models.Model):
+    """Tai lieu dao tao - man 5.8. Port DB_Document (DocumentService.gs). code/brand/position/
+    version/status them o ĐỢT 2 de khop popup them/sua (brand & vi tri la select) + bo loc."""
+
+    class Status(models.TextChoices):
+        DONE = 'done', 'Hoàn thành'
+        UPDATE = 'update', 'Cần cập nhật'
+        DIGITIZE = 'digitize', 'Cần số hóa'
+
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='documents')
     name = models.CharField(max_length=255)
     file_url = models.URLField()
     category = models.CharField(max_length=100, blank=True)
+    code = models.CharField(max_length=50, blank=True)
+    brand = models.CharField(max_length=100, blank=True)
+    position = models.CharField(max_length=100, blank=True)
+    version = models.CharField(max_length=20, blank=True, default='v1.0')
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.DONE)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

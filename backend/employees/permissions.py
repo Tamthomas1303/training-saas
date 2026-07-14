@@ -57,14 +57,19 @@ ROLES_GLOBAL = {'admin', 'om', 'bod', 'am'}
 def get_restaurant_scope(user):
     """Pham vi nha hang user duoc thao tac. Port AuthService.gs::getScope.
 
-    Admin/OM/BOD/AM: toan he thong. KCS/BQL/Trainer: dung 1 nha hang gan tren User.restaurant
-    (don gian hoa so voi ban goc - ban goc co bang DB_AreaAssignment cho KCS quan ly nhieu
-    nha hang; he thong nay chi ho tro 1 nha hang/KCS). Neu chua gan nha hang (restaurant=None)
-    cho BQL/Trainer/KCS, coi nhu chua duoc cap quyen o dau ca (khong nha hang nao).
+    Admin/OM/BOD/AM: toan he thong. KCS: theo bang UserRestaurantAssignment ("phan vung",
+    port DB_AreaAssignment - co the phu trach nhieu nha hang), fallback ve User.restaurant
+    neu chua duoc "phan vung" lan nao. BQL/Trainer: dung 1 nha hang gan tren User.restaurant.
+    Neu chua gan nha hang nao, coi nhu chua duoc cap quyen o dau ca.
     """
     role = (user.role or '').lower()
     if role in ROLES_GLOBAL:
         return {'all': True, 'restaurant_ids': []}
+    if role == 'kcs':
+        ids = list(user.restaurant_assignments.values_list('restaurant_id', flat=True))
+        if not ids and user.restaurant_id:
+            ids = [user.restaurant_id]
+        return {'all': False, 'restaurant_ids': ids}
     return {'all': False, 'restaurant_ids': [user.restaurant_id] if user.restaurant_id else []}
 
 

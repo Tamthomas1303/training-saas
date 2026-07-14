@@ -1,9 +1,10 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
-from .views import ChecklistViewSet, EmployeeChecklistView, TrainingProgressSaveView
+from .views import ChecklistViewSet, DocumentViewSet, EmployeeChecklistView, TrainingProgressSaveView
 
 router = DefaultRouter()
+router.register('documents', DocumentViewSet, basename='document')
 router.register('', ChecklistViewSet, basename='checklist')
 
 urlpatterns = [

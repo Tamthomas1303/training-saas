@@ -18,5 +18,5 @@ class TrainingProgressAdmin(admin.ModelAdmin):
 
 @admin.register(Document)
 class DocumentAdmin(admin.ModelAdmin):
-    list_display = ('name', 'category', 'tenant', 'uploaded_at')
-    list_filter = ('tenant', 'category')
+    list_display = ('name', 'brand', 'position', 'status', 'tenant', 'uploaded_at')
+    list_filter = ('tenant', 'brand', 'position', 'status')

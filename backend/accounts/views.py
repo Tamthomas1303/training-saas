@@ -1,9 +1,16 @@
+from django.shortcuts import get_object_or_404
+from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from .serializers import TenantAwareTokenObtainPairSerializer, UserSerializer
+from accounts.mixins import TenantScopedViewSetMixin
+from accounts.pagination import DefaultPagination
+from restaurants.models import Restaurant
+
+from .models import User, UserRestaurantAssignment
+from .serializers import TenantAwareTokenObtainPairSerializer, UserAdminSerializer, UserSerializer
 
 
 class LoginView(TokenObtainPairView):
@@ -15,6 +22,51 @@ class MeView(APIView):
 
     def get(self, request):
         return Response(UserSerializer(request.user).data)
+
+
+class UserViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
+    """CRUD nguoi dung - man 5.9, chi Admin. Port UserService.gs::upsertUser/listUsers."""
+
+    serializer_class = UserAdminSerializer
+    queryset = User.objects.select_related('restaurant').all()
+    pagination_class = DefaultPagination
+    filterset_fields = ['role', 'status', 'restaurant']
+    search_fields = ['username', 'full_name']
+    ordering_fields = ['username', 'full_name']
+    ordering = ['username']
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.method != 'OPTIONS' and (request.user.role or '').lower() != 'admin':
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied('Chỉ Admin được quản trị người dùng.')
+
+
+class UserAreasView(APIView):
+    """GET/POST /api/auth/users/<id>/areas/ — "Phan vung" cho KCS (nhieu nha hang). Port
+    UserService.gs::getUserAreas/setUserAreas."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        if (request.user.role or '').lower() != 'admin':
+            return Response({'detail': 'Chỉ Admin được xem phân vùng.'}, status=403)
+        user = get_object_or_404(User, pk=pk, tenant=request.user.tenant)
+        ids = list(user.restaurant_assignments.values_list('restaurant_id', flat=True))
+        return Response({'restaurant_ids': ids})
+
+    def post(self, request, pk):
+        if (request.user.role or '').lower() != 'admin':
+            return Response({'detail': 'Chỉ Admin được gán phân vùng.'}, status=403)
+        user = get_object_or_404(User, pk=pk, tenant=request.user.tenant)
+        restaurant_ids = request.data.get('restaurant_ids') or []
+        restaurants = Restaurant.objects.filter(tenant=request.user.tenant, id__in=restaurant_ids)
+        UserRestaurantAssignment.objects.filter(user=user).delete()
+        UserRestaurantAssignment.objects.bulk_create([
+            UserRestaurantAssignment(user=user, restaurant=r) for r in restaurants
+        ])
+        return Response({'restaurant_ids': [r.id for r in restaurants]})
 
 
 class SyncDraftsView(APIView):
