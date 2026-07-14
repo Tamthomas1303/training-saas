@@ -1,8 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
-import NavBar from '../components/NavBar'
-import Pager from '../components/Pager'
-import SignaturePad from '../components/SignaturePad'
+import { useRef, useState } from 'react'
+import AppShell from '../components/AppShell'
+import Badge from '../components/Badge'
 import CouncilForm from '../components/CouncilForm'
+import FilterBar from '../components/FilterBar'
+import Pager from '../components/Pager'
+import ProgressBar from '../components/ProgressBar'
+import SignaturePad from '../components/SignaturePad'
+import Table from '../components/Table'
 import api from '../api/client'
 import { usePaginatedList } from '../hooks/usePaginatedList'
 import { submitGuarded } from '../utils/offlineQueue'
@@ -38,14 +42,14 @@ function EvalPhotoButton({ value, onChange }) {
         style={{
           width: 48,
           height: 38,
-          border: '1px dashed #cfd6d3',
+          border: '1px dashed var(--card-border)',
           borderRadius: 6,
           cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           overflow: 'hidden',
-          background: '#fafafa',
+          background: 'var(--page-bg)',
           margin: '0 auto',
         }}
       >
@@ -198,13 +202,12 @@ export default function EvaluationPage() {
   }
 
   return (
-    <div style={s.page}>
-      <NavBar />
+    <AppShell>
       <h2>Đánh giá kỹ năng</h2>
 
       {!selectedEmployee && (
         <>
-          <div style={s.toolbar}>
+          <FilterBar>
             <input
               style={s.input}
               placeholder="Tìm nhân sự theo mã / tên để đánh giá..."
@@ -214,31 +217,33 @@ export default function EvaluationPage() {
                 setPage(1)
               }}
             />
-          </div>
-          <table style={s.table}>
+          </FilterBar>
+          <Table>
             <thead>
               <tr>
-                <th style={s.th}>Mã NV</th>
-                <th style={s.th}>Họ tên</th>
-                <th style={s.th}>Nhà hàng</th>
-                <th style={s.th}>Vị trí</th>
-                <th style={s.th}></th>
+                <th>Mã NV</th>
+                <th>Họ tên</th>
+                <th>Nhà hàng</th>
+                <th>Vị trí</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {employeeOptions.results.map((emp) => (
                 <tr key={emp.id}>
-                  <td style={s.td}>{emp.code}</td>
-                  <td style={s.td}>{emp.name}</td>
-                  <td style={s.td}>{emp.restaurant_name}</td>
-                  <td style={s.td}>{emp.position}</td>
-                  <td style={s.td}>
-                    <button onClick={() => selectEmployee(emp)}>Chọn</button>
+                  <td>{emp.code}</td>
+                  <td>{emp.name}</td>
+                  <td>{emp.restaurant_name}</td>
+                  <td>{emp.position}</td>
+                  <td>
+                    <button className="btn-outline btn-sm" onClick={() => selectEmployee(emp)}>
+                      Chọn
+                    </button>
                   </td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </Table>
           <Pager page={page} pageSize={PAGE_SIZE} count={employeeOptions.count} onChange={setPage} />
         </>
       )}
@@ -246,35 +251,37 @@ export default function EvaluationPage() {
       {selectedEmployee && (
         <>
           <p>
-            <button onClick={backToPicker}>« Chọn nhân sự khác</button>
+            <button className="btn-outline btn-sm" onClick={backToPicker}>
+              « Chọn nhân sự khác
+            </button>
           </p>
           <h3>
             {selectedEmployee.name} — {selectedEmployee.position} — {selectedEmployee.restaurant_name}
           </h3>
 
-          <div style={s.toolbar}>
+          <FilterBar>
             {EVAL_TYPE_OPTIONS.map((opt) => (
               <button
                 key={opt.value}
+                className={evalType === opt.value ? '' : 'btn-outline'}
                 onClick={() => changeEvalType(opt.value)}
-                style={{ fontWeight: evalType === opt.value ? 'bold' : 'normal' }}
               >
                 {opt.label}
               </button>
             ))}
-          </div>
+          </FilterBar>
 
-          {loading && <p>Đang tải...</p>}
-          {loadError && <p style={{ color: 'red' }}>{loadError}</p>}
+          {loading && <p className="muted-note">Đang tải...</p>}
+          {loadError && <p style={{ color: 'var(--danger)' }}>{loadError}</p>}
 
           {criteriaData && !loading && (
             <>
               {criteriaData.source === 'fallback_checklist' && (
-                <p style={{ color: '#92400e', fontSize: 13 }}>
+                <p style={{ color: 'var(--amber)', fontSize: 13 }}>
                   * Tiêu chí tạm suy từ checklist (chưa nhập bộ tiêu chí đánh giá riêng).
                 </p>
               )}
-              <p style={{ fontSize: 13, color: '#666' }}>
+              <p className="muted-note" style={{ fontSize: 13 }}>
                 Tiến độ đào tạo: {criteriaData.training_progress_percent}%
                 {evalType === 'AM_KCS' && (
                   <> · Đã qua BQL đánh giá: {criteriaData.has_bql_evaluation ? 'Có' : 'Chưa'}</>
@@ -282,43 +289,34 @@ export default function EvaluationPage() {
               </p>
 
               {evalType === 'AM_KCS' && !criteriaData.has_bql_evaluation ? (
-                <p style={{ color: 'red' }}>
+                <p style={{ color: 'var(--danger)' }}>
                   Nhân sự này chưa được BQL đánh giá kỹ năng, chưa thể kiểm tra random.
                 </p>
               ) : (
                 <>
-                  <table style={s.table}>
+                  <Table>
                     <thead>
                       <tr>
-                        <th style={s.th}>Nội dung</th>
-                        <th style={s.th}>Điểm tối đa</th>
-                        <th style={s.th}>Chấm điểm</th>
-                        <th style={s.th}>Ảnh KN</th>
-                        <th style={s.th}>Ghi chú</th>
+                        <th>Nội dung</th>
+                        <th>Điểm tối đa</th>
+                        <th>Chấm điểm</th>
+                        <th>Ảnh KN</th>
+                        <th>Ghi chú</th>
                       </tr>
                     </thead>
                     <tbody>
                       {items.map((c) => (
                         <tr key={c.criteria_id}>
-                          <td style={s.td}>
+                          <td>
                             {c.content}
                             {c.is_mandatory && (
-                              <span
-                                style={{
-                                  marginLeft: 6,
-                                  fontSize: 11,
-                                  color: '#c0392b',
-                                  background: '#fde8e8',
-                                  padding: '2px 6px',
-                                  borderRadius: 10,
-                                }}
-                              >
-                                Bắt buộc
+                              <span style={{ marginLeft: 6 }}>
+                                <Badge variant="danger">Bắt buộc</Badge>
                               </span>
                             )}
                           </td>
-                          <td style={{ ...s.td, textAlign: 'center' }}>{c.max_score}</td>
-                          <td style={{ ...s.td, textAlign: 'center' }}>
+                          <td style={{ textAlign: 'center' }}>{c.max_score}</td>
+                          <td style={{ textAlign: 'center' }}>
                             <input
                               type="number"
                               min="0"
@@ -333,16 +331,16 @@ export default function EvaluationPage() {
                               style={{ width: 70 }}
                             />
                           </td>
-                          <td style={{ ...s.td, textAlign: 'center' }}>
+                          <td style={{ textAlign: 'center' }}>
                             <EvalPhotoButton
                               value={photos[c.criteria_id]}
                               onChange={(v) => setPhotos((p) => ({ ...p, [c.criteria_id]: v }))}
                             />
                             {c.require_photo && (
-                              <div style={{ fontSize: 10, color: '#c0392b' }}>Bắt buộc</div>
+                              <div style={{ fontSize: 10, color: 'var(--danger)' }}>Bắt buộc</div>
                             )}
                           </td>
-                          <td style={s.td}>
+                          <td>
                             <input
                               type="text"
                               value={notes[c.criteria_id] || ''}
@@ -353,28 +351,26 @@ export default function EvaluationPage() {
                         </tr>
                       ))}
                     </tbody>
-                  </table>
+                  </Table>
 
-                  <div
-                    style={{
-                      display: 'flex',
-                      gap: 16,
-                      alignItems: 'center',
-                      margin: '12px 0',
-                      fontWeight: 'bold',
-                    }}
-                  >
-                    <span>Tổng: {total}/{maxTotal}</span>
-                    <span
+                  <div style={{ margin: '16px 0' }}>
+                    <div
                       style={{
-                        padding: '4px 10px',
-                        borderRadius: 12,
-                        background: pass ? '#e3f3ec' : '#fde8e8',
-                        color: pass ? '#1e7a55' : '#c0392b',
+                        display: 'flex',
+                        gap: 16,
+                        alignItems: 'center',
+                        marginBottom: 6,
+                        fontWeight: 'bold',
                       }}
                     >
-                      {pass ? 'Đạt' : 'Không đạt'} ({percent}%)
-                    </span>
+                      <span>
+                        Tổng: {total}/{maxTotal}
+                      </span>
+                      <Badge variant={pass ? 'success' : 'danger'}>
+                        {pass ? 'Đạt' : 'Không đạt'} ({percent}%)
+                      </Badge>
+                    </div>
+                    <ProgressBar percent={percent} />
                   </div>
 
                   <textarea
@@ -400,7 +396,7 @@ export default function EvaluationPage() {
                   </div>
 
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <button disabled={saving} onClick={() => submit(false)}>
+                    <button className="btn-outline" disabled={saving} onClick={() => submit(false)}>
                       Lưu nháp
                     </button>
                     <button disabled={saving} onClick={() => submit(true)}>
@@ -408,10 +404,10 @@ export default function EvaluationPage() {
                     </button>
                   </div>
 
-                  {saving && <p>Đang lưu...</p>}
-                  {saveError && <p style={{ color: 'red' }}>{saveError}</p>}
+                  {saving && <p className="muted-note">Đang lưu...</p>}
+                  {saveError && <p style={{ color: 'var(--danger)' }}>{saveError}</p>}
                   {saveMessage && (
-                    <p style={{ color: 'green' }}>
+                    <p style={{ color: 'var(--forest-dark)' }}>
                       {saveMessage}{' '}
                       {pdfUrl && (
                         <a href={pdfUrl} target="_blank" rel="noreferrer">
@@ -424,7 +420,7 @@ export default function EvaluationPage() {
               )}
 
               <p>
-                <button onClick={() => setShowCouncil((v) => !v)}>
+                <button className="btn-outline btn-sm" onClick={() => setShowCouncil((v) => !v)}>
                   {showCouncil ? 'Ẩn' : 'Hiện'} Chấm điểm hội đồng
                 </button>
               </p>
@@ -433,6 +429,6 @@ export default function EvaluationPage() {
           )}
         </>
       )}
-    </div>
+    </AppShell>
   )
 }

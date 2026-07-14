@@ -1,6 +1,9 @@
 import { useState } from 'react'
-import NavBar from '../components/NavBar'
+import AppShell from '../components/AppShell'
+import Badge from '../components/Badge'
+import FilterBar from '../components/FilterBar'
 import Pager from '../components/Pager'
+import Table from '../components/Table'
 import { usePaginatedList } from '../hooks/usePaginatedList'
 import * as s from './listPageStyles'
 
@@ -10,6 +13,12 @@ const STATUS_LABELS = {
   probation: 'Thử việc',
   active: 'Chính thức',
   resigned: 'Nghỉ việc',
+}
+
+const STATUS_VARIANTS = {
+  probation: 'warning',
+  active: 'success',
+  resigned: 'neutral',
 }
 
 export default function EmployeesPage() {
@@ -37,11 +46,10 @@ export default function EmployeesPage() {
   }
 
   return (
-    <div style={s.page}>
-      <NavBar />
+    <AppShell>
       <h2>Nhân sự</h2>
 
-      <div style={s.toolbar}>
+      <FilterBar>
         <input
           style={s.input}
           placeholder="Tìm theo mã / tên nhân viên..."
@@ -64,49 +72,53 @@ export default function EmployeesPage() {
             </option>
           ))}
         </select>
-      </div>
+      </FilterBar>
 
-      {loading && <p>Đang tải...</p>}
-      {error && <p style={{ color: 'red' }}>{error}</p>}
+      {loading && <p className="muted-note">Đang tải...</p>}
+      {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
 
       {!loading && !error && (
         <>
-          <table style={s.table}>
+          <Table>
             <thead>
               <tr>
-                <th style={s.th}>Mã NV</th>
-                <th style={s.th}>Họ tên</th>
-                <th style={s.th}>Nhà hàng</th>
-                <th style={s.th}>Vị trí</th>
-                <th style={s.th}>Ngày vào</th>
-                <th style={s.th}>Trạng thái</th>
-                <th style={s.th}>Kết quả TV</th>
+                <th>Mã NV</th>
+                <th>Họ tên</th>
+                <th>Nhà hàng</th>
+                <th>Vị trí</th>
+                <th>Ngày vào</th>
+                <th>Trạng thái</th>
+                <th>Kết quả TV</th>
               </tr>
             </thead>
             <tbody>
               {data.results.map((e) => (
                 <tr key={e.id}>
-                  <td style={s.td}>{e.code}</td>
-                  <td style={s.td}>{e.name}</td>
-                  <td style={s.td}>{e.restaurant_name}</td>
-                  <td style={s.td}>{e.position}</td>
-                  <td style={s.td}>{e.start_date}</td>
-                  <td style={s.td}>{STATUS_LABELS[e.employee_status] || e.employee_status}</td>
-                  <td style={s.td}>{e.final_result}</td>
+                  <td>{e.code}</td>
+                  <td>{e.name}</td>
+                  <td>{e.restaurant_name}</td>
+                  <td>{e.position}</td>
+                  <td>{e.start_date}</td>
+                  <td>
+                    <Badge variant={STATUS_VARIANTS[e.employee_status] || 'neutral'}>
+                      {STATUS_LABELS[e.employee_status] || e.employee_status}
+                    </Badge>
+                  </td>
+                  <td>{e.final_result}</td>
                 </tr>
               ))}
               {data.results.length === 0 && (
                 <tr>
-                  <td style={s.td} colSpan={7}>
+                  <td colSpan={7} className="muted-note">
                     Không có dữ liệu.
                   </td>
                 </tr>
               )}
             </tbody>
-          </table>
+          </Table>
           <Pager page={page} pageSize={PAGE_SIZE} count={data.count} onChange={setPage} />
         </>
       )}
-    </div>
+    </AppShell>
   )
 }

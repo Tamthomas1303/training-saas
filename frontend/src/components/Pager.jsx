@@ -5,13 +5,13 @@ export default function Pager({ page, pageSize, count, onChange }) {
 
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12 }}>
-      <button disabled={page <= 1} onClick={() => onChange(page - 1)}>
+      <button className="btn-outline btn-sm" disabled={page <= 1} onClick={() => onChange(page - 1)}>
         « Trước
       </button>
-      <span>
+      <span className="muted-note">
         Trang {page}/{totalPages} ({count} kết quả)
       </span>
-      <button disabled={page >= totalPages} onClick={() => onChange(page + 1)}>
+      <button className="btn-outline btn-sm" disabled={page >= totalPages} onClick={() => onChange(page + 1)}>
         Sau »
       </button>
     </div>

@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
-import NavBar from '../components/NavBar'
+import AppShell from '../components/AppShell'
+import Badge from '../components/Badge'
+import StatCard from '../components/StatCard'
+import Table from '../components/Table'
 import api from '../api/client'
 import { useAuth } from '../auth/AuthContext'
-import * as s from './listPageStyles'
 
 const STATUS_LABELS = {
   waiting: 'Chờ',
@@ -11,15 +13,15 @@ const STATUS_LABELS = {
   paid: 'Đã chi',
 }
 
-const STATUS_COLORS = {
-  waiting: { bg: '#fef3c7', fg: '#92400e' },
-  eligible: { bg: '#e3f3ec', fg: '#1e7a55' },
-  retrain: { bg: '#fde8e8', fg: '#c0392b' },
-  paid: { bg: '#eee', fg: '#555' },
+const STATUS_VARIANTS = {
+  waiting: 'warning',
+  eligible: 'success',
+  retrain: 'danger',
+  paid: 'neutral',
 }
 
 function Check({ ok }) {
-  return <span style={{ color: ok ? '#1e7a55' : '#c0392b' }}>{ok ? '✓' : '✗'}</span>
+  return <span style={{ color: ok ? 'var(--forest-dark)' : 'var(--danger)' }}>{ok ? '✓' : '✗'}</span>
 }
 
 export default function CommissionPage() {
@@ -70,101 +72,93 @@ export default function CommissionPage() {
     .reduce((sum, r) => sum + Number(r.amount), 0)
 
   return (
-    <div style={s.page}>
-      <NavBar />
+    <AppShell>
       <h2>Phụ cấp / Hoa hồng trainer</h2>
-      <p style={{ fontSize: 13, color: '#666' }}>
+      <p className="muted-note" style={{ fontSize: 13 }}>
         300.000đ/nhân sự khi đủ 5 điều kiện: LMS xong, thi ≥80%, checklist đào tạo 100%, BQL đánh
         giá kỹ năng ≥85%, làm đủ 30 ngày. AM/KCS kiểm tra random không đạt → tạm dừng (đào tạo lại).
       </p>
 
-      <p>
-        <strong>Tổng phụ cấp đủ điều kiện/đã chi:</strong>{' '}
-        {totalEligible.toLocaleString('vi-VN')}đ
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, marginBottom: 16 }}>
+        <StatCard label="Tổng phụ cấp đủ điều kiện/đã chi" amber value={`${totalEligible.toLocaleString('vi-VN')}đ`} />
         {isAdmin && (
-          <button onClick={recomputeAll} style={{ marginLeft: 16 }}>
+          <button className="btn-outline" onClick={recomputeAll}>
             Tính lại toàn bộ
           </button>
         )}
-      </p>
+      </div>
 
-      {loading && <p>Đang tải...</p>}
-      {error && <p style={{ color: 'red' }}>{error}</p>}
-      {message && <p style={{ color: 'green' }}>{message}</p>}
+      {loading && <p className="muted-note">Đang tải...</p>}
+      {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
+      {message && <p style={{ color: 'var(--forest-dark)' }}>{message}</p>}
 
-      <table style={s.table}>
+      <Table>
         <thead>
           <tr>
-            <th style={s.th}>Trainer</th>
-            <th style={s.th}>Nhân sự</th>
-            <th style={s.th}>Nhà hàng</th>
-            <th style={s.th}>LMS</th>
-            <th style={s.th}>Thi</th>
-            <th style={s.th}>Đào tạo</th>
-            <th style={s.th}>KN≥85</th>
-            <th style={s.th}>Đủ 1 tháng</th>
-            <th style={s.th}>Số tiền</th>
-            <th style={s.th}>Trạng thái</th>
-            <th style={s.th}></th>
+            <th>Trainer</th>
+            <th>Nhân sự</th>
+            <th>Nhà hàng</th>
+            <th>LMS</th>
+            <th>Thi</th>
+            <th>Đào tạo</th>
+            <th>KN≥85</th>
+            <th>Đủ 1 tháng</th>
+            <th>Số tiền</th>
+            <th>Trạng thái</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => {
-            const colors = STATUS_COLORS[r.status] || {}
-            return (
-              <tr key={r.id}>
-                <td style={s.td}>{r.trainer_name}</td>
-                <td style={s.td}>
-                  {r.employee_code} - {r.employee_name}
-                </td>
-                <td style={s.td}>{r.restaurant_name}</td>
-                <td style={s.td}>
-                  <Check ok={r.cond_lms} />
-                </td>
-                <td style={s.td}>
-                  <Check ok={r.cond_exam} />
-                </td>
-                <td style={s.td}>
-                  <Check ok={r.cond_training} />
-                </td>
-                <td style={s.td}>
-                  <Check ok={r.cond_skill_eval} />
-                </td>
-                <td style={s.td}>
-                  <Check ok={r.cond_worked_1month} />
-                </td>
-                <td style={s.td}>
-                  {r.status === 'eligible' || r.status === 'paid'
-                    ? `${Number(r.amount).toLocaleString('vi-VN')}đ`
-                    : '-'}
-                </td>
-                <td style={s.td}>
-                  <span
-                    style={{
-                      padding: '2px 8px', borderRadius: 10, fontSize: 12,
-                      background: colors.bg, color: colors.fg,
-                    }}
-                  >
-                    {STATUS_LABELS[r.status] || r.status}
-                  </span>
-                </td>
-                <td style={s.td}>
-                  {isAdmin && r.status === 'eligible' && (
-                    <button onClick={() => markPaid(r.id)}>Đã chi</button>
-                  )}
-                </td>
-              </tr>
-            )
-          })}
+          {rows.map((r) => (
+            <tr key={r.id}>
+              <td>{r.trainer_name}</td>
+              <td>
+                {r.employee_code} - {r.employee_name}
+              </td>
+              <td>{r.restaurant_name}</td>
+              <td>
+                <Check ok={r.cond_lms} />
+              </td>
+              <td>
+                <Check ok={r.cond_exam} />
+              </td>
+              <td>
+                <Check ok={r.cond_training} />
+              </td>
+              <td>
+                <Check ok={r.cond_skill_eval} />
+              </td>
+              <td>
+                <Check ok={r.cond_worked_1month} />
+              </td>
+              <td>
+                {r.status === 'eligible' || r.status === 'paid'
+                  ? `${Number(r.amount).toLocaleString('vi-VN')}đ`
+                  : '-'}
+              </td>
+              <td>
+                <Badge variant={STATUS_VARIANTS[r.status] || 'neutral'}>
+                  {STATUS_LABELS[r.status] || r.status}
+                </Badge>
+              </td>
+              <td>
+                {isAdmin && r.status === 'eligible' && (
+                  <button className="btn-sm" onClick={() => markPaid(r.id)}>
+                    Đã chi
+                  </button>
+                )}
+              </td>
+            </tr>
+          ))}
           {rows.length === 0 && !loading && (
             <tr>
-              <td style={s.td} colSpan={11}>
+              <td colSpan={11} className="muted-note">
                 Không có dữ liệu.
               </td>
             </tr>
           )}
         </tbody>
-      </table>
-    </div>
+      </Table>
+    </AppShell>
   )
 }

@@ -1,6 +1,9 @@
 import { useState } from 'react'
-import NavBar from '../components/NavBar'
+import AppShell from '../components/AppShell'
+import Badge from '../components/Badge'
+import FilterBar from '../components/FilterBar'
 import Pager from '../components/Pager'
+import Table from '../components/Table'
 import { usePaginatedList } from '../hooks/usePaginatedList'
 import * as s from './listPageStyles'
 
@@ -23,11 +26,10 @@ export default function RestaurantsPage() {
   }
 
   return (
-    <div style={s.page}>
-      <NavBar />
+    <AppShell>
       <h2>Nhà hàng</h2>
 
-      <div style={s.toolbar}>
+      <FilterBar>
         <input
           style={s.input}
           placeholder="Tìm theo mã / tên / email..."
@@ -45,47 +47,51 @@ export default function RestaurantsPage() {
           <option value="active">Đang hoạt động</option>
           <option value="inactive">Ngừng hoạt động</option>
         </select>
-      </div>
+      </FilterBar>
 
-      {loading && <p>Đang tải...</p>}
-      {error && <p style={{ color: 'red' }}>{error}</p>}
+      {loading && <p className="muted-note">Đang tải...</p>}
+      {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
 
       {!loading && !error && (
         <>
-          <table style={s.table}>
+          <Table>
             <thead>
               <tr>
-                <th style={s.th}>Mã</th>
-                <th style={s.th}>Tên nhà hàng</th>
-                <th style={s.th}>Brand</th>
-                <th style={s.th}>Khu vực</th>
-                <th style={s.th}>Email</th>
-                <th style={s.th}>Trạng thái</th>
+                <th>Mã</th>
+                <th>Tên nhà hàng</th>
+                <th>Brand</th>
+                <th>Khu vực</th>
+                <th>Email</th>
+                <th>Trạng thái</th>
               </tr>
             </thead>
             <tbody>
               {data.results.map((r) => (
                 <tr key={r.id}>
-                  <td style={s.td}>{r.code}</td>
-                  <td style={s.td}>{r.name}</td>
-                  <td style={s.td}>{r.brand}</td>
-                  <td style={s.td}>{[r.city, r.district, r.region].filter(Boolean).join(' · ')}</td>
-                  <td style={s.td}>{r.email}</td>
-                  <td style={s.td}>{r.status === 'active' ? 'Đang hoạt động' : 'Ngừng hoạt động'}</td>
+                  <td>{r.code}</td>
+                  <td>{r.name}</td>
+                  <td>{r.brand}</td>
+                  <td>{[r.city, r.district, r.region].filter(Boolean).join(' · ')}</td>
+                  <td>{r.email}</td>
+                  <td>
+                    <Badge variant={r.status === 'active' ? 'success' : 'neutral'}>
+                      {r.status === 'active' ? 'Đang hoạt động' : 'Ngừng hoạt động'}
+                    </Badge>
+                  </td>
                 </tr>
               ))}
               {data.results.length === 0 && (
                 <tr>
-                  <td style={s.td} colSpan={6}>
+                  <td colSpan={6} className="muted-note">
                     Không có dữ liệu.
                   </td>
                 </tr>
               )}
             </tbody>
-          </table>
+          </Table>
           <Pager page={page} pageSize={PAGE_SIZE} count={data.count} onChange={setPage} />
         </>
       )}
-    </div>
+    </AppShell>
   )
 }

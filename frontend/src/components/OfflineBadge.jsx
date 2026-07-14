@@ -28,8 +28,8 @@ export default function OfflineBadge() {
         padding: '2px 8px',
         borderRadius: 12,
         fontSize: 12,
-        background: online ? '#e0f2fe' : '#fef3c7',
-        color: online ? '#075985' : '#92400e',
+        background: online ? 'var(--mint)' : '#fbe9d0',
+        color: online ? 'var(--forest-dark)' : 'var(--amber)',
       }}
     >
       {online ? `${count} nháp chờ đồng bộ` : `Offline${count ? ` - ${count} nháp` : ''}`}

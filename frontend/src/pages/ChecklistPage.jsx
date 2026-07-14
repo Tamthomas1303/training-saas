@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import NavBar from '../components/NavBar'
+import AppShell from '../components/AppShell'
+import FilterBar from '../components/FilterBar'
 import Pager from '../components/Pager'
+import Table from '../components/Table'
 import { usePaginatedList } from '../hooks/usePaginatedList'
 import * as s from './listPageStyles'
 
@@ -23,11 +25,10 @@ export default function ChecklistPage() {
   }
 
   return (
-    <div style={s.page}>
-      <NavBar />
+    <AppShell>
       <h2>Checklist đào tạo</h2>
 
-      <div style={s.toolbar}>
+      <FilterBar>
         <input
           style={s.input}
           placeholder="Tìm theo tên đầu việc..."
@@ -41,37 +42,37 @@ export default function ChecklistPage() {
           value={position}
           onChange={onFilterChange(setPosition)}
         />
-      </div>
+      </FilterBar>
 
-      {loading && <p>Đang tải...</p>}
-      {error && <p style={{ color: 'red' }}>{error}</p>}
+      {loading && <p className="muted-note">Đang tải...</p>}
+      {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
 
       {!loading && !error && (
         <>
-          <table style={s.table}>
+          <Table>
             <thead>
               <tr>
-                <th style={s.th}>#</th>
-                <th style={s.th}>Brand</th>
-                <th style={s.th}>Vị trí</th>
-                <th style={s.th}>Ngày</th>
-                <th style={s.th}>Danh mục</th>
-                <th style={s.th}>Đầu việc</th>
-                <th style={s.th}>Cấp</th>
-                <th style={s.th}>Tài liệu</th>
+                <th>#</th>
+                <th>Brand</th>
+                <th>Vị trí</th>
+                <th>Ngày</th>
+                <th>Danh mục</th>
+                <th>Đầu việc</th>
+                <th>Cấp</th>
+                <th>Tài liệu</th>
               </tr>
             </thead>
             <tbody>
               {data.results.map((c) => (
                 <tr key={c.id}>
-                  <td style={s.td}>{c.order}</td>
-                  <td style={s.td}>{c.brand}</td>
-                  <td style={s.td}>{c.position}</td>
-                  <td style={s.td}>{c.day}</td>
-                  <td style={s.td}>{c.category}</td>
-                  <td style={s.td}>{c.task_name}</td>
-                  <td style={s.td}>{c.level_group}</td>
-                  <td style={s.td}>
+                  <td>{c.order}</td>
+                  <td>{c.brand}</td>
+                  <td>{c.position}</td>
+                  <td>{c.day}</td>
+                  <td>{c.category}</td>
+                  <td>{c.task_name}</td>
+                  <td>{c.level_group}</td>
+                  <td>
                     {c.doc_url ? (
                       <a href={c.doc_url} target="_blank" rel="noreferrer">
                         Xem
@@ -84,16 +85,16 @@ export default function ChecklistPage() {
               ))}
               {data.results.length === 0 && (
                 <tr>
-                  <td style={s.td} colSpan={8}>
+                  <td colSpan={8} className="muted-note">
                     Không có dữ liệu.
                   </td>
                 </tr>
               )}
             </tbody>
-          </table>
+          </Table>
           <Pager page={page} pageSize={PAGE_SIZE} count={data.count} onChange={setPage} />
         </>
       )}
-    </div>
+    </AppShell>
   )
 }

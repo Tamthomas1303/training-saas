@@ -1,6 +1,9 @@
 import { useState } from 'react'
-import NavBar from '../components/NavBar'
+import AppShell from '../components/AppShell'
+import Badge from '../components/Badge'
+import FilterBar from '../components/FilterBar'
 import Pager from '../components/Pager'
+import Table from '../components/Table'
 import TrainingItemEditor from '../components/TrainingItemEditor'
 import api from '../api/client'
 import { useAuth } from '../auth/AuthContext'
@@ -14,6 +17,12 @@ const STATUS_LABELS = {
   pending: 'Chưa bắt đầu',
   in_progress: 'Đang thực hiện',
   done: 'Hoàn thành',
+}
+
+const STATUS_VARIANTS = {
+  pending: 'neutral',
+  in_progress: 'mint',
+  done: 'success',
 }
 
 function groupByDayAndCategory(items) {
@@ -76,13 +85,12 @@ export default function TrainingPage() {
   const days = Object.keys(grouped).sort((a, b) => Number(a) - Number(b))
 
   return (
-    <div style={s.page}>
-      <NavBar />
+    <AppShell>
       <h2>Đào tạo</h2>
 
       {!selectedEmployee && (
         <>
-          <div style={s.toolbar}>
+          <FilterBar>
             <input
               style={s.input}
               placeholder="Tìm nhân sự theo mã / tên để bắt đầu đào tạo..."
@@ -92,38 +100,40 @@ export default function TrainingPage() {
                 setPage(1)
               }}
             />
-          </div>
-          <table style={s.table}>
+          </FilterBar>
+          <Table>
             <thead>
               <tr>
-                <th style={s.th}>Mã NV</th>
-                <th style={s.th}>Họ tên</th>
-                <th style={s.th}>Nhà hàng</th>
-                <th style={s.th}>Vị trí</th>
-                <th style={s.th}></th>
+                <th>Mã NV</th>
+                <th>Họ tên</th>
+                <th>Nhà hàng</th>
+                <th>Vị trí</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {employeeOptions.results.map((emp) => (
                 <tr key={emp.id}>
-                  <td style={s.td}>{emp.code}</td>
-                  <td style={s.td}>{emp.name}</td>
-                  <td style={s.td}>{emp.restaurant_name}</td>
-                  <td style={s.td}>{emp.position}</td>
-                  <td style={s.td}>
-                    <button onClick={() => selectEmployee(emp)}>Chọn</button>
+                  <td>{emp.code}</td>
+                  <td>{emp.name}</td>
+                  <td>{emp.restaurant_name}</td>
+                  <td>{emp.position}</td>
+                  <td>
+                    <button className="btn-outline btn-sm" onClick={() => selectEmployee(emp)}>
+                      Chọn
+                    </button>
                   </td>
                 </tr>
               ))}
               {employeeOptions.results.length === 0 && (
                 <tr>
-                  <td style={s.td} colSpan={5}>
+                  <td colSpan={5} className="muted-note">
                     Không có dữ liệu.
                   </td>
                 </tr>
               )}
             </tbody>
-          </table>
+          </Table>
           <Pager page={page} pageSize={PAGE_SIZE} count={employeeOptions.count} onChange={setPage} />
         </>
       )}
@@ -131,17 +141,19 @@ export default function TrainingPage() {
       {selectedEmployee && (
         <>
           <p>
-            <button onClick={backToPicker}>« Chọn nhân sự khác</button>
+            <button className="btn-outline btn-sm" onClick={backToPicker}>
+              « Chọn nhân sự khác
+            </button>
           </p>
           <h3>
             {selectedEmployee.name} — {selectedEmployee.position} — {selectedEmployee.restaurant_name}
           </h3>
 
-          {loading && <p>Đang tải...</p>}
-          {error && <p style={{ color: 'red' }}>{error}</p>}
+          {loading && <p className="muted-note">Đang tải...</p>}
+          {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
 
           {checklistData && checklistData.items.length === 0 && (
-            <p>Không tìm thấy checklist phù hợp (theo brand + vị trí) cho nhân sự này.</p>
+            <p className="muted-note">Không tìm thấy checklist phù hợp (theo brand + vị trí) cho nhân sự này.</p>
           )}
 
           {days.map((day) => (
@@ -149,16 +161,22 @@ export default function TrainingPage() {
               <h4>Ngày {day}</h4>
               {Object.entries(grouped[day]).map(([category, items]) => (
                 <div key={category} style={{ marginBottom: 12 }}>
-                  <div style={{ fontWeight: 'bold', color: '#555', margin: '8px 0 4px' }}>{category}</div>
+                  <div style={{ fontWeight: 'bold', color: 'var(--muted)', margin: '8px 0 4px' }}>{category}</div>
                   {items.map((item) => {
                     const status = item.progress?.status || 'pending'
                     const allowed = canTrainPosition(user?.role, selectedEmployee.position)
                     return (
-                      <div key={item.checklist.id} style={{ borderBottom: '1px solid #eee', padding: '8px 0' }}>
+                      <div
+                        key={item.checklist.id}
+                        className="card"
+                        style={{ marginBottom: 8, padding: 12 }}
+                      >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <div>
                             <strong>{item.checklist.task_name}</strong>
-                            <div style={{ fontSize: 13, color: '#666' }}>{STATUS_LABELS[status]}</div>
+                            <div style={{ marginTop: 4 }}>
+                              <Badge variant={STATUS_VARIANTS[status]}>{STATUS_LABELS[status]}</Badge>
+                            </div>
                           </div>
                           <div>
                             {item.progress?.pdf_url && (
@@ -173,6 +191,7 @@ export default function TrainingPage() {
                             )}
                             {allowed ? (
                               <button
+                                className="btn-sm"
                                 onClick={() =>
                                   setOpenItemId(openItemId === item.checklist.id ? null : item.checklist.id)
                                 }
@@ -180,7 +199,9 @@ export default function TrainingPage() {
                                 {status === 'done' ? 'Sửa' : 'Đào tạo'}
                               </button>
                             ) : (
-                              <span style={{ fontSize: 12, color: '#999' }}>Không có quyền đào tạo vị trí này</span>
+                              <span className="muted-note" style={{ fontSize: 12 }}>
+                                Không có quyền đào tạo vị trí này
+                              </span>
                             )}
                           </div>
                         </div>
@@ -202,6 +223,6 @@ export default function TrainingPage() {
           ))}
         </>
       )}
-    </div>
+    </AppShell>
   )
 }
