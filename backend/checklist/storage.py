@@ -81,3 +81,21 @@ def _upload_to_supabase(path, content, content_type):
 def upload_pdf_bytes(pdf_bytes, folder, filename_prefix):
     path = f'{folder}/{filename_prefix}_{uuid.uuid4().hex}.pdf'
     return _upload_to_supabase(path, pdf_bytes, 'application/pdf')
+
+
+def delete_by_url(public_url):
+    """Xoa 1 file da upload qua public URL (tra ve tu upload_data_url/upload_pdf_bytes).
+    Dung khi "xuat lai" 1 phieu - xoa ban cu truoc khi thay bang URL moi. Bo qua loi (khong
+    lam gian doan luong chinh neu xoa that bai, vd file da bi xoa tu truoc)."""
+    if not public_url or not settings.SUPABASE_URL:
+        return
+    marker = f'/storage/v1/object/public/{settings.SUPABASE_STORAGE_BUCKET}/'
+    idx = public_url.find(marker)
+    if idx == -1:
+        return
+    path = public_url[idx + len(marker):]
+    url = f'{settings.SUPABASE_URL}/storage/v1/object/{settings.SUPABASE_STORAGE_BUCKET}/{path}'
+    try:
+        requests.delete(url, headers={'Authorization': f'Bearer {settings.SUPABASE_SERVICE_KEY}'}, timeout=15)
+    except requests.RequestException:
+        pass

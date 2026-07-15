@@ -41,7 +41,7 @@ def home_payload(user):
 
         days_left = _deadline_days_left(e)
         rows.append({
-            'employee_id': e.id, 'name': e.name, 'position': e.position,
+            'employee_id': e.id, 'code': e.code, 'name': e.name, 'position': e.position,
             'restaurant': e.restaurant.name if e.restaurant else '',
             'restaurant_id': e.restaurant_id,
             'status': status, 'progress': progress,

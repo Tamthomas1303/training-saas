@@ -40,6 +40,9 @@ class Employee(models.Model):
     )
     commission_status = models.CharField(max_length=50, blank=True)
     retrain_deadline = models.DateField(null=True, blank=True)
+    # Phieu ket qua thu viec da xuat (PDF) - luu lai de lan sau vao xem hien link ngay thay vi
+    # phai xuat lai; xuat lai se xoa file cu va thay bang URL moi. Port phan hoi "Phan 1".
+    probation_result_pdf_url = models.URLField(max_length=500, blank=True)
 
     class Meta:
         unique_together = ('tenant', 'code')

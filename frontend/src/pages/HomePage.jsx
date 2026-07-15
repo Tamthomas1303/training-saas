@@ -87,7 +87,9 @@ export default function HomePage() {
             {data.rows.map((r) => (
               <div key={r.employee_id} className="card">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-                  <div style={{ fontWeight: 600 }}>{r.name}</div>
+                  <div style={{ fontWeight: 600 }}>
+                    {r.name} - {r.code}
+                  </div>
                   <Badge variant={STATUS_VARIANTS[r.status]}>{STATUS_LABELS[r.status]}</Badge>
                 </div>
                 <div className="muted-note" style={{ fontSize: 12, margin: '4px 0 8px' }}>

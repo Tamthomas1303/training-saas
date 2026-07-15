@@ -25,6 +25,7 @@ def student_info(employee):
         'shift_ops': employee.shift_ops,
         'office_result': employee.office_result,
         'trainer_name': employee.trainer.full_name if employee.trainer else '',
+        'probation_result_pdf_url': employee.probation_result_pdf_url,
     }
 
 
@@ -82,12 +83,68 @@ def student_council(employee):
     return council_summary(employee)
 
 
+def student_skill_eval_detail(employee):
+    """Chi tiet lan danh gia ky nang (Skill_BQL) gan nhat da hoan thanh - dung cho phieu ket
+    qua thu viec (cot anh + 2 chu ky + ngay + ten nguoi danh gia). Port phan hoi "Phan 1"."""
+    from evaluation.models import Evaluation
+
+    latest = (
+        Evaluation.objects.filter(employee=employee, eval_type='Skill_BQL', status='done')
+        .select_related('evaluator').prefetch_related('details')
+        .order_by('-completed_at').first()
+    )
+    if not latest:
+        return None
+    return {
+        'date': latest.date.strftime('%d/%m/%Y') if latest.date else '',
+        'evaluator_name': latest.evaluator.full_name if latest.evaluator else '',
+        'sign_evaluator_url': latest.sign_evaluator,
+        'sign_trainee_url': latest.sign_trainee,
+        'items': [
+            {
+                'content': d.content, 'max_score': d.max_score, 'score': float(d.score),
+                'photo_url': d.photo_url,
+            }
+            for d in latest.details.all()
+        ],
+    }
+
+
+def _pdf_checklist_rows(employee):
+    """Cac dong checklist DA HOAN THANH (co xac nhan cua hoc vien) kem chu ky Trainer + anh
+    da upload trong bien ban dao tao - dung rieng cho phieu ket qua thu viec."""
+    from checklist.models import TrainingProgress
+
+    items = matching_checklist_items(employee)
+    progress_by_checklist = {
+        p.checklist_id: p
+        for p in TrainingProgress.objects.filter(
+            employee=employee, checklist_id__in=[c.id for c in items],
+            status=TrainingProgress.Status.DONE,
+        )
+    }
+    rows = []
+    for c in items:
+        p = progress_by_checklist.get(c.id)
+        if not p:
+            continue
+        rows.append({
+            'name': c.task_name,
+            'date': p.completed_at.strftime('%d/%m/%Y') if p.completed_at else '',
+            'sign_trainer_url': p.sign_trainer,
+            'photos': [p.img_tailieu, p.img_lythuyet, p.img_thuchanh],
+        })
+    return rows
+
+
 def export_probation_result_pdf(employee):
     """Xuat phieu ket qua thu viec PDF - chi goi khi final_result la 'Pass thu viec' (kiem
-    tra o view, khac ban goc chi kiem client-side). Diem tong = thi*0.4 + thuc hanh*0.6."""
+    tra o view, khac ban goc chi kiem client-side). Diem tong = thi*0.4 + thuc hanh*0.6.
+    Xuat 1 lan, luu lai URL tren Employee.probation_result_pdf_url; goi lai se xoa phieu cu
+    va thay bang URL moi (port phan hoi "Phan 1")."""
     from django.utils import timezone
 
-    from checklist.storage import upload_pdf_bytes
+    from checklist.storage import delete_by_url, upload_pdf_bytes
     from evaluation.models import Evaluation
 
     from .pdf import build_probation_result_pdf
@@ -105,17 +162,27 @@ def export_probation_result_pdf(employee):
     pdf_bytes = build_probation_result_pdf({
         'record_no': f'{employee.id}/{timezone.now().year}',
         'tenant_name': employee.tenant.name,
+        'employee_code': employee.code,
         'employee': {
             'name': employee.name, 'position': employee.position,
             'restaurant': employee.restaurant.name if employee.restaurant else '',
             'start_date': employee.start_date.strftime('%d/%m/%Y') if employee.start_date else '',
         },
+        'checklist': _pdf_checklist_rows(employee),
+        'skill_eval': student_skill_eval_detail(employee),
         'courses': lms['courses'], 'exams': lms['exams'],
         'score_exam': score_exam, 'score_practice': score_practice, 'score_final': score_final,
         'final_status': employee.final_result,
         'signer_name': '', 'signer_title': 'Phòng Đào tạo',
     })
-    return upload_pdf_bytes(pdf_bytes, f'ketquathuviec/{employee.tenant_id}', f'KetQuaThuViec_{employee.id}')
+
+    if employee.probation_result_pdf_url:
+        delete_by_url(employee.probation_result_pdf_url)
+
+    pdf_url = upload_pdf_bytes(pdf_bytes, f'ketquathuviec/{employee.tenant_id}', f'KetQuaThuViec_{employee.id}')
+    employee.probation_result_pdf_url = pdf_url
+    employee.save(update_fields=['probation_result_pdf_url'])
+    return pdf_url
 
 
 def student_detail(employee):

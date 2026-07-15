@@ -70,15 +70,9 @@ export default function StudentDetailPage() {
     setSaving(true)
     setMessage('')
     try {
-      const { data: res } = await api.post(`/employees/${id}/export-probation-result/`)
-      setMessage(
-        <>
-          Đã xuất phiếu.{' '}
-          <a href={res.pdf_url} target="_blank" rel="noreferrer">
-            Xem PDF
-          </a>
-        </>
-      )
+      await api.post(`/employees/${id}/export-probation-result/`)
+      setMessage('Đã xuất phiếu.')
+      load()
     } catch (err) {
       setMessage(err.response?.data?.detail || 'Không xuất được phiếu.')
     } finally {
@@ -126,7 +120,9 @@ export default function StudentDetailPage() {
       <div className="card" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
           <div>
-            <h2 style={{ margin: 0 }}>{info.name}</h2>
+            <h2 style={{ margin: 0 }}>
+              {info.name} - {info.code}
+            </h2>
             <div className="muted-note">
               {info.position} · {info.restaurant} {info.brand ? `· ${info.brand}` : ''}
             </div>
@@ -170,10 +166,18 @@ export default function StudentDetailPage() {
             </button>
             {(info.probation_result || '').startsWith('Pass') && (
               <button className="btn-outline" onClick={exportProbationResult} disabled={saving}>
-                Xuất phiếu kết quả thử việc (PDF)
+                {info.probation_result_pdf_url ? 'Xuất lại phiếu kết quả thử việc (PDF)' : 'Xuất phiếu kết quả thử việc (PDF)'}
               </button>
             )}
           </div>
+          {info.probation_result_pdf_url && (
+            <p style={{ marginTop: 8 }}>
+              <Badge variant="success">Đã xuất phiếu</Badge>{' '}
+              <a href={info.probation_result_pdf_url} target="_blank" rel="noreferrer">
+                Xem phiếu kết quả thử việc
+              </a>
+            </p>
+          )}
           {message && <p style={{ marginTop: 8 }}>{message}</p>}
         </div>
       )}
