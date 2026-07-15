@@ -40,6 +40,44 @@ def checklist_progress_percent(employee):
     return round(done_count / len(items) * 100)
 
 
+def batch_checklist_progress_percent(employees):
+    """Nhu checklist_progress_percent nhung tinh cho nhieu nhan su cung luc bang vai truy
+    van co dinh (thay vi ~2 truy van/nhan su) - tranh N+1 khi liet ke danh sach nhan su."""
+    from collections import defaultdict
+
+    from checklist.models import Checklist, TrainingProgress
+
+    employees = list(employees)
+    if not employees:
+        return {}
+
+    tenant = employees[0].tenant
+    by_brand_position = defaultdict(list)
+    for c in Checklist.objects.filter(tenant=tenant):
+        by_brand_position[(c.brand, normalize_key(c.position))].append(c)
+
+    items_by_employee = {}
+    all_checklist_ids = set()
+    for e in employees:
+        items = by_brand_position.get((e.restaurant.brand, normalize_key(e.position)), []) if e.restaurant else []
+        items_by_employee[e.id] = items
+        all_checklist_ids.update(c.id for c in items)
+
+    done_counts = defaultdict(int)
+    for emp_id in TrainingProgress.objects.filter(
+        employee_id__in=[e.id for e in employees],
+        checklist_id__in=all_checklist_ids,
+        status=TrainingProgress.Status.DONE,
+    ).values_list('employee_id', flat=True):
+        done_counts[emp_id] += 1
+
+    result = {}
+    for e in employees:
+        total = len(items_by_employee[e.id])
+        result[e.id] = round(done_counts[e.id] / total * 100) if total else 0
+    return result
+
+
 def lms_done(employee):
     """Port ProbationService.gs::_lmsDone. Ban goc kiem tra Progress_Status>=100 tren
     DB_KetQuaHoc; he thong nay khong luu progress so, chi luu status Dat/Chua dat sau khi
@@ -57,6 +95,35 @@ def exam_pass(employee, threshold=None):
 
     threshold = settings.COMMISSION_EXAM_THRESHOLD if threshold is None else threshold
     return ExamResult.objects.filter(employee=employee, passed=True, score__gte=threshold).exists()
+
+
+def batch_lms_marks(employees, threshold=None):
+    """3 dau LMS/Danh gia (hoc/thi/ky nang) cho nhieu nhan su cung luc - tranh N+1 khi liet
+    ke danh sach nhan su. Dung chung dieu kien voi lms_done/exam_pass."""
+    from django.conf import settings
+
+    from cls_sync.models import CourseResult, ExamResult
+
+    threshold = settings.COMMISSION_EXAM_THRESHOLD if threshold is None else threshold
+    employees = list(employees)
+    employee_ids = [e.id for e in employees]
+
+    course_done_ids = set(
+        CourseResult.objects.filter(employee_id__in=employee_ids, status='Đạt')
+        .values_list('employee_id', flat=True)
+    )
+    exam_pass_ids = set(
+        ExamResult.objects.filter(employee_id__in=employee_ids, passed=True, score__gte=threshold)
+        .values_list('employee_id', flat=True)
+    )
+    return {
+        e.id: {
+            'course': e.id in course_done_ids,
+            'exam': e.id in exam_pass_ids,
+            'skill': e.skill_result == 'Đạt',
+        }
+        for e in employees
+    }
 
 
 def latest_skill_eval_percent(employee):

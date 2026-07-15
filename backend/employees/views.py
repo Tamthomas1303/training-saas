@@ -16,6 +16,9 @@ from .services import change_employee_status
 STUDENT_ADMIN_ROLES = {'admin', 'bql'}
 
 
+TRAINING_STATUS_FILTERS = {'in_progress', 'not_started', 'done'}
+
+
 class EmployeeViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
     serializer_class = EmployeeSerializer
     queryset = Employee.objects.select_related('restaurant', 'trainer').all()
@@ -24,6 +27,44 @@ class EmployeeViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
     search_fields = ['code', 'name']
     ordering_fields = ['code', 'name', 'start_date']
     ordering = ['name']
+
+    def get_queryset(self):
+        """training_status: loc theo % tien do checklist (khong phai field DB nen tinh hang
+        loat roi loc lai theo id, xem batch_checklist_progress_percent) - dung chung khai
+        niem voi khoi dashboard."""
+        qs = super().get_queryset()
+        training_status = self.request.query_params.get('training_status')
+        if training_status in TRAINING_STATUS_FILTERS:
+            from .services import batch_checklist_progress_percent
+
+            progress_map = batch_checklist_progress_percent(qs)
+            matching_ids = [
+                emp_id for emp_id, percent in progress_map.items()
+                if (training_status == 'in_progress' and 0 < percent < 100)
+                or (training_status == 'not_started' and percent == 0)
+                or (training_status == 'done' and percent == 100)
+            ]
+            qs = qs.filter(id__in=matching_ids)
+        return qs
+
+    def list(self, request, *args, **kwargs):
+        """Batch tinh progress_percent + lms_marks cho ca trang (thay vi tung dong trong
+        serializer) de tranh N+1 - xem services.batch_checklist_progress_percent/
+        batch_lms_marks."""
+        from .services import batch_checklist_progress_percent, batch_lms_marks
+
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        objects = page if page is not None else queryset
+
+        context = self.get_serializer_context()
+        context['progress_map'] = batch_checklist_progress_percent(objects)
+        context['lms_marks_map'] = batch_lms_marks(objects)
+        serializer = self.get_serializer(objects, many=True, context=context)
+
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
 
 
 class DashboardStatsView(APIView):

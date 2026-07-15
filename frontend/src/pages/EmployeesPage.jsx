@@ -23,10 +23,27 @@ const STATUS_VARIANTS = {
   resigned: 'neutral',
 }
 
+const TRAINING_STATUS_OPTIONS = [
+  { value: '', label: 'Tất cả tiến độ' },
+  { value: 'in_progress', label: 'Đang đào tạo' },
+  { value: 'not_started', label: 'Chưa đào tạo' },
+  { value: 'done', label: 'Hoàn thành' },
+]
+
+function LmsMark({ ok }) {
+  return (
+    <span style={{ color: ok ? 'var(--forest-dark)' : 'var(--danger)', fontSize: 15 }} title={ok ? 'Đã hoàn thành' : 'Chưa hoàn thành'}>
+      {ok ? '✅' : '☒'}
+    </span>
+  )
+}
+
 export default function EmployeesPage() {
   const [search, setSearch] = useState('')
   const [restaurant, setRestaurant] = useState('')
   const [employeeStatus, setEmployeeStatus] = useState('')
+  const [trainingStatus, setTrainingStatus] = useState('')
+  const [order, setOrder] = useState('oldest')
   const [page, setPage] = useState(1)
 
   const { data: restaurantOptions } = usePaginatedList('/restaurants/', { page_size: 100 })
@@ -35,6 +52,8 @@ export default function EmployeesPage() {
     search,
     restaurant: restaurant || undefined,
     employee_status: employeeStatus || undefined,
+    training_status: trainingStatus || undefined,
+    ordering: order === 'newest' ? '-start_date' : 'start_date',
     page,
     page_size: PAGE_SIZE,
   }
@@ -74,6 +93,19 @@ export default function EmployeesPage() {
             </option>
           ))}
         </select>
+        <select style={s.select} value={trainingStatus} onChange={onFilterChange(setTrainingStatus)}>
+          {TRAINING_STATUS_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <button className={`btn-sm ${order === 'oldest' ? '' : 'btn-outline'}`} onClick={() => { setOrder('oldest'); setPage(1) }}>
+          Cũ nhất
+        </button>
+        <button className={`btn-sm ${order === 'newest' ? '' : 'btn-outline'}`} onClick={() => { setOrder('newest'); setPage(1) }}>
+          Mới nhất
+        </button>
       </FilterBar>
 
       {loading && <p className="muted-note">Đang tải...</p>}
@@ -84,13 +116,13 @@ export default function EmployeesPage() {
           <Table>
             <thead>
               <tr>
-                <th>Mã NV</th>
                 <th>Họ tên</th>
                 <th>Nhà hàng</th>
                 <th>Vị trí</th>
                 <th>Ngày vào</th>
                 <th>Trạng thái</th>
                 <th>Tiến độ</th>
+                <th>LMS/Đánh giá</th>
                 <th>Kết quả TV</th>
                 <th></th>
               </tr>
@@ -98,8 +130,9 @@ export default function EmployeesPage() {
             <tbody>
               {data.results.map((e) => (
                 <tr key={e.id}>
-                  <td>{e.code}</td>
-                  <td>{e.name}</td>
+                  <td>
+                    {e.name} - {e.code}
+                  </td>
                   <td>{e.restaurant_name}</td>
                   <td>{e.position}</td>
                   <td>{e.start_date}</td>
@@ -113,6 +146,9 @@ export default function EmployeesPage() {
                     <div className="muted-note" style={{ fontSize: 12 }}>
                       {e.progress_percent}%
                     </div>
+                  </td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    <LmsMark ok={e.lms_marks?.course} /> <LmsMark ok={e.lms_marks?.exam} /> <LmsMark ok={e.lms_marks?.skill} />
                   </td>
                   <td>{e.final_result}</td>
                   <td>
