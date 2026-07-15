@@ -5,7 +5,6 @@ import ProtectedRoute from './auth/ProtectedRoute'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import HomePage from './pages/HomePage'
-import RestaurantsPage from './pages/RestaurantsPage'
 import EmployeesPage from './pages/EmployeesPage'
 import StudentDetailPage from './pages/StudentDetailPage'
 import ChecklistPage from './pages/ChecklistPage'
@@ -49,14 +48,6 @@ function App() {
             element={
               <ProtectedRoute>
                 <HomeRouter />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/restaurants"
-            element={
-              <ProtectedRoute>
-                <RestaurantsPage />
               </ProtectedRoute>
             }
           />

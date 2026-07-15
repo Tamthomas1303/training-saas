@@ -4,6 +4,7 @@ import Badge from '../components/Badge'
 import FilterBar from '../components/FilterBar'
 import Modal from '../components/Modal'
 import Pager from '../components/Pager'
+import RestaurantsPanel from '../components/RestaurantsPanel'
 import Table from '../components/Table'
 import api from '../api/client'
 import { usePaginatedList } from '../hooks/usePaginatedList'
@@ -43,6 +44,7 @@ const EMPTY_FORM = {
 }
 
 export default function UsersPage() {
+  const [tab, setTab] = useState('users')
   const [search, setSearch] = useState('')
   const [role, setRole] = useState('')
   const [page, setPage] = useState(1)
@@ -136,6 +138,19 @@ export default function UsersPage() {
 
   return (
     <AppShell>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <button className={`btn-sm ${tab === 'users' ? '' : 'btn-outline'}`} onClick={() => setTab('users')}>
+          Người dùng
+        </button>
+        <button className={`btn-sm ${tab === 'restaurants' ? '' : 'btn-outline'}`} onClick={() => setTab('restaurants')}>
+          Nhà hàng
+        </button>
+      </div>
+
+      {tab === 'restaurants' && <RestaurantsPanel />}
+
+      {tab === 'users' && (
+      <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2>Người dùng</h2>
         <button onClick={openCreate}>+ Thêm người dùng</button>
@@ -342,6 +357,8 @@ export default function UsersPage() {
           ))}
         </div>
       </Modal>
+      </>
+      )}
     </AppShell>
   )
 }

@@ -4,7 +4,6 @@
 export const MENU_ITEMS = {
   home: { label: 'Trang chủ', icon: '🏠', path: '/' },
   dashboard: { label: 'Dashboard', icon: '📊', path: '/dashboard' },
-  restaurants: { label: 'Nhà hàng', icon: '🏬', path: '/restaurants' },
   students: { label: 'Nhân sự', icon: '👥', path: '/employees' },
   checklist: { label: 'Checklist', icon: '📋', path: '/checklist' },
   training: { label: 'Đào tạo', icon: '🎓', path: '/training' },
@@ -20,9 +19,9 @@ export const MENU_ITEMS = {
 const MOBILE_ROLES = new Set(['trainer', 'bql', 'am', 'kcs'])
 
 const ROLE_MENU = {
-  admin: ['dashboard', 'students', 'restaurants', 'checklist', 'kpi', 'kpiDashboard', 'commission', 'documents', 'users'],
-  om: ['dashboard', 'students', 'restaurants', 'checklist', 'kpi', 'kpiDashboard', 'commission', 'documents'],
-  bod: ['dashboard', 'students', 'restaurants', 'checklist', 'kpi', 'kpiDashboard', 'commission', 'documents'],
+  admin: ['dashboard', 'students', 'checklist', 'kpi', 'kpiDashboard', 'commission', 'documents', 'users'],
+  om: ['dashboard', 'students', 'checklist', 'kpi', 'kpiDashboard', 'commission', 'documents'],
+  bod: ['dashboard', 'students', 'checklist', 'kpi', 'kpiDashboard', 'commission', 'documents'],
   am: ['home', 'evaluation', 'kpi', 'documents'],
   kcs: ['home', 'evaluation', 'kpi', 'documents'],
   bql: ['home', 'training', 'evaluation', 'kpi', 'documents'],
