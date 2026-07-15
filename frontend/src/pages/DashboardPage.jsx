@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import AppShell from '../components/AppShell'
 import Badge from '../components/Badge'
 import MiniCalendar from '../components/MiniCalendar'
@@ -11,17 +12,26 @@ function fmtMoney(n) {
   return `${Math.round(n || 0).toLocaleString('vi-VN')}đ`
 }
 
+const RECENT_STATUS_OPTIONS = [
+  { value: 'all', label: 'Tất cả' },
+  { value: 'in_progress', label: 'Đang đào tạo' },
+  { value: 'not_started', label: 'Chưa đào tạo' },
+  { value: 'done', label: 'Hoàn thành' },
+]
+
 export default function DashboardPage() {
   const { user } = useAuth()
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
+  const [recentOrder, setRecentOrder] = useState('oldest')
+  const [recentStatus, setRecentStatus] = useState('all')
 
   useEffect(() => {
     api
-      .get('/employees/dashboard/')
+      .get('/employees/dashboard/', { params: { recent_order: recentOrder, recent_status: recentStatus } })
       .then(({ data }) => setData(data))
       .catch(() => setError('Không tải được số liệu dashboard.'))
-  }, [])
+  }, [recentOrder, recentStatus])
 
   return (
     <AppShell>
@@ -64,14 +74,43 @@ export default function DashboardPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, alignItems: 'start' }}>
             <div>
               <div className="card" style={{ marginBottom: 16 }}>
-                <h3 style={{ marginTop: 0 }}>Tiến độ đào tạo nhân sự mới</h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                  <h3 style={{ margin: 0 }}>Tiến độ đào tạo nhân sự mới</h3>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <Link to="/employees" style={{ fontSize: 13 }}>
+                      Xem tất cả
+                    </Link>
+                    <span className="muted-note">·</span>
+                    <button
+                      className={`btn-sm ${recentOrder === 'oldest' ? '' : 'btn-outline'}`}
+                      onClick={() => setRecentOrder('oldest')}
+                    >
+                      Cũ nhất
+                    </button>
+                    <button
+                      className={`btn-sm ${recentOrder === 'newest' ? '' : 'btn-outline'}`}
+                      onClick={() => setRecentOrder('newest')}
+                    >
+                      Mới nhất
+                    </button>
+                    {RECENT_STATUS_OPTIONS.map((o) => (
+                      <button
+                        key={o.value}
+                        className={`btn-sm ${recentStatus === o.value ? '' : 'btn-outline'}`}
+                        onClick={() => setRecentStatus(o.value)}
+                      >
+                        {o.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 {data.recent.length === 0 && <p className="muted-note">Chưa có dữ liệu.</p>}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12, marginTop: 12 }}>
                   {data.recent.map((r) => (
                     <div key={r.employee_id} style={{ border: '1px solid var(--card-border)', borderRadius: 10, padding: 10 }}>
                       <div style={{ fontWeight: 600 }}>{r.name}</div>
                       <div className="muted-note" style={{ fontSize: 12, marginBottom: 6 }}>
-                        {r.position}
+                        {r.code} · {r.position}
                       </div>
                       <ProgressBar percent={r.progress} />
                       <div className="muted-note" style={{ fontSize: 12, marginTop: 4 }}>{r.progress}%</div>

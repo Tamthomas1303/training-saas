@@ -29,10 +29,6 @@ def _is_pass(employee):
     return ('pass' in text or 'đạt' in text) and 'không đạt' not in text
 
 
-def _is_fail(employee):
-    return 'không đạt' in (employee.final_result or '').lower()
-
-
 def _probation_days(employee):
     if employee.probation_days:
         return employee.probation_days
@@ -61,10 +57,11 @@ def dashboard_stats(user):
         round((len(new_this) - len(new_prev)) / len(new_prev) * 100) if len(new_prev) else None
     )
 
+    # Ty le dat thu viec = so dat / tong nhan su dien thu viec (tru da nghi) x100 - cong thuc
+    # chot lai o sprint UI Dot 3, thay cho cach tinh passed/(passed+failed) truoc do.
     passed = [e for e in employees if _is_pass(e)]
-    failed = [e for e in employees if _is_fail(e)]
-    decided = passed + failed
-    pass_rate = round(len(passed) / len(decided) * 100) if decided else 0
+    not_resigned = [e for e in employees if e.employee_status != Employee.EmployeeStatus.RESIGNED]
+    pass_rate = round(len(passed) / len(not_resigned) * 100) if not_resigned else 0
 
     probation_now = [e for e in employees if e.employee_status == Employee.EmployeeStatus.PROBATION]
 
@@ -78,15 +75,34 @@ def dashboard_stats(user):
     }
 
 
-def recent_progress(user, limit=12):
-    employees = list(
-        scoped_employees(user).exclude(employee_status=Employee.EmployeeStatus.RESIGNED)
-        .order_by('-start_date')[:limit]
-    )
-    return [
-        {'employee_id': e.id, 'name': e.name, 'position': e.position, 'progress': checklist_progress_percent(e)}
-        for e in employees
-    ]
+RECENT_STATUS_FILTERS = {'all', 'in_progress', 'not_started', 'done'}
+
+
+def recent_progress(user, order='oldest', status_filter='all', limit=12):
+    """Khoi 'Tien do dao tao nhan su moi' tren dashboard. Sap xep [Cu nhat] (mac dinh)/[Moi
+    nhat] theo Start_Date + loc theo trang thai tien do checklist - port phan hoi 'Phan 1'
+    (sprint UI Dot 3)."""
+    if status_filter not in RECENT_STATUS_FILTERS:
+        status_filter = 'all'
+    qs = scoped_employees(user).exclude(employee_status=Employee.EmployeeStatus.RESIGNED)
+    qs = qs.order_by('-start_date' if order == 'newest' else 'start_date')
+
+    rows = []
+    for e in qs:
+        progress = checklist_progress_percent(e)
+        if status_filter == 'in_progress' and not (0 < progress < 100):
+            continue
+        if status_filter == 'not_started' and progress != 0:
+            continue
+        if status_filter == 'done' and progress != 100:
+            continue
+        rows.append({
+            'employee_id': e.id, 'code': e.code, 'name': e.name, 'position': e.position,
+            'progress': progress,
+        })
+        if len(rows) >= limit:
+            break
+    return rows
 
 
 def top_trainer(user):
@@ -190,10 +206,10 @@ def allowance_cost(user):
     return float(sum(c.amount for c in qs)) if total else 0.0
 
 
-def dashboard_payload(user):
+def dashboard_payload(user, recent_order='oldest', recent_status='all'):
     return {
         'stats': dashboard_stats(user),
-        'recent': recent_progress(user),
+        'recent': recent_progress(user, order=recent_order, status_filter=recent_status),
         'top_trainer': top_trainer(user),
         'deadlines': deadlines(user),
         'by_brand': by_brand(user),

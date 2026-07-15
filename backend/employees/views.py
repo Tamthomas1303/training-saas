@@ -33,7 +33,9 @@ class DashboardStatsView(APIView):
 
 
     def get(self, request):
-        return Response(dashboard_payload(request.user))
+        order = request.query_params.get('recent_order', 'oldest')
+        status_filter = request.query_params.get('recent_status', 'all')
+        return Response(dashboard_payload(request.user, recent_order=order, recent_status=status_filter))
 
 
 class HomeStatsView(APIView):
