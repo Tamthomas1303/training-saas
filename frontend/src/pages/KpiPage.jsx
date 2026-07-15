@@ -4,6 +4,7 @@ import FilterBar from '../components/FilterBar'
 import Pager from '../components/Pager'
 import PhotoSlot from '../components/PhotoSlot'
 import SignaturePad from '../components/SignaturePad'
+import StatCard from '../components/StatCard'
 import Table from '../components/Table'
 import api from '../api/client'
 import { useAuth } from '../auth/AuthContext'
@@ -41,7 +42,7 @@ function KpiSessionForm({ restaurants, defaultRestaurantId, onSaved }) {
     const timeout = setTimeout(() => {
       api
         .get('/employees/', { params: { search: participantSearch, restaurant: restaurantId, page_size: 10 } })
-        .then(({ data }) => setParticipantResults(data.results))
+        .then(({ data }) => setParticipantResults(data.results.filter((e) => e.employee_status !== 'resigned')))
     }, 300)
     return () => clearTimeout(timeout)
   }, [participantSearch, restaurantId])
@@ -244,6 +245,46 @@ function KpiSessionForm({ restaurants, defaultRestaurantId, onSaved }) {
 }
 
 const REPORT_ROLES = new Set(['admin', 'om'])
+const PERFORM_ROLES = new Set(['trainer', 'bql', 'am', 'kcs'])
+
+function KpiStatsSummary() {
+  const [stats, setStats] = useState(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    api
+      .get('/kpi/stats/')
+      .then(({ data }) => setStats(data))
+      .catch(() => setError('Không tải được thống kê KPI.'))
+  }, [])
+
+  if (error) return <p style={{ color: 'var(--danger)' }}>{error}</p>
+  if (!stats) return <p className="muted-note">Đang tải thống kê...</p>
+
+  return (
+    <div className="card" style={{ marginBottom: 24 }}>
+      <h3 style={{ marginTop: 0 }}>Thống kê KPI</h3>
+      <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+        <StatCard label="Tổng số buổi đào tạo" value={stats.total_classes ?? 0} />
+        <StatCard label="Tổng lượt tham gia" value={stats.total_joins ?? 0} />
+        <StatCard label="TB người tham gia/buổi" value={stats.avg_per_class ?? 0} />
+      </div>
+      {stats.top_topics?.length > 0 && (
+        <>
+          <div className="stat-label" style={{ marginBottom: 6 }}>
+            Chủ đề được đào tạo nhiều nhất
+          </div>
+          {stats.top_topics.slice(0, 5).map((t) => (
+            <div key={t.topic} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0' }}>
+              <span>{t.topic}</span>
+              <span>{t.count}</span>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  )
+}
 
 function KpiReportSection() {
   const now = new Date()
@@ -378,7 +419,8 @@ function KpiReportSection() {
 
 export default function KpiPage() {
   const { user } = useAuth()
-  const isBod = (user.role || '').toLowerCase() === 'bod'
+  const role = (user.role || '').toLowerCase()
+  const canPerform = PERFORM_ROLES.has(role)
   const [restaurantFilter, setRestaurantFilter] = useState('')
   const [page, setPage] = useState(1)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -395,9 +437,10 @@ export default function KpiPage() {
     <AppShell>
       <h2>KPI đào tạo</h2>
 
-      {REPORT_ROLES.has((user.role || '').toLowerCase()) && <KpiReportSection />}
+      {REPORT_ROLES.has(role) && <KpiReportSection />}
+      {role === 'admin' && <KpiStatsSummary />}
 
-      {!isBod && restaurantOptions.results.length > 0 && (
+      {canPerform && restaurantOptions.results.length > 0 && (
         <KpiSessionForm
           restaurants={restaurantOptions.results}
           defaultRestaurantId={user?.restaurant || null}
