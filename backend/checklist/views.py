@@ -15,6 +15,9 @@ from .services import ValidationError, save_training_progress
 
 
 class ChecklistViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
+    """CRUD checklist dao tao. Doc: moi role dang nhap. Ghi (them/sua/xoa): chi Admin - dung
+    quy uoc voi Document/Restaurant/User trong he thong nay."""
+
     serializer_class = ChecklistSerializer
     queryset = Checklist.objects.all()
     pagination_class = DefaultPagination
@@ -22,6 +25,13 @@ class ChecklistViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
     search_fields = ['task_name', 'description']
     ordering_fields = ['order', 'day']
     ordering = ['order']
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.method not in ('GET', 'HEAD', 'OPTIONS') and (request.user.role or '').lower() != 'admin':
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied('Chỉ Admin được thêm/sửa/xóa checklist.')
 
 
 class DocumentViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
