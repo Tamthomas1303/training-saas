@@ -56,6 +56,7 @@ class User(AbstractUser):
     trainer_zone = models.CharField(max_length=100, blank=True, null=True)
     google_email = models.EmailField(blank=True, null=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
+    avatar_url = models.URLField(max_length=500, blank=True)
 
     def __str__(self):
         return f"{self.username} ({self.tenant_id})"

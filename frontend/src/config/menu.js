@@ -3,7 +3,7 @@
 // Users rieng nen tam khong dua vao menu - se bo sung o dot sau).
 export const MENU_ITEMS = {
   home: { label: 'Trang chủ', icon: '🏠', path: '/' },
-  dashboard: { label: 'Dashboard', icon: '📊', path: '/' },
+  dashboard: { label: 'Dashboard', icon: '📊', path: '/dashboard' },
   restaurants: { label: 'Nhà hàng', icon: '🏬', path: '/restaurants' },
   students: { label: 'Nhân sự', icon: '👥', path: '/employees' },
   checklist: { label: 'Checklist', icon: '📋', path: '/checklist' },

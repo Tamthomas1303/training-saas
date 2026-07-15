@@ -60,6 +60,7 @@ class UserSerializer(serializers.ModelSerializer):
             'job_title',
             'trainer_zone',
             'status',
+            'avatar_url',
             'tenant',
             'tenant_name',
             'restaurant',

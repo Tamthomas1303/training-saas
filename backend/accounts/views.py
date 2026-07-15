@@ -22,6 +22,44 @@ class MeView(APIView):
         return Response(UserSerializer(request.user).data)
 
 
+class ChangeAvatarView(APIView):
+    """POST /api/auth/me/avatar/ — doi anh dai dien cua chinh minh. Body: {avatar: data:...}."""
+
+    def post(self, request):
+        from checklist.storage import StorageError, is_data_url, upload_data_url
+
+        value = request.data.get('avatar')
+        if not value or not is_data_url(value):
+            return Response({'detail': 'Cần ảnh hợp lệ (data URL).'}, status=400)
+        try:
+            url = upload_data_url(value, f'avatars/{request.user.tenant_id}', f'avatar_{request.user.id}')
+        except StorageError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        request.user.avatar_url = url
+        request.user.save(update_fields=['avatar_url'])
+        return Response(UserSerializer(request.user).data)
+
+
+class ChangePasswordView(APIView):
+    """POST /api/auth/me/change-password/ — doi mat khau cua chinh minh (can dung mat khau cu)."""
+
+    def post(self, request):
+        from django.contrib.auth.password_validation import validate_password
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        old_password = request.data.get('old_password') or ''
+        new_password = request.data.get('new_password') or ''
+        if not request.user.check_password(old_password):
+            return Response({'detail': 'Mật khẩu cũ không đúng.'}, status=400)
+        try:
+            validate_password(new_password, user=request.user)
+        except DjangoValidationError as exc:
+            return Response({'detail': ' '.join(exc.messages)}, status=400)
+        request.user.set_password(new_password)
+        request.user.save(update_fields=['password'])
+        return Response({'detail': 'Đã đổi mật khẩu.'})
+
+
 class UserViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
     """CRUD nguoi dung - man 5.9, chi Admin. Port UserService.gs::upsertUser/listUsers."""
 
