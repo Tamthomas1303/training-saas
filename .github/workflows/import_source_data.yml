@@ -1,0 +1,55 @@
+name: Import Source Data (nha hang / checklist / tai lieu)
+
+# Chay tay khi can di du lieu that tu he cu sang: vao tab Actions > chon workflow nay > Run workflow.
+# Yeu cau cac secret: DJANGO_SECRET_KEY, DATABASE_URL, va cac *_SOURCE_CSV_URL tuong ung.
+on:
+  workflow_dispatch:
+    inputs:
+      clear_sample:
+        description: "Xoa du lieu mau (3 nha hang NH001-003 + checklist Brand A/B) truoc khi nap"
+        type: boolean
+        default: true
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
+      DJANGO_DEBUG: 'False'
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      RESTAURANTS_SOURCE_CSV_URL: ${{ secrets.RESTAURANTS_SOURCE_CSV_URL }}
+      CHECKLIST_SOURCE_CSV_URL: ${{ secrets.CHECKLIST_SOURCE_CSV_URL }}
+      DOCUMENTS_SOURCE_CSV_URL: ${{ secrets.DOCUMENTS_SOURCE_CSV_URL }}
+      RECRUITMENT_SOURCE_CSV_URL: ${{ secrets.RECRUITMENT_SOURCE_CSV_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+
+      - name: Import nha hang
+        run: |
+          if [ "${{ inputs.clear_sample }}" = "true" ]; then
+            python manage.py import_restaurants --tenant "Demo Tenant" --clear-sample
+          else
+            python manage.py import_restaurants --tenant "Demo Tenant"
+          fi
+
+      - name: Import checklist
+        run: |
+          if [ "${{ inputs.clear_sample }}" = "true" ]; then
+            python manage.py import_checklist --tenant "Demo Tenant" --clear-sample
+          else
+            python manage.py import_checklist --tenant "Demo Tenant"
+          fi
+
+      - name: Import tai lieu
+        run: python manage.py import_documents --tenant "Demo Tenant"
+
+      # Nap/relink nhan su theo nha hang that vua import (resolve Restaurant theo ten)
+      - name: Dong bo lai nhan su (gan dung nha hang)
+        run: python manage.py sync_recruitment --tenant "Demo Tenant"

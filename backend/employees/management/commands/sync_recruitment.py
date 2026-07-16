@@ -103,7 +103,9 @@ def _load_rows(csv_url):
     if csv_url.startswith(('http://', 'https://')):
         resp = requests.get(csv_url, timeout=30)
         resp.raise_for_status()
-        resp.encoding = resp.encoding or 'utf-8'
+        # Google published CSV luon la UTF-8; ep dung UTF-8 de tranh mojibake
+        # (requests mac dinh doan ISO-8859-1 khi Content-Type text/csv khong khai bao charset)
+        resp.encoding = 'utf-8'
         text = resp.text
     else:
         with open(csv_url, encoding='utf-8-sig') as fh:

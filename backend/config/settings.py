@@ -213,6 +213,11 @@ CLS_ONBOARDING_PASS_SCORE = float(os.environ.get('CLS_ONBOARDING_PASS_SCORE', '8
 # Nguồn tuyển dụng (CSV export, vd Google Sheet Publish to web > CSV) cho sync_recruitment
 RECRUITMENT_SOURCE_CSV_URL = os.environ.get('RECRUITMENT_SOURCE_CSV_URL', '')
 
+# Nguồn dữ liệu source (CSV Publish to web) cho các lệnh import_* — di dữ liệu từ hệ cũ
+RESTAURANTS_SOURCE_CSV_URL = os.environ.get('RESTAURANTS_SOURCE_CSV_URL', '')
+CHECKLIST_SOURCE_CSV_URL = os.environ.get('CHECKLIST_SOURCE_CSV_URL', '')
+DOCUMENTS_SOURCE_CSV_URL = os.environ.get('DOCUMENTS_SOURCE_CSV_URL', '')
+
 # Supabase Storage — lưu ảnh minh chứng đào tạo + biên bản PDF (xem checklist/storage.py)
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
 SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY', '')
