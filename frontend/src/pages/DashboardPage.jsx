@@ -55,8 +55,8 @@ export default function DashboardPage() {
 
       {data && (
         <>
-          <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
-            <StatCard label="Tổng nhân viên mới (tháng này)" value={data.stats.total_new}>
+          <div className="stat-grid" style={{ marginBottom: 16 }}>
+            <StatCard icon="🧑‍🍳" label="Tổng nhân viên mới (tháng này)" value={data.stats.total_new}>
               {data.stats.total_new_delta != null && (
                 <div className="muted-note" style={{ marginTop: 4 }}>
                   {data.stats.total_new_delta >= 0 ? '+' : ''}
@@ -64,11 +64,12 @@ export default function DashboardPage() {
                 </div>
               )}
             </StatCard>
-            <StatCard label="Tỷ lệ đạt thử việc" value={`${data.stats.pass_rate}%`}>
+            <StatCard icon="⏳" label="Đang thử việc" value={data.stats.probation} />
+            <StatCard icon="✅" label="Hoàn thành thử việc" value={data.stats.completed} />
+            <StatCard icon="🎯" label="Tỷ lệ đạt thử việc" value={`${data.stats.pass_rate}%`}>
               <ProgressBar percent={data.stats.pass_rate} />
             </StatCard>
-            <StatCard label="Đang thử việc" value={data.stats.probation} />
-            <StatCard label="Chi phí phụ cấp trainer" amber value={fmtMoney(data.allowance_cost)} />
+            <StatCard icon="💰" amber label="Chi phí phụ cấp trainer" value={fmtMoney(data.allowance_cost)} />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, alignItems: 'start' }}>

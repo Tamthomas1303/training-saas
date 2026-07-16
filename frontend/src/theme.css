@@ -111,6 +111,33 @@ textarea:focus {
 }
 
 /* ---- StatCard ---- */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 16px;
+}
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 120px;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+.stat-card:hover {
+  box-shadow: 0 6px 18px rgba(30, 111, 92, 0.1);
+  transform: translateY(-2px);
+}
+.stat-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+.stat-icon {
+  font-size: 1.15rem;
+  line-height: 1;
+  opacity: 0.85;
+}
 .stat-label {
   color: var(--muted);
   font-size: 0.8rem;

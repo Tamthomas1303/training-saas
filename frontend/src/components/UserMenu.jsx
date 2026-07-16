@@ -5,7 +5,7 @@ import { useAuth } from '../auth/AuthContext'
 import { compressImageFile } from '../utils/compressImage'
 
 export default function UserMenu() {
-  const { user, setUser, logout } = useAuth()
+  const { user, setUser } = useAuth()
   const [open, setOpen] = useState(false)
   const [passwordModal, setPasswordModal] = useState(false)
   const [oldPassword, setOldPassword] = useState('')
@@ -92,9 +92,6 @@ export default function UserMenu() {
           </button>
           <button className="user-menu-item" onClick={openPasswordModal}>
             Đổi mật khẩu
-          </button>
-          <button className="user-menu-item" onClick={logout}>
-            Đăng xuất
           </button>
         </div>
       )}
