@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import AppShell from '../components/AppShell'
 import Badge from '../components/Badge'
 import FilterBar from '../components/FilterBar'
@@ -39,6 +40,7 @@ function groupByDayAndCategory(items) {
 
 export default function TrainingPage() {
   const { user } = useAuth()
+  const location = useLocation()
   const [employeeSearch, setEmployeeSearch] = useState('')
   const [page, setPage] = useState(1)
   const [selectedEmployee, setSelectedEmployee] = useState(null)
@@ -74,6 +76,12 @@ export default function TrainingPage() {
     setOpenItemId(null)
   }
 
+  // Vào từ nút "Bắt đầu đào tạo" ở Trang chủ → tự chọn nhân sự luôn
+  useEffect(() => {
+    if (location.state?.employee) selectEmployee(location.state.employee)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   function handleSaved(checklistId, progress) {
     setChecklistData((prev) => ({
       ...prev,
@@ -100,6 +108,17 @@ export default function TrainingPage() {
                 setPage(1)
               }}
             />
+            {employeeSearch && (
+              <button
+                className="btn-outline btn-sm"
+                onClick={() => {
+                  setEmployeeSearch('')
+                  setPage(1)
+                }}
+              >
+                Bỏ chọn
+              </button>
+            )}
           </FilterBar>
           <Table>
             <thead>

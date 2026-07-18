@@ -23,6 +23,13 @@ body,
   height: 100%;
 }
 
+/* Chống tràn viền ngang trên điện thoại (A1) */
+html,
+body {
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
 body {
   margin: 0;
   background: var(--page-bg);
@@ -196,6 +203,12 @@ textarea:focus {
 }
 
 /* ---- Table ---- */
+/* Khung cuộn ngang cho bảng để không đẩy tràn cả trang trên mobile (A1/A3) */
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
 table.themed {
   width: 100%;
   border-collapse: collapse;
@@ -457,7 +470,7 @@ table.themed tbody tr:hover {
   max-width: 640px;
   margin: 0 auto;
   padding: 16px;
-  padding-bottom: 80px;
+  padding-bottom: calc(84px + env(safe-area-inset-bottom));
 }
 
 .bottom-nav {
@@ -470,6 +483,7 @@ table.themed tbody tr:hover {
   display: flex;
   justify-content: space-around;
   padding: 6px 0;
+  padding-bottom: calc(6px + env(safe-area-inset-bottom));
   z-index: 100;
 }
 .bottom-nav-item {

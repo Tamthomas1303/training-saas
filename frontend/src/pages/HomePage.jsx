@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import AppShell from '../components/AppShell'
 import Badge from '../components/Badge'
 import ProgressBar from '../components/ProgressBar'
@@ -21,6 +21,7 @@ function deadlineText(days) {
 
 export default function HomePage() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
 
@@ -96,10 +97,25 @@ export default function HomePage() {
                   {r.position} · {r.restaurant}
                 </div>
                 <ProgressBar percent={r.progress} />
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-                  <span className="muted-note" style={{ fontSize: 12 }}>
-                    {r.progress}%{deadlineText(r.days_left) ? ` · ${deadlineText(r.days_left)}` : ''}
-                  </span>
+                <div className="muted-note" style={{ fontSize: 12, marginTop: 8 }}>
+                  {r.progress}%{deadlineText(r.days_left) ? ` · ${deadlineText(r.days_left)}` : ''}
+                </div>
+                <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                  <button
+                    className="btn-sm"
+                    onClick={() =>
+                      navigate('/training', {
+                        state: {
+                          employee: {
+                            id: r.employee_id, name: r.name,
+                            position: r.position, restaurant_name: r.restaurant,
+                          },
+                        },
+                      })
+                    }
+                  >
+                    Bắt đầu đào tạo
+                  </button>
                   <Link to={`/employees/${r.employee_id}`}>
                     <button className="btn-outline btn-sm">Chi tiết</button>
                   </Link>

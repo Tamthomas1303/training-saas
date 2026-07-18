@@ -33,6 +33,15 @@ class EmployeeViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
         loat roi loc lai theo id, xem batch_checklist_progress_percent) - dung chung khai
         niem voi khoi dashboard."""
         qs = super().get_queryset()
+
+        # Lọc theo phạm vi nhà hàng: BQL/Trainer/KCS chỉ thấy nhân sự nhà hàng mình phụ trách
+        # (port tinh thần scope hệ cũ). Admin/OM/BOD/AM = toàn hệ thống.
+        from employees.permissions import get_restaurant_scope
+
+        scope = get_restaurant_scope(self.request.user)
+        if not scope['all']:
+            qs = qs.filter(restaurant_id__in=scope['restaurant_ids'])
+
         training_status = self.request.query_params.get('training_status')
         if training_status in TRAINING_STATUS_FILTERS:
             from .services import batch_checklist_progress_percent

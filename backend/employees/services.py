@@ -7,6 +7,50 @@ def normalize_key(value):
     return (value or '').strip().lower()
 
 
+# Port EmployeeService.gs::BRAND_CODE + _brandCode — brand nhà hàng (tên đầy đủ) ↔ mã brand
+# dùng trong sheet checklist. Khớp cả 2 chiều để không phụ thuộc kiểu lưu của dữ liệu import.
+BRAND_CODE = {'Kampong': 'KMP', 'Yiam Yiam': 'YYM', 'Phở': 'PHO', 'Chilicious': 'CLS'}
+
+
+def brand_code(brand_name):
+    return BRAND_CODE.get((brand_name or '').strip(), brand_name)
+
+
+def _brand_keys(brand_name):
+    """Tập khóa brand để so khớp (chấp nhận cả tên đầy đủ lẫn mã)."""
+    return {normalize_key(brand_name), normalize_key(brand_code(brand_name))}
+
+
+def checklist_position(job_position):
+    """Port EmployeeService.gs::_checklistPosition — rút vị trí công việc ('NV Phục vụ',
+    'Tổ trưởng Phục vụ'...) về vị trí lõi khớp với sheet checklist ('Phục vụ'...).
+    Bỏ qua tiền tố (NV/Tổ trưởng...), khớp theo chuỗi lõi."""
+    p = normalize_key(job_position)
+    if 'food check' in p:
+        return 'Food check'
+    if 'thớt' in p:
+        return 'Bếp thớt'
+    if 'salad' in p:
+        return 'Bếp salad'
+    if 'chảo' in p:
+        return 'Bếp chảo'
+    if 'cơm gà' in p:
+        return 'Bếp cơm gà'
+    if 'bể' in p or 'hải sản' in p:
+        return 'Chăm sóc bể hải sản'
+    if 'phục vụ' in p:
+        return 'Phục vụ'
+    if 'thu ngân' in p:
+        return 'Thu ngân'
+    if 'pha chế' in p or 'bar' in p:
+        return 'Pha chế'
+    if 'runner' in p:
+        return 'Food runner'
+    if 'phụ bếp' in p:
+        return 'Bếp thớt'  # mặc định phụ bếp khởi đầu ở thớt
+    return job_position
+
+
 def matching_checklist_items(employee):
     """Checklist cua 1 nhan su, khop theo Brand (tu restaurant) + Position (normalized).
 
@@ -17,11 +61,11 @@ def matching_checklist_items(employee):
 
     if not employee.restaurant:
         return []
-    brand = employee.restaurant.brand
-    position_key = normalize_key(employee.position)
+    brand_keys = _brand_keys(employee.restaurant.brand)
+    position_key = normalize_key(checklist_position(employee.position))
     return [
-        c for c in Checklist.objects.filter(tenant=employee.tenant, brand=brand).order_by('day', 'order')
-        if normalize_key(c.position) == position_key
+        c for c in Checklist.objects.filter(tenant=employee.tenant).order_by('day', 'order')
+        if normalize_key(c.brand) in brand_keys and normalize_key(c.position) == position_key
     ]
 
 
@@ -54,12 +98,16 @@ def batch_checklist_progress_percent(employees):
     tenant = employees[0].tenant
     by_brand_position = defaultdict(list)
     for c in Checklist.objects.filter(tenant=tenant):
-        by_brand_position[(c.brand, normalize_key(c.position))].append(c)
+        by_brand_position[(normalize_key(c.brand), normalize_key(c.position))].append(c)
 
     items_by_employee = {}
     all_checklist_ids = set()
     for e in employees:
-        items = by_brand_position.get((e.restaurant.brand, normalize_key(e.position)), []) if e.restaurant else []
+        items = []
+        if e.restaurant:
+            pos_key = normalize_key(checklist_position(e.position))
+            for bk in _brand_keys(e.restaurant.brand):
+                items.extend(by_brand_position.get((bk, pos_key), []))
         items_by_employee[e.id] = items
         all_checklist_ids.update(c.id for c in items)
 
