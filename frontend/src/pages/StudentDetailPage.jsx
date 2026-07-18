@@ -7,7 +7,9 @@ import Table from '../components/Table'
 import { useAuth } from '../auth/AuthContext'
 import api from '../api/client'
 
-const ADMIN_ROLES = new Set(['admin', 'bql'])
+// Panel "Quản trị nhân sự" (đổi trạng thái, xuất phiếu...) chỉ dành cho Admin/OM.
+// Trainer/BQL/AM/KCS chỉ xem chi tiết + checklist, không hiện phần quản trị nhiều thông tin.
+const ADMIN_ROLES = new Set(['admin', 'om'])
 const COUNCIL_FINALIZE_ROLES = new Set(['admin', 'om', 'am', 'kcs'])
 
 const CHECKLIST_STATUS_VARIANTS = { pending: 'neutral', in_progress: 'mint', done: 'success' }

@@ -193,6 +193,17 @@ export default function TrainingPage() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <div>
                             <strong>{item.checklist.task_name}</strong>
+                            {item.checklist.doc_url && (
+                              <a
+                                href={item.checklist.doc_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                title="Xem tài liệu đào tạo"
+                                style={{ marginLeft: 6, textDecoration: 'none' }}
+                              >
+                                📄
+                              </a>
+                            )}
                             <div style={{ marginTop: 4 }}>
                               <Badge variant={STATUS_VARIANTS[status]}>{STATUS_LABELS[status]}</Badge>
                             </div>

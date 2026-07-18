@@ -23,10 +23,18 @@ body,
   height: 100%;
 }
 
-/* Chống tràn viền ngang trên điện thoại (A1) */
+/* Chống tràn viền ngang trên điện thoại (A1). Dùng `clip` thay `hidden` để KHÔNG tạo
+   scroll-container (tránh lỗi iOS làm bung thanh nav position:fixed khi cuộn). */
 html,
 body {
-  overflow-x: hidden;
+  overflow-x: clip;
+  max-width: 100%;
+}
+/* Không phần tử nào được rộng quá màn hình */
+.card,
+img,
+canvas,
+table {
   max-width: 100%;
 }
 
@@ -457,6 +465,14 @@ table.themed tbody tr:hover {
 }
 .mobile-topstrip .topbar-user {
   color: #fff;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-topstrip > div {
+  flex-shrink: 0;
 }
 .mobile-topstrip button.btn-outline {
   color: #fff;
@@ -515,6 +531,7 @@ table.themed tbody tr:hover {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 16px;
   background: linear-gradient(135deg, var(--forest), var(--green));
 }
 .login-card {
