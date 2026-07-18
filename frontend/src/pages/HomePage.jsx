@@ -67,7 +67,7 @@ export default function HomePage() {
 
       {data && (
         <>
-          <div className="stat-grid" style={{ marginBottom: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 16 }}>
             <StatCard label="Cần đào tạo" value={data.summary.need} />
             <StatCard label="Đạt thử việc" value={data.summary.passed} />
             <StatCard label="Đủ ĐK hoa hồng" amber value={data.summary.commission_eligible}>

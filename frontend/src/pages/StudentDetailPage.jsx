@@ -10,6 +10,8 @@ import api from '../api/client'
 // Panel "Quản trị nhân sự" (đổi trạng thái, xuất phiếu...) chỉ dành cho Admin/OM.
 // Trainer/BQL/AM/KCS chỉ xem chi tiết + checklist, không hiện phần quản trị nhiều thông tin.
 const ADMIN_ROLES = new Set(['admin', 'om'])
+// Đổi trạng thái làm việc: Admin/OM (panel đầy đủ) và cả BQL/Trainer (chỉ control gọn).
+const STATUS_UPDATE_ROLES = new Set(['admin', 'om', 'bql', 'trainer'])
 const COUNCIL_FINALIZE_ROLES = new Set(['admin', 'om', 'am', 'kcs'])
 
 const CHECKLIST_STATUS_VARIANTS = { pending: 'neutral', in_progress: 'mint', done: 'success' }
@@ -40,6 +42,7 @@ export default function StudentDetailPage() {
   const role = (user.role || '').toLowerCase()
   const isBod = role === 'bod'
   const isAdminPanel = ADMIN_ROLES.has(role)
+  const canUpdateStatus = STATUS_UPDATE_ROLES.has(role)
   const canFinalizeCouncil = COUNCIL_FINALIZE_ROLES.has(role)
 
   function load() {
@@ -180,6 +183,25 @@ export default function StudentDetailPage() {
               </a>
             </p>
           )}
+          {message && <p style={{ marginTop: 8 }}>{message}</p>}
+        </div>
+      )}
+
+      {!isAdminPanel && canUpdateStatus && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <h3 style={{ marginTop: 0 }}>Cập nhật trạng thái làm việc</h3>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <select value={statusValue} onChange={(e) => setStatusValue(e.target.value)}>
+              {STATUS_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <button onClick={saveStatus} disabled={saving}>
+              Cập nhật
+            </button>
+          </div>
           {message && <p style={{ marginTop: 8 }}>{message}</p>}
         </div>
       )}

@@ -13,7 +13,7 @@ from .models import Employee
 from .serializers import EmployeeSerializer
 from .services import change_employee_status
 
-STUDENT_ADMIN_ROLES = {'admin', 'bql'}
+STUDENT_ADMIN_ROLES = {'admin', 'om', 'bql', 'trainer'}
 
 
 TRAINING_STATUS_FILTERS = {'in_progress', 'not_started', 'done'}
@@ -121,6 +121,12 @@ class StudentChangeStatusView(APIView):
         if (request.user.role or '').lower() not in STUDENT_ADMIN_ROLES:
             return Response({'detail': 'Bạn không có quyền đổi trạng thái nhân sự.'}, status=403)
         employee = get_object_or_404(Employee, pk=pk, tenant=request.user.tenant)
+        # BQL/Trainer chỉ được đổi trạng thái nhân sự thuộc nhà hàng mình phụ trách.
+        from employees.permissions import get_restaurant_scope
+
+        scope = get_restaurant_scope(request.user)
+        if not scope['all'] and employee.restaurant_id not in scope['restaurant_ids']:
+            return Response({'detail': 'Bạn không đủ quyền cập nhật nhân sự nhà hàng này.'}, status=403)
         new_status = request.data.get('employee_status')
         if new_status not in dict(Employee.EmployeeStatus.choices):
             return Response({'detail': 'Trạng thái không hợp lệ.'}, status=400)
