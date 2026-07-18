@@ -91,6 +91,11 @@ def save_training_progress(user, payload):
         progress.pdf_url = pdf_url
 
     progress.save()
+
+    # Tiến độ đào tạo thay đổi → tính lại kết quả thử việc (điều kiện pass gồm đào tạo 100%).
+    from employees.services import recompute_final_result
+
+    recompute_final_result(employee)
     return progress
 
 

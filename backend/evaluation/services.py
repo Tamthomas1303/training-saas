@@ -5,7 +5,13 @@ from django.utils import timezone
 from checklist.storage import StorageError, is_data_url, upload_data_url, upload_pdf_bytes
 from employees.models import Employee
 from employees.permissions import can_evaluate
-from employees.services import matching_checklist_items, normalize_key, recompute_final_result
+from employees.services import (
+    checklist_progress_percent,
+    matching_checklist_items,
+    normalize_key,
+    random_eval_deadline,
+    recompute_final_result,
+)
 
 from .models import Evaluation, EvaluationCriteria, EvaluationDetail
 from .pdf import build_evaluation_pdf
@@ -27,6 +33,16 @@ COUNCIL_ASPECTS = [
 SKILL_PASS_THRESHOLD = 70
 
 RANDOM_CHECK_TYPES = ('AM_KCS', 'Training', 'Admin')
+
+# Phân vai: mỗi vai trò chỉ được thực hiện loại đánh giá tương ứng (phản hồi #7 mục 2/D).
+# BQL = chỉ đánh giá kỹ năng; AM/KCS = chỉ kiểm tra random; Admin/OM = toàn quyền.
+ALLOWED_EVAL_TYPES_BY_ROLE = {
+    'bql': {'Skill_BQL'},
+    'am': {'AM_KCS'},
+    'kcs': {'AM_KCS'},
+    'admin': {'Skill_BQL', 'AM_KCS', 'Training', 'Admin'},
+    'om': {'Skill_BQL', 'AM_KCS', 'Training', 'Admin'},
+}
 
 
 class ValidationError(Exception):
@@ -110,7 +126,15 @@ def save_evaluation(user, payload):
     if not can_evaluate(user):
         raise ValidationError('Bạn không có quyền đánh giá nhân sự.')
 
+    # D2/D3: chặn loại đánh giá theo vai trò (BQL chỉ kỹ năng; AM/KCS chỉ random).
+    role = (user.role or '').lower()
+    if eval_type not in ALLOWED_EVAL_TYPES_BY_ROLE.get(role, set()):
+        raise ValidationError('Vai trò của bạn không được thực hiện loại đánh giá này.')
+
     if eval_type == 'Skill_BQL':
+        # D3: BQL chỉ đánh giá nhân sự ĐÃ hoàn thành đào tạo tại điểm.
+        if checklist_progress_percent(employee) < 100:
+            raise ValidationError('Nhân sự chưa hoàn thành đào tạo tại điểm, chưa thể đánh giá kỹ năng.')
         already_done = Evaluation.objects.filter(
             tenant=tenant, employee=employee, eval_type='Skill_BQL', status=Evaluation.Status.DONE,
         ).exists()
@@ -123,6 +147,12 @@ def save_evaluation(user, payload):
         ).exists()
         if not has_bql_pass:
             raise ValidationError('Nhân sự này chưa được BQL đánh giá kỹ năng, chưa thể kiểm tra random.')
+        # F: chỉ cho đánh giá random trong 15 ngày kể từ khi hoàn thành đào tạo.
+        deadline = random_eval_deadline(employee)
+        if deadline and timezone.now().date() > deadline:
+            raise ValidationError(
+                'Đã quá 15 ngày kể từ khi nhân sự hoàn thành đào tạo — không thể đánh giá random nữa.'
+            )
 
     # Tim ban nhap dang do cua chinh nguoi danh gia nay (khop y upsert cua ban goc:
     # Employee_ID + Evaluator_ID + Eval_Type); neu khong co thi tao moi.
@@ -240,6 +270,14 @@ def save_evaluation(user, payload):
                 )
                 employee.commission_status = 'Tạm dừng - đào tạo lại'
                 employee.save(update_fields=['retrain_deadline', 'commission_status'])
+                # E (phản hồi #7 mục 6): random KHÔNG ĐẠT → reset tiến độ đào tạo về 0 để
+                # BQL/trainer đào tạo lại (đưa các mục đã Hoàn thành về Chưa bắt đầu, giữ dữ liệu).
+                from checklist.models import TrainingProgress
+
+                TrainingProgress.objects.filter(
+                    employee=employee, status=TrainingProgress.Status.DONE,
+                ).update(status=TrainingProgress.Status.PENDING, completed_at=None)
+                recompute_final_result(employee)
         else:
             employee.skill_score = percent / 100
             employee.skill_result = 'Đạt' if result == Evaluation.Result.PASS else 'Không đạt'
@@ -292,6 +330,9 @@ def save_council_score(user, payload):
         raise ValidationError('Không tìm thấy nhân sự')
     if not can_evaluate(user):
         raise ValidationError('Bạn không có quyền chấm điểm hội đồng.')
+    # D3: BQL không tham gia hội đồng — hội đồng do Admin tổ chức (thành viên OM/KCS/AM).
+    if (user.role or '').lower() == 'bql':
+        raise ValidationError('BQL không tham gia hội đồng đánh giá. Hội đồng do Admin tổ chức (OM/KCS/AM).')
     if not is_council_position(employee.position):
         raise ValidationError('Nhân sự này không thuộc diện đánh giá Hội đồng.')
 

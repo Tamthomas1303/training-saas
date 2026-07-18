@@ -53,3 +53,7 @@ jobs:
       # Nap/relink nhan su theo nha hang that vua import (resolve Restaurant theo ten)
       - name: Dong bo lai nhan su (gan dung nha hang)
         run: python manage.py sync_recruitment --tenant "Demo Tenant"
+
+      # Tinh lai ket qua thu viec theo dieu kien pass moi (LMS+dao tao 100%+thi+ky nang)
+      - name: Tinh lai ket qua thu viec
+        run: python manage.py recompute_probation --tenant "Demo Tenant"

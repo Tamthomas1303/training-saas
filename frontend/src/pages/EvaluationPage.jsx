@@ -8,6 +8,7 @@ import ProgressBar from '../components/ProgressBar'
 import SignaturePad from '../components/SignaturePad'
 import Table from '../components/Table'
 import api from '../api/client'
+import { useAuth } from '../auth/AuthContext'
 import { usePaginatedList } from '../hooks/usePaginatedList'
 import { submitGuarded } from '../utils/offlineQueue'
 import { compressImageFile } from '../utils/compressImage'
@@ -19,6 +20,15 @@ const EVAL_TYPE_OPTIONS = [
   { value: 'Skill_BQL', label: 'BQL đánh giá kỹ năng' },
   { value: 'AM_KCS', label: 'AM/KCS kiểm tra random' },
 ]
+
+// Phân vai (khớp backend evaluation/services.py): mỗi vai trò chỉ thấy loại đánh giá của mình.
+const ALLOWED_EVAL_TYPES_BY_ROLE = {
+  bql: ['Skill_BQL'],
+  am: ['AM_KCS'],
+  kcs: ['AM_KCS'],
+  admin: ['Skill_BQL', 'AM_KCS'],
+  om: ['Skill_BQL', 'AM_KCS'],
+}
 
 function clamp(value, min, max) {
   if (Number.isNaN(value)) return min
@@ -65,10 +75,16 @@ function EvalPhotoButton({ value, onChange }) {
 }
 
 export default function EvaluationPage() {
+  const { user } = useAuth()
+  const role = (user?.role || '').toLowerCase()
+  const allowedTypes = ALLOWED_EVAL_TYPES_BY_ROLE[role] || ['Skill_BQL']
+  const evalTypeOptions = EVAL_TYPE_OPTIONS.filter((o) => allowedTypes.includes(o.value))
+  const canCouncil = !['bql', 'trainer'].includes(role)
+
   const [employeeSearch, setEmployeeSearch] = useState('')
   const [page, setPage] = useState(1)
   const [selectedEmployee, setSelectedEmployee] = useState(null)
-  const [evalType, setEvalType] = useState('Skill_BQL')
+  const [evalType, setEvalType] = useState(allowedTypes[0] || 'Skill_BQL')
 
   const [criteriaData, setCriteriaData] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -259,17 +275,23 @@ export default function EvaluationPage() {
             {selectedEmployee.name} — {selectedEmployee.position} — {selectedEmployee.restaurant_name}
           </h3>
 
-          <FilterBar>
-            {EVAL_TYPE_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                className={evalType === opt.value ? '' : 'btn-outline'}
-                onClick={() => changeEvalType(opt.value)}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </FilterBar>
+          {evalTypeOptions.length > 1 ? (
+            <FilterBar>
+              {evalTypeOptions.map((opt) => (
+                <button
+                  key={opt.value}
+                  className={evalType === opt.value ? '' : 'btn-outline'}
+                  onClick={() => changeEvalType(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </FilterBar>
+          ) : (
+            <p className="muted-note" style={{ fontSize: 13 }}>
+              Loại đánh giá: {evalTypeOptions[0]?.label}
+            </p>
+          )}
 
           {loading && <p className="muted-note">Đang tải...</p>}
           {loadError && <p style={{ color: 'var(--danger)' }}>{loadError}</p>}
@@ -419,12 +441,16 @@ export default function EvaluationPage() {
                 </>
               )}
 
-              <p>
-                <button className="btn-outline btn-sm" onClick={() => setShowCouncil((v) => !v)}>
-                  {showCouncil ? 'Ẩn' : 'Hiện'} Chấm điểm hội đồng
-                </button>
-              </p>
-              {showCouncil && <CouncilForm employeeId={selectedEmployee.id} />}
+              {canCouncil && (
+                <>
+                  <p>
+                    <button className="btn-outline btn-sm" onClick={() => setShowCouncil((v) => !v)}>
+                      {showCouncil ? 'Ẩn' : 'Hiện'} Chấm điểm hội đồng
+                    </button>
+                  </p>
+                  {showCouncil && <CouncilForm employeeId={selectedEmployee.id} />}
+                </>
+              )}
             </>
           )}
         </>

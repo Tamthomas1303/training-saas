@@ -186,6 +186,36 @@ def latest_skill_eval_percent(employee):
     return float(ev.percent) if ev else None
 
 
+# Cửa sổ thời gian AM/KCS được đánh giá random sau khi nhân sự hoàn thành đào tạo (phản hồi #7 mục 5).
+RANDOM_EVAL_WINDOW_DAYS = 15
+
+
+def training_completed_date(employee):
+    """Ngày tiến độ đào tạo đạt 100% = completed_at muộn nhất trong các checklist đã Hoàn thành
+    (chỉ khi đã đủ 100%). None nếu chưa đạt 100%."""
+    if checklist_progress_percent(employee) < 100:
+        return None
+    from checklist.models import TrainingProgress
+
+    items = matching_checklist_items(employee)
+    last = (
+        TrainingProgress.objects.filter(
+            employee=employee, checklist_id__in=[c.id for c in items],
+            status=TrainingProgress.Status.DONE, completed_at__isnull=False,
+        )
+        .order_by('-completed_at')
+        .first()
+    )
+    return last.completed_at.date() if last else None
+
+
+def random_eval_deadline(employee):
+    """Hạn cuối AM/KCS được đánh giá random = ngày hoàn thành đào tạo + 15 ngày. None nếu chưa
+    hoàn thành đào tạo (chưa tính hạn)."""
+    done_date = training_completed_date(employee)
+    return done_date + datetime.timedelta(days=RANDOM_EVAL_WINDOW_DAYS) if done_date else None
+
+
 def worked_days(employee):
     from django.utils import timezone
 
@@ -247,15 +277,17 @@ def compute_final_result(employee):
         ok = eligible and exam_pass(employee) and employee.shift_ops == 'Đạt'
         return 'Pass thử việc' if ok else 'Tiếp tục thử việc'
 
-    # Nhan vien thuong (cap S)
+    # Nhan vien thuong (cap S): PASS = LMS học xong ∧ đào tạo tại điểm 100% ∧ thi lý thuyết đạt
+    # ∧ đánh giá thực hành đạt (phản hồi #7 mục 2). Bỏ công thức trung bình 0.4/0.6 của ĐỢT 2.
     if not eligible:
         return 'Tiếp tục thử việc'
-    theory = best_exam_score(employee)
-    skill_percent = float(employee.skill_score) * 100 if employee.skill_score is not None else 0
-    weighted = theory * 0.4 + skill_percent * 0.6
-    if employee.start_date and employee.start_date < FINAL_RESULT_CUTOFF_DATE:
-        return 'Pass thử việc' if weighted >= 80 else 'Tiếp tục thử việc'
-    return 'Pass thử việc' if (weighted >= 80 and exam_pass(employee)) else 'Tiếp tục thử việc'
+    if checklist_progress_percent(employee) < 100:
+        return 'Tiếp tục thử việc'
+    if not exam_pass(employee):
+        return 'Tiếp tục thử việc'
+    if employee.skill_result != 'Đạt':
+        return 'Tiếp tục thử việc'
+    return 'Pass thử việc'
 
 
 def recompute_final_result(employee):
