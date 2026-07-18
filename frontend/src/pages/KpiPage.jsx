@@ -152,8 +152,16 @@ function KpiSessionForm({ restaurants, defaultRestaurantId, onSaved }) {
           ))}
         </datalist>
         {topicDocUrl && (
-          <a href={topicDocUrl} target="_blank" rel="noreferrer" style={{ fontSize: 13, display: 'inline-block', marginTop: 4 }}>
-            📄 Xem tài liệu đào tạo
+          <a
+            href={topicDocUrl}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              display: 'inline-block', marginTop: 6, padding: '6px 12px', borderRadius: 8,
+              background: 'var(--forest)', color: '#fff', fontSize: 13, textDecoration: 'none',
+            }}
+          >
+            📄 Xem tài liệu
           </a>
         )}
         {topics.length === 0 && (

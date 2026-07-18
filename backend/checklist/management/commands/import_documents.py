@@ -54,6 +54,11 @@ class Command(BaseCommand):
         for row in rows:
             name = pick(row, 'name', 'Name', 'Ten', 'Ten_Tai_Lieu', 'Document_Name')
             file_url = pick(row, 'file_url', 'File_URL', 'URL', 'Link', 'Duong_Dan')
+            if not file_url:
+                # Suy link Google Drive từ Drive_File_ID nếu cột Link để trống (để nút "Xem tài liệu" hiện).
+                drive_id = pick(row, 'Drive_File_ID', 'drive_file_id', 'File_ID', 'Drive_ID')
+                if drive_id:
+                    file_url = f'https://drive.google.com/file/d/{drive_id}/view'
             if not name or not file_url:
                 skipped += 1
                 continue

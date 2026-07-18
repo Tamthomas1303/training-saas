@@ -53,6 +53,14 @@ a:hover {
   text-decoration: underline;
 }
 
+/* Ô nhập cỡ chữ >=16px để iOS Safari KHÔNG tự phóng to khi chạm vào (tránh kẹt zoom
+   khi nhập điểm và làm sai toạ độ khi ký). */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
 h1,
 h2,
 h3,

@@ -91,6 +91,7 @@ export default function EvaluationPage() {
   const [loadError, setLoadError] = useState('')
 
   const [scores, setScores] = useState({})
+  const [scoreWarning, setScoreWarning] = useState('')
   const [photos, setPhotos] = useState({})
   const [notes, setNotes] = useState({})
   const [generalNote, setGeneralNote] = useState('')
@@ -349,12 +350,17 @@ export default function EvaluationPage() {
                               min="0"
                               max={c.max_score}
                               value={scores[c.criteria_id] ?? 0}
-                              onChange={(e) =>
-                                setScores((sc) => ({
-                                  ...sc,
-                                  [c.criteria_id]: clamp(Number(e.target.value), 0, c.max_score),
-                                }))
-                              }
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                const raw = Number(e.target.value)
+                                if (raw > c.max_score) {
+                                  setScoreWarning(`"${c.content}": điểm tối đa là ${c.max_score}, không nhận điểm cao hơn.`)
+                                  setScores((sc) => ({ ...sc, [c.criteria_id]: c.max_score }))
+                                } else {
+                                  setScoreWarning('')
+                                  setScores((sc) => ({ ...sc, [c.criteria_id]: clamp(raw, 0, c.max_score) }))
+                                }
+                              }}
                               style={{ width: 70 }}
                             />
                           </td>
@@ -400,6 +406,9 @@ export default function EvaluationPage() {
                     <ProgressBar percent={percent} />
                   </div>
 
+                  {scoreWarning && (
+                    <p style={{ color: 'var(--danger)', fontSize: 13, marginBottom: 8 }}>{scoreWarning}</p>
+                  )}
                   <textarea
                     placeholder="Ghi chú chung..."
                     value={generalNote}

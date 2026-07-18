@@ -2,59 +2,90 @@ import { useEffect, useRef, useState } from 'react'
 
 export default function SignaturePad({ label, existingUrl, value, onChange }) {
   const canvasRef = useRef(null)
-  const drawingRef = useRef(false)
-  const lastRef = useRef({ x: 0, y: 0 })
+  const stateRef = useRef({ drawing: false, last: { x: 0, y: 0 }, dirty: false })
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
   const [mode, setMode] = useState(existingUrl && !value ? 'preview' : 'draw')
 
-  // Set buffer canvas theo kích thước hiển thị thực tế × devicePixelRatio → nét mượt + toạ độ
-  // ký khớp đúng điểm chạm (canvas co giãn 100% bề rộng, không cố định 220px như trước).
+  // Gắn listener GỐC (không phải React synthetic) với passive:false để preventDefault chạy được
+  // trên iOS → chặn cuộn trang, vẽ nét đúng điểm chạm. Đây là cách ký ổn định nhất trên mobile.
   useEffect(() => {
     if (mode !== 'draw') return
     const canvas = canvasRef.current
     if (!canvas) return
-    const dpr = window.devicePixelRatio || 1
-    const rect = canvas.getBoundingClientRect()
-    canvas.width = Math.max(1, Math.round(rect.width * dpr))
-    canvas.height = Math.max(1, Math.round(rect.height * dpr))
     const ctx = canvas.getContext('2d')
-    ctx.scale(dpr, dpr)
-    ctx.fillStyle = '#fff'
-    ctx.fillRect(0, 0, rect.width, rect.height)
-    ctx.lineWidth = 2
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
-    ctx.strokeStyle = '#111'
+    const dpr = window.devicePixelRatio || 1
+
+    function reset() {
+      const rect = canvas.getBoundingClientRect()
+      canvas.width = Math.max(1, Math.round(rect.width * dpr))
+      canvas.height = Math.max(1, Math.round(rect.height * dpr))
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+      ctx.fillStyle = '#fff'
+      ctx.fillRect(0, 0, rect.width, rect.height)
+      ctx.lineWidth = 2
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+      ctx.strokeStyle = '#111'
+    }
+    reset()
+
+    function point(e) {
+      const rect = canvas.getBoundingClientRect()
+      const t = e.touches && e.touches[0] ? e.touches[0] : e
+      return { x: t.clientX - rect.left, y: t.clientY - rect.top }
+    }
+    function down(e) {
+      e.preventDefault()
+      stateRef.current.drawing = true
+      stateRef.current.last = point(e)
+    }
+    function move(e) {
+      if (!stateRef.current.drawing) return
+      e.preventDefault()
+      const p = point(e)
+      ctx.beginPath()
+      ctx.moveTo(stateRef.current.last.x, stateRef.current.last.y)
+      ctx.lineTo(p.x, p.y)
+      ctx.stroke()
+      stateRef.current.last = p
+      stateRef.current.dirty = true
+    }
+    function up() {
+      if (!stateRef.current.drawing) return
+      stateRef.current.drawing = false
+      if (stateRef.current.dirty) onChangeRef.current(canvas.toDataURL('image/png'))
+    }
+
+    const opts = { passive: false }
+    const hasPointer = 'PointerEvent' in window
+    if (hasPointer) {
+      canvas.addEventListener('pointerdown', down, opts)
+      canvas.addEventListener('pointermove', move, opts)
+      window.addEventListener('pointerup', up)
+    } else {
+      canvas.addEventListener('touchstart', down, opts)
+      canvas.addEventListener('touchmove', move, opts)
+      window.addEventListener('touchend', up)
+      canvas.addEventListener('mousedown', down)
+      window.addEventListener('mousemove', move)
+      window.addEventListener('mouseup', up)
+    }
+    return () => {
+      if (hasPointer) {
+        canvas.removeEventListener('pointerdown', down, opts)
+        canvas.removeEventListener('pointermove', move, opts)
+        window.removeEventListener('pointerup', up)
+      } else {
+        canvas.removeEventListener('touchstart', down, opts)
+        canvas.removeEventListener('touchmove', move, opts)
+        window.removeEventListener('touchend', up)
+        canvas.removeEventListener('mousedown', down)
+        window.removeEventListener('mousemove', move)
+        window.removeEventListener('mouseup', up)
+      }
+    }
   }, [mode])
-
-  function pos(e) {
-    const rect = canvasRef.current.getBoundingClientRect()
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top }
-  }
-
-  function start(e) {
-    e.preventDefault()
-    canvasRef.current.setPointerCapture?.(e.pointerId)
-    drawingRef.current = true
-    lastRef.current = pos(e)
-  }
-
-  function move(e) {
-    if (!drawingRef.current) return
-    e.preventDefault()
-    const p = pos(e)
-    const ctx = canvasRef.current.getContext('2d')
-    ctx.beginPath()
-    ctx.moveTo(lastRef.current.x, lastRef.current.y)
-    ctx.lineTo(p.x, p.y)
-    ctx.stroke()
-    lastRef.current = p
-  }
-
-  function end() {
-    if (!drawingRef.current) return
-    drawingRef.current = false
-    onChange(canvasRef.current.toDataURL('image/png'))
-  }
 
   function clear() {
     const canvas = canvasRef.current
@@ -62,6 +93,7 @@ export default function SignaturePad({ label, existingUrl, value, onChange }) {
     const rect = canvas.getBoundingClientRect()
     ctx.fillStyle = '#fff'
     ctx.fillRect(0, 0, rect.width, rect.height)
+    stateRef.current.dirty = false
     onChange('')
   }
 
@@ -94,10 +126,6 @@ export default function SignaturePad({ label, existingUrl, value, onChange }) {
           width: '100%', maxWidth: 320, height: 110, display: 'block', margin: '0 auto',
           border: '1px solid #999', borderRadius: 6, touchAction: 'none', background: '#fff',
         }}
-        onPointerDown={start}
-        onPointerMove={move}
-        onPointerUp={end}
-        onPointerCancel={end}
       />
       <div style={{ marginTop: 4, fontSize: 13 }}>
         {label} {value && <span style={{ color: 'green' }}>(đã ký)</span>}
