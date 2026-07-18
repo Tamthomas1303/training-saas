@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import api from '../api/client'
+import { useAuth } from '../auth/AuthContext'
 import { submitGuarded } from '../utils/offlineQueue'
 import SignaturePad from './SignaturePad'
 
@@ -9,9 +10,25 @@ const ASPECTS = [
   { id: 'COUNCIL_VANHANH', name: 'Vận hành ca' },
 ]
 
+// Phân vai chấm hội đồng cấp O (phản hồi #7): vận hành ca do AM/KCS; tay nghề + kỹ năng đào tạo
+// (phỏng vấn) do OM/KCS/Admin. Mỗi giám khảo chỉ chấm khía cạnh mình phụ trách.
+const ROLE_ASPECTS = {
+  am: ['COUNCIL_VANHANH'],
+  om: ['COUNCIL_TAYNGHE', 'COUNCIL_DAOTAO'],
+  kcs: ['COUNCIL_TAYNGHE', 'COUNCIL_DAOTAO', 'COUNCIL_VANHANH'],
+  admin: ['COUNCIL_TAYNGHE', 'COUNCIL_DAOTAO', 'COUNCIL_VANHANH'],
+}
+
 export default function CouncilForm({ employeeId }) {
+  const { user } = useAuth()
+  const role = (user?.role || '').toLowerCase()
+  const myAspectIds = ROLE_ASPECTS[role] || []
+  const myAspects = ASPECTS.filter((a) => myAspectIds.includes(a.id))
+
   const [summary, setSummary] = useState(null)
-  const [scores, setScores] = useState({ COUNCIL_TAYNGHE: 80, COUNCIL_DAOTAO: 80, COUNCIL_VANHANH: 80 })
+  const [scores, setScores] = useState(
+    Object.fromEntries(myAspects.map((a) => [a.id, 80]))
+  )
   const [signature, setSignature] = useState('')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
@@ -92,29 +109,42 @@ export default function CouncilForm({ employeeId }) {
         ))}
       </div>
 
-      <h5>Chấm điểm của bạn</h5>
-      {ASPECTS.map((a) => (
-        <div key={a.id} style={{ marginBottom: 8 }}>
-          <label style={{ display: 'block', fontSize: 13, color: '#666' }}>{a.name} (0–100)</label>
-          <input
-            type="number"
-            min="0"
-            max="100"
-            value={scores[a.id]}
-            onChange={(e) => setScores((s) => ({ ...s, [a.id]: Number(e.target.value) }))}
-            style={{ width: 100, padding: 6 }}
-          />
-        </div>
-      ))}
+      {myAspects.length > 0 ? (
+        <>
+          <h5>Chấm điểm của bạn ({role.toUpperCase()})</h5>
+          {myAspects.map((a) => (
+            <div key={a.id} style={{ marginBottom: 8 }}>
+              <label style={{ display: 'block', fontSize: 13, color: '#666' }}>{a.name} (0–100)</label>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                value={scores[a.id] ?? 0}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => {
+                  const raw = Number(e.target.value)
+                  setScores((s) => ({ ...s, [a.id]: Math.max(0, Math.min(100, Number.isNaN(raw) ? 0 : raw)) }))
+                }}
+                style={{ width: 100, padding: 6 }}
+              />
+            </div>
+          ))}
 
-      <div style={{ margin: '12px 0' }}>
-        <SignaturePad label="Chữ ký giám khảo" value={signature} onChange={setSignature} />
-      </div>
+          <div style={{ margin: '12px 0' }}>
+            <SignaturePad label="Chữ ký giám khảo" value={signature} onChange={setSignature} />
+          </div>
 
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button disabled={saving} onClick={submitScore}>
-          Gửi điểm
-        </button>
+          <button disabled={saving} onClick={submitScore}>
+            Gửi điểm
+          </button>
+        </>
+      ) : (
+        <p className="muted-note" style={{ fontSize: 13 }}>
+          Vai trò của bạn không chấm điểm hội đồng — chỉ theo dõi tổng hợp và chốt.
+        </p>
+      )}
+
+      <div style={{ marginTop: 12 }}>
         <button onClick={finalize}>Chốt hội đồng</button>
       </div>
 

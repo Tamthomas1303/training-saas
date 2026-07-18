@@ -19,11 +19,11 @@ export const MENU_ITEMS = {
 const MOBILE_ROLES = new Set(['trainer', 'bql', 'am', 'kcs'])
 
 const ROLE_MENU = {
-  admin: ['dashboard', 'students', 'checklist', 'kpi', 'kpiDashboard', 'commission', 'documents', 'users'],
-  om: ['dashboard', 'students', 'checklist', 'kpi', 'kpiDashboard', 'commission', 'documents'],
+  admin: ['dashboard', 'students', 'checklist', 'evaluation', 'kpi', 'kpiDashboard', 'commission', 'documents', 'users'],
+  om: ['dashboard', 'students', 'checklist', 'evaluation', 'kpi', 'kpiDashboard', 'commission', 'documents'],
   bod: ['dashboard', 'students', 'checklist', 'kpi', 'kpiDashboard', 'commission', 'documents'],
-  am: ['home', 'evaluation', 'kpi', 'documents'],
-  kcs: ['home', 'evaluation', 'kpi', 'documents'],
+  am: ['home', 'training', 'evaluation', 'kpi', 'documents'],
+  kcs: ['home', 'training', 'evaluation', 'kpi', 'documents'],
   bql: ['home', 'training', 'evaluation', 'kpi', 'documents'],
   trainer: ['home', 'training', 'documents'],
 }

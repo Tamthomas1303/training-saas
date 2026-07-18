@@ -356,11 +356,17 @@ def save_council_score(user, payload):
         else:
             evaluation.sign_evaluator = sign
 
+    # Chỉ chấm những khía cạnh giám khảo GỬI LÊN (item 7: vận hành ca do AM/KCS; tay nghề/
+    # phỏng vấn do OM/KCS) — không ép đủ 3 để không kéo tụt trung bình khía cạnh không phụ trách.
+    submitted = [a for a in COUNCIL_ASPECTS if a['id'] in scores]
+    if not submitted:
+        raise ValidationError('Chưa có điểm khía cạnh nào để chấm.')
+
     total = 0
     detail_rows = []
-    for aspect in COUNCIL_ASPECTS:
+    for aspect in submitted:
         try:
-            score = max(0, min(100, float(scores.get(aspect['id'], 0) or 0)))
+            score = max(0, min(100, float(scores.get(aspect['id']) or 0)))
         except (TypeError, ValueError):
             score = 0
         total += score
@@ -368,10 +374,10 @@ def save_council_score(user, payload):
             tenant=tenant, evaluation=evaluation, criteria_id=aspect['id'], content=aspect['name'],
             max_score=100, score=score,
         ))
-    overall = round(total / len(COUNCIL_ASPECTS))
+    overall = round(total / len(submitted))
 
     evaluation.total_score = total
-    evaluation.max_score = 100 * len(COUNCIL_ASPECTS)
+    evaluation.max_score = 100 * len(submitted)
     evaluation.percent = overall
     evaluation.result = Evaluation.Result.PASS if overall >= SKILL_PASS_THRESHOLD else Evaluation.Result.FAIL
     evaluation.status = Evaluation.Status.DONE

@@ -21,6 +21,9 @@ const EVAL_TYPE_OPTIONS = [
   { value: 'AM_KCS', label: 'AM/KCS kiểm tra random' },
 ]
 
+// Nhân sự cấp O (quản lý) mới thuộc diện Hội đồng đánh giá (khớp backend is_council_position).
+const COUNCIL_POSITION_RE = /quản lý|giám sát|bếp trưởng|bếp phó/i
+
 // Phân vai (khớp backend evaluation/services.py): mỗi vai trò chỉ thấy loại đánh giá của mình.
 const ALLOWED_EVAL_TYPES_BY_ROLE = {
   bql: ['Skill_BQL'],
@@ -455,11 +458,11 @@ export default function EvaluationPage() {
                 </>
               )}
 
-              {canCouncil && (
+              {canCouncil && COUNCIL_POSITION_RE.test(selectedEmployee.position || '') && (
                 <>
                   <p>
                     <button className="btn-outline btn-sm" onClick={() => setShowCouncil((v) => !v)}>
-                      {showCouncil ? 'Ẩn' : 'Hiện'} Chấm điểm hội đồng
+                      {showCouncil ? 'Ẩn' : 'Hiện'} Hội đồng đánh giá cấp O
                     </button>
                   </p>
                   {showCouncil && <CouncilForm employeeId={selectedEmployee.id} />}
