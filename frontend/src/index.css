@@ -3,6 +3,19 @@
   box-sizing: border-box;
 }
 
+/* Chặn iOS tự phóng to chữ (nguyên nhân "màn hình to quá, zoom nhỏ mới đúng") + không cho
+   layout rộng quá màn hình thật. */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+html,
+body {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
 body {
   margin: 0;
 }
@@ -11,8 +24,16 @@ body {
   min-height: 100svh;
   display: flex;
   flex-direction: column;
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 p {
   margin: 0;
+}
+
+img,
+canvas,
+svg {
+  max-width: 100%;
 }

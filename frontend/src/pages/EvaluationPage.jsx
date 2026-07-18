@@ -310,7 +310,12 @@ export default function EvaluationPage() {
                 )}
               </p>
 
-              {evalType === 'AM_KCS' && !criteriaData.has_bql_evaluation ? (
+              {evalType === 'Skill_BQL' && criteriaData.training_progress_percent < 100 ? (
+                <p style={{ color: 'var(--danger)' }}>
+                  Nhân sự chưa hoàn thành đào tạo tại điểm (mới {criteriaData.training_progress_percent}%),
+                  chưa thể đánh giá kỹ năng.
+                </p>
+              ) : evalType === 'AM_KCS' && !criteriaData.has_bql_evaluation ? (
                 <p style={{ color: 'var(--danger)' }}>
                   Nhân sự này chưa được BQL đánh giá kỹ năng, chưa thể kiểm tra random.
                 </p>

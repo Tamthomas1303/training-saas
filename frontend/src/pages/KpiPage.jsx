@@ -19,6 +19,7 @@ function KpiSessionForm({ restaurants, defaultRestaurantId, onSaved }) {
   const [topics, setTopics] = useState([])
   const [topic, setTopic] = useState('')
   const [documentId, setDocumentId] = useState(null)
+  const [topicDocUrl, setTopicDocUrl] = useState('')
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [note, setNote] = useState('')
   const [participants, setParticipants] = useState([])
@@ -52,6 +53,7 @@ function KpiSessionForm({ restaurants, defaultRestaurantId, onSaved }) {
     setTopic(value)
     const match = topics.find((t) => `${t.name}${t.category ? ` (${t.category})` : ''}` === value)
     setDocumentId(match ? match.id : null)
+    setTopicDocUrl(match ? match.file_url || '' : '')
   }
 
   function addParticipant(emp) {
@@ -149,6 +151,11 @@ function KpiSessionForm({ restaurants, defaultRestaurantId, onSaved }) {
             <option key={t.id} value={`${t.name}${t.category ? ` (${t.category})` : ''}`} />
           ))}
         </datalist>
+        {topicDocUrl && (
+          <a href={topicDocUrl} target="_blank" rel="noreferrer" style={{ fontSize: 13, display: 'inline-block', marginTop: 4 }}>
+            📄 Xem tài liệu đào tạo
+          </a>
+        )}
         {topics.length === 0 && (
           <div style={{ fontSize: 12, color: 'var(--amber)' }}>
             Chưa có tài liệu chuẩn nào — vào màn Checklist / Tài liệu để thêm.
@@ -188,7 +195,7 @@ function KpiSessionForm({ restaurants, defaultRestaurantId, onSaved }) {
         <div
           key={p.employee_id}
           style={{
-            display: 'flex', gap: 16, alignItems: 'flex-start', marginBottom: 12,
+            display: 'flex', gap: 16, alignItems: 'flex-start', marginBottom: 12, flexWrap: 'wrap',
             borderBottom: '1px solid var(--card-border)', paddingBottom: 12,
           }}
         >

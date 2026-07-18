@@ -49,12 +49,15 @@ export default function HomePage() {
           style={{
             width: 48, height: 48, borderRadius: '50%', background: 'rgba(255,255,255,.25)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 700,
+            flexShrink: 0,
           }}
         >
           {(user.full_name || user.username || '?').charAt(0).toUpperCase()}
         </div>
-        <div>
-          <h2 style={{ color: '#fff', margin: 0 }}>Xin chào, {user.full_name || user.username}</h2>
+        <div style={{ minWidth: 0 }}>
+          <h2 style={{ color: '#fff', margin: 0, overflowWrap: 'anywhere' }}>
+            Xin chào, {user.full_name || user.username}
+          </h2>
           <p style={{ margin: '4px 0 0', opacity: 0.9 }}>Vai trò: {user.role}</p>
         </div>
       </div>
@@ -64,7 +67,7 @@ export default function HomePage() {
 
       {data && (
         <>
-          <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+          <div className="stat-grid" style={{ marginBottom: 16 }}>
             <StatCard label="Cần đào tạo" value={data.summary.need} />
             <StatCard label="Đạt thử việc" value={data.summary.passed} />
             <StatCard label="Đủ ĐK hoa hồng" amber value={data.summary.commission_eligible}>

@@ -484,9 +484,18 @@ table.themed tbody tr:hover {
 
 .app-content-mobile {
   max-width: 640px;
+  width: 100%;
   margin: 0 auto;
   padding: 16px;
   padding-bottom: calc(84px + env(safe-area-inset-bottom));
+  overflow-x: clip; /* con quá rộng bị cắt trong khung, KHÔNG giãn container gây lệch cả trang */
+}
+/* Cho tiêu đề/chữ dài xuống dòng thay vì đẩy tràn ngang trên điện thoại */
+.app-content-mobile h1,
+.app-content-mobile h2,
+.app-content-mobile h3,
+.app-content-mobile h4 {
+  overflow-wrap: anywhere;
 }
 
 .bottom-nav {
