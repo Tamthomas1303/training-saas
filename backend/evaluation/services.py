@@ -30,7 +30,8 @@ COUNCIL_ASPECTS = [
     {'id': 'COUNCIL_VANHANH', 'name': 'Vận hành ca'},
 ]
 
-SKILL_PASS_THRESHOLD = 70
+# Ngưỡng đạt đánh giá thực hành = 85% (khớp hệ cũ Config.skillCommission). Phản hồi #7.
+SKILL_PASS_THRESHOLD = 85
 
 RANDOM_CHECK_TYPES = ('AM_KCS', 'Training', 'Admin')
 

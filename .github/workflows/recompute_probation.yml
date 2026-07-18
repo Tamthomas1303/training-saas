@@ -1,0 +1,25 @@
+name: Recompute Probation (tinh lai ket qua thu viec)
+
+# Chay tay khi can tinh lai final_result cho toan bo nhan su theo dieu kien pass moi
+# (LMS + dao tao tai diem 100% + thi dat + danh gia thuc hanh dat >= 85%).
+# Vao tab Actions > chon workflow nay > Run workflow.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  recompute:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
+      DJANGO_DEBUG: 'False'
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python manage.py recompute_probation --tenant "Demo Tenant"

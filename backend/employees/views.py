@@ -104,6 +104,11 @@ class StudentDetailView(APIView):
 
     def get(self, request, pk):
         employee = get_object_or_404(Employee, pk=pk, tenant=request.user.tenant)
+        # Tính lại kết quả thử việc theo điều kiện hiện tại (gồm đào tạo 100%) để luôn hiển thị
+        # đúng, không phụ thuộc giá trị final_result cũ đã import.
+        from .services import recompute_final_result
+
+        recompute_final_result(employee)
         return Response(student_detail(employee))
 
 

@@ -181,7 +181,7 @@ export default function EvaluationPage() {
   const maxTotal = items.reduce((sum, c) => sum + c.max_score, 0)
   const percent = maxTotal ? Math.round((total / maxTotal) * 100) : 0
   const mandatoryFail = items.some((c) => c.is_mandatory && (scores[c.criteria_id] ?? 0) <= 0)
-  const pass = percent >= 70 && !mandatoryFail
+  const pass = percent >= 85 && !mandatoryFail
 
   async function submit(complete) {
     setSaving(true)

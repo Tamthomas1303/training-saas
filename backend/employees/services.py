@@ -285,7 +285,8 @@ def compute_final_result(employee):
         return 'Tiếp tục thử việc'
     if not exam_pass(employee):
         return 'Tiếp tục thử việc'
-    if employee.skill_result != 'Đạt':
+    skill_percent = float(employee.skill_score) * 100 if employee.skill_score is not None else 0
+    if skill_percent < 85:  # đạt đánh giá thực hành ≥ 85% (khớp hệ cũ)
         return 'Tiếp tục thử việc'
     return 'Pass thử việc'
 
