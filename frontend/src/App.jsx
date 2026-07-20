@@ -15,6 +15,7 @@ import CommissionPage from './pages/CommissionPage'
 import KpiDashboardPage from './pages/KpiDashboardPage'
 import UsersPage from './pages/UsersPage'
 import DocumentsPage from './pages/DocumentsPage'
+import GuestCouncilPage from './pages/GuestCouncilPage'
 import api from './api/client'
 import { isMobileRole } from './config/menu'
 import { flushQueue, initOfflineSync } from './utils/offlineQueue'
@@ -35,6 +36,7 @@ function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/council-guest/:token" element={<GuestCouncilPage />} />
           <Route
             path="/"
             element={

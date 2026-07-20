@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import AppShell from '../components/AppShell'
 import Badge from '../components/Badge'
-import CouncilForm from '../components/CouncilForm'
+import CouncilPanel from '../components/CouncilPanel'
 import FilterBar from '../components/FilterBar'
 import Pager from '../components/Pager'
 import ProgressBar from '../components/ProgressBar'
@@ -279,6 +279,10 @@ export default function EvaluationPage() {
             {selectedEmployee.name} — {selectedEmployee.position} — {selectedEmployee.restaurant_name}
           </h3>
 
+          {COUNCIL_POSITION_RE.test(selectedEmployee.position || '') ? (
+            <CouncilPanel employee={selectedEmployee} />
+          ) : (
+          <>
           {evalTypeOptions.length > 1 ? (
             <FilterBar>
               {evalTypeOptions.map((opt) => (
@@ -458,17 +462,9 @@ export default function EvaluationPage() {
                 </>
               )}
 
-              {canCouncil && COUNCIL_POSITION_RE.test(selectedEmployee.position || '') && (
-                <>
-                  <p>
-                    <button className="btn-outline btn-sm" onClick={() => setShowCouncil((v) => !v)}>
-                      {showCouncil ? 'Ẩn' : 'Hiện'} Hội đồng đánh giá cấp O
-                    </button>
-                  </p>
-                  {showCouncil && <CouncilForm employeeId={selectedEmployee.id} />}
-                </>
-              )}
             </>
+          )}
+          </>
           )}
         </>
       )}

@@ -244,6 +244,7 @@ def council_detail(council):
             member_results.append(avg)
         member_rows.append({
             'member_id': m.id,
+            'user_id': m.user_id,
             'name': (m.user.full_name or m.user.username) if m.user else m.guest_name,
             'is_guest': m.user_id is None,
             'dept_role': m.dept_role,
