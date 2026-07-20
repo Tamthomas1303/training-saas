@@ -17,6 +17,10 @@ class EvalType(models.TextChoices):
     TRAINING = 'Training', 'Phòng Đào tạo'
     ADMIN = 'Admin', 'Ban giám đốc'
     COUNCIL = 'Council', 'Hội đồng'
+    # Cấp O (mục 7): vận hành ca (cá nhân AM/KCS) + hội đồng tay nghề + hội đồng phỏng vấn.
+    SHIFT_OPS = 'ShiftOps', 'Đánh giá vận hành ca'
+    COUNCIL_SKILL = 'Council_Skill', 'Hội đồng tay nghề'
+    COUNCIL_INTERVIEW = 'Council_Interview', 'Hội đồng phỏng vấn'
 
 
 class EvaluationCriteria(models.Model):
@@ -37,6 +41,9 @@ class EvaluationCriteria(models.Model):
     is_mandatory = models.BooleanField(default=False)
     require_photo = models.BooleanField(default=False)
     order = models.IntegerField(default=0)
+    # Cấp O: nhóm vị trí (FOH/BOH) + vai người chấm trong phỏng vấn (HCNS/DaoTao/VanHanh/QC).
+    position_group = models.CharField(max_length=10, blank=True)
+    dept_role = models.CharField(max_length=20, blank=True)
 
     class Meta:
         ordering = ['order']
@@ -78,6 +85,14 @@ class Evaluation(models.Model):
     completed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Cấp O: gắn phiếu vào 1 hội đồng + thành viên chấm (giám khảo/khách mời), và tên món (tay nghề).
+    council = models.ForeignKey(
+        'Council', on_delete=models.SET_NULL, related_name='evaluations', null=True, blank=True
+    )
+    council_member = models.ForeignKey(
+        'CouncilMember', on_delete=models.SET_NULL, related_name='evaluations', null=True, blank=True
+    )
+    dish_name = models.CharField(max_length=255, blank=True)
 
     def __str__(self):
         return f'{self.employee_id} - {self.eval_type} - {self.evaluator_id}'
@@ -109,3 +124,49 @@ class EvaluationDetail(models.Model):
 
     def __str__(self):
         return f'{self.criteria_id} = {self.score}'
+
+
+class Council(models.Model):
+    """Hội đồng đánh giá cấp O (mục 7). Admin/Phòng Đào tạo lập cho 1 nhân sự, theo 1 loại:
+    tay nghề (chấm theo món) hoặc phỏng vấn (mỗi vai một bộ tiêu chí)."""
+
+    class Kind(models.TextChoices):
+        SKILL = 'skill', 'Đánh giá tay nghề'
+        INTERVIEW = 'interview', 'Phỏng vấn'
+
+    class Status(models.TextChoices):
+        OPEN = 'open', 'Đang mở'
+        FINALIZED = 'finalized', 'Đã chốt'
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='councils')
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='councils')
+    kind = models.CharField(max_length=20, choices=Kind.choices)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, related_name='councils_created', null=True, blank=True
+    )
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
+    note = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'Council {self.kind} - emp {self.employee_id}'
+
+
+class CouncilMember(models.Model):
+    """Thành viên hội đồng: hoặc user có tài khoản (OM/AM/KCS/Tổng bếp trưởng), hoặc khách mời
+    ngoài hệ thống (QC/HCNS...) chấm qua link token — không cần đăng nhập."""
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='council_members')
+    council = models.ForeignKey(Council, on_delete=models.CASCADE, related_name='members')
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='council_memberships', null=True, blank=True
+    )
+    guest_name = models.CharField(max_length=255, blank=True)
+    guest_dept = models.CharField(max_length=100, blank=True)
+    dept_role = models.CharField(max_length=20, blank=True)  # HCNS/DaoTao/VanHanh/QC (phỏng vấn)
+    token = models.CharField(max_length=64, blank=True, db_index=True)  # link khách mời
+    submitted = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.user.username if self.user else (self.guest_name or 'guest')

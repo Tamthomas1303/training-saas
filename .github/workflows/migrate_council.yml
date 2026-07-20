@@ -1,0 +1,25 @@
+name: Migrate + Seed Council (cap O)
+
+# Chay tay sau khi push Phase 1: tao bang Council/CouncilMember + cot moi, va nap bo tieu chi
+# danh gia cap O. Vao Actions > chon workflow nay > Run workflow.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
+      DJANGO_DEBUG: 'False'
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python manage.py migrate --noinput
+      - run: python manage.py seed_council_criteria --tenant "Demo Tenant"
