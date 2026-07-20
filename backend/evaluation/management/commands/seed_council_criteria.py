@@ -99,6 +99,29 @@ SKILL_BOH = [
     ('V. Trình bày/Kiến thức', 'Trả lời các câu hỏi liên quan đến kiến thức món'),
 ]
 
+# ---- Tay nghề pha chế FOH (thang 1–4 → max_score = 4) ----
+SKILL_FOH = [
+    ('I. Chuẩn bị', 'Hình ảnh diện mạo đúng tiêu chuẩn'),
+    ('I. Chuẩn bị', 'Công cụ dụng cụ đầy đủ, đúng tiêu chuẩn'),
+    ('I. Chuẩn bị', 'Nguyên liệu đầy đủ, đúng tiêu chuẩn'),
+    ('II. Thực hành', 'Sơ chế đúng tiêu chuẩn'),
+    ('II. Thực hành', 'Hao hụt đúng tỷ lệ cho phép khi sơ chế'),
+    ('II. Thực hành', 'Pha chế đồ uống đúng theo chart'),
+    ('II. Thực hành', 'Tư thế tác phong nhanh nhẹn, dứt khoát'),
+    ('II. Thực hành', 'Tuân thủ các yêu cầu về VSATTP'),
+    ('III. Đánh giá kỹ năng', 'Kỹ năng sử dụng CCDC: dao, máy xay'),
+    ('III. Đánh giá kỹ năng', 'Kỹ năng pha chế thành thạo: lắc, khuấy, xay'),
+    ('III. Đánh giá kỹ năng', 'Kỹ năng nhận biết, đánh giá độ tươi ngon và tiêu chuẩn nguyên liệu'),
+    ('III. Đánh giá kỹ năng', 'Kỹ năng sắp xếp tổ chức công việc khi thực hành món'),
+    ('IV. Tiêu chuẩn ra món', 'Đảm bảo thời gian ra đồ uống'),
+    ('IV. Tiêu chuẩn ra món', 'Đảm bảo món ra đúng hình ảnh, đẹp'),
+    ('IV. Tiêu chuẩn ra món', 'Đảm bảo đúng mùi vị đồ uống'),
+    ('IV. Tiêu chuẩn ra món', 'Đảm bảo đúng màu sắc đồ uống'),
+    ('IV. Tiêu chuẩn ra món', 'Đảm bảo đúng trạng thái'),
+    ('V. Trình bày/Kiến thức', 'Thuyết trình đồ uống'),
+    ('V. Trình bày/Kiến thức', 'Trả lời các câu hỏi liên quan đến kiến thức món'),
+]
+
 # ---- Phỏng vấn (thang 1–4 → max_score = 4), theo vai người chấm ----
 INTERVIEW_FOH = {
     'HCNS': [
@@ -169,9 +192,11 @@ class Command(BaseCommand):
             upsert('ShiftOps', 'FOH', '', sec, ct, 1, i); n += 1
         for i, (sec, ct) in enumerate(SHIFTOPS_BOH):
             upsert('ShiftOps', 'BOH', '', sec, ct, 1, i); n += 1
-        # Tay nghề bếp (BOH)
+        # Tay nghề bếp (BOH) + pha chế (FOH)
         for i, (sec, ct) in enumerate(SKILL_BOH):
             upsert('Council_Skill', 'BOH', '', sec, ct, 4, i); n += 1
+        for i, (sec, ct) in enumerate(SKILL_FOH):
+            upsert('Council_Skill', 'FOH', '', sec, ct, 4, i); n += 1
         # Phỏng vấn (mỗi vai một bộ)
         for grp, mapping in (('FOH', INTERVIEW_FOH), ('BOH', INTERVIEW_BOH)):
             order = 0
@@ -180,6 +205,5 @@ class Command(BaseCommand):
                     upsert('Council_Interview', grp, dept, DEPT_LABEL[dept], ct, 4, order); order += 1; n += 1
 
         self.stdout.write(self.style.SUCCESS(
-            f'Da nap {n} tieu chi cap O (van hanh ca + tay nghe BOH + phong van FOH/BOH). '
-            f'Con thieu: form FOH tay nghe pha che do uong.'
+            f'Da nap {n} tieu chi cap O: van hanh ca FOH/BOH + tay nghe BOH & pha che FOH + phong van FOH/BOH.'
         ))
