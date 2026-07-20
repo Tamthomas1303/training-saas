@@ -33,6 +33,9 @@ class Employee(models.Model):
     skill_score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     skill_result = models.CharField(max_length=50, blank=True)
     shift_ops = models.CharField(max_length=50, blank=True)
+    # Cấp O (mục 7): kết quả hội đồng phỏng vấn
+    interview_score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    interview_result = models.CharField(max_length=50, blank=True)
     office_result = models.CharField(max_length=50, blank=True)
     final_result = models.CharField(max_length=50, blank=True)
     trainer = models.ForeignKey(

@@ -269,12 +269,16 @@ def compute_final_result(employee):
     is_bep_truong_pho = 'bếp trưởng' in position or 'bếp phó' in position
     is_quan_ly_giam_sat = 'quản lý' in position or 'giám sát' in position
 
-    if is_bep_truong_pho:
-        ok = eligible and exam_pass(employee) and employee.skill_result == 'Đạt' and employee.shift_ops == 'Đạt'
-        return 'Pass thử việc' if ok else 'Tiếp tục thử việc'
-
-    if is_quan_ly_giam_sat:
-        ok = eligible and exam_pass(employee) and employee.shift_ops == 'Đạt'
+    # Cấp O (mục 7): PASS = LMS + thi + đào tạo tại điểm 100% + vận hành ca đạt (AM/KCS)
+    # + tay nghề đạt (hội đồng) + phỏng vấn đạt (hội đồng).
+    if is_bep_truong_pho or is_quan_ly_giam_sat:
+        ok = (
+            eligible and exam_pass(employee)
+            and checklist_progress_percent(employee) >= 100
+            and employee.shift_ops == 'Đạt'
+            and employee.skill_result == 'Đạt'
+            and employee.interview_result == 'Đạt'
+        )
         return 'Pass thử việc' if ok else 'Tiếp tục thử việc'
 
     # Nhan vien thuong (cap S): PASS = LMS học xong ∧ đào tạo tại điểm 100% ∧ thi lý thuyết đạt
