@@ -71,6 +71,20 @@ export default function StudentDetailPage() {
     }
   }
 
+  async function saveOfficeResult(result) {
+    setSaving(true)
+    setMessage('')
+    try {
+      await api.post(`/employees/${id}/office-result/`, { result })
+      setMessage(`Đã ghi kết quả Văn phòng: ${result}.`)
+      load()
+    } catch (err) {
+      setMessage(err.response?.data?.detail || 'Không ghi được kết quả.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function exportProbationResult() {
     setSaving(true)
     setMessage('')
@@ -184,6 +198,25 @@ export default function StudentDetailPage() {
             </p>
           )}
           {message && <p style={{ marginTop: 8 }}>{message}</p>}
+        </div>
+      )}
+
+      {isAdminPanel && data.info.operation_unit === 'office' && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <h3 style={{ marginTop: 0 }}>Kết quả thử việc — Khối Văn phòng</h3>
+          <p className="muted-note" style={{ fontSize: 13 }}>
+            Phòng Đào tạo ghi Đạt/Không đạt (phỏng vấn). Kết hợp LMS học xong sẽ tự chuyển "Pass thử việc".
+          </p>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span className="muted-note">Hiện tại:</span>
+            <Badge variant={resultBadgeVariant(data.info.office_result)}>
+              {data.info.office_result || 'Chưa ghi'}
+            </Badge>
+            <button onClick={() => saveOfficeResult('Đạt')} disabled={saving}>Đạt</button>
+            <button className="btn-outline" onClick={() => saveOfficeResult('Không đạt')} disabled={saving}>
+              Không đạt
+            </button>
+          </div>
         </div>
       )}
 

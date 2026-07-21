@@ -236,6 +236,25 @@ class StudentChangeStatusView(APIView):
         return Response(EmployeeSerializer(employee, context={'request': request}).data)
 
 
+class StudentOfficeResultView(APIView):
+    """POST /api/employees/<id>/office-result/ — ghi kết quả thử việc khối Văn phòng (Đạt/Không đạt).
+    Kết hợp LMS học xong → tự chuyển Pass. Chỉ Admin/OM (Phòng Đào tạo)."""
+
+    def post(self, request, pk):
+        if (request.user.role or '').lower() not in {'admin', 'om'}:
+            return Response({'detail': 'Chỉ Admin/OM (Phòng Đào tạo) được ghi kết quả.'}, status=403)
+        employee = get_object_or_404(Employee, pk=pk, tenant=request.user.tenant)
+        result = request.data.get('result')
+        if result not in ('Đạt', 'Không đạt'):
+            return Response({'detail': 'Kết quả không hợp lệ (Đạt / Không đạt).'}, status=400)
+        employee.office_result = result
+        employee.save(update_fields=['office_result'])
+        from .services import recompute_final_result
+
+        recompute_final_result(employee)
+        return Response({'office_result': result, 'final_result': employee.final_result})
+
+
 class StudentExportProbationResultView(APIView):
     """POST /api/employees/<id>/export-probation-result/ — xuat phieu ket qua thu viec PDF,
     chi Admin/BQL va chi khi final_result la 'Pass thu viec' (enforce server-side, chat hon
