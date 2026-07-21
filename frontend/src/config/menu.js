@@ -13,14 +13,15 @@ export const MENU_ITEMS = {
   commission: { label: 'Phụ cấp', icon: '💰', path: '/commission' },
   documents: { label: 'Tài liệu', icon: '📁', path: '/documents' },
   users: { label: 'Người dùng', icon: '🧑‍💼', path: '/users' },
+  criteria: { label: 'Tiêu chí', icon: '📝', path: '/criteria' },
 }
 
 // Vai tro "toan he thong" -> shell desktop (topbar); con lai -> shell mobile (bottom-nav).
 const MOBILE_ROLES = new Set(['trainer', 'bql', 'am', 'kcs'])
 
 const ROLE_MENU = {
-  admin: ['dashboard', 'students', 'checklist', 'evaluation', 'kpi', 'kpiDashboard', 'commission', 'documents', 'users'],
-  om: ['dashboard', 'students', 'checklist', 'evaluation', 'kpi', 'kpiDashboard', 'commission', 'documents'],
+  admin: ['dashboard', 'students', 'checklist', 'evaluation', 'kpi', 'kpiDashboard', 'commission', 'documents', 'criteria', 'users'],
+  om: ['dashboard', 'students', 'checklist', 'evaluation', 'kpi', 'kpiDashboard', 'commission', 'documents', 'criteria'],
   bod: ['dashboard', 'students', 'checklist', 'kpi', 'kpiDashboard', 'commission', 'documents'],
   am: ['home', 'training', 'evaluation', 'kpi', 'documents'],
   kcs: ['home', 'training', 'evaluation', 'kpi', 'documents'],

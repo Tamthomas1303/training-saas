@@ -108,6 +108,16 @@ function CouncilSection({ employee, kind, title, isAdmin, userId }) {
     }
   }
 
+  async function exportPdf() {
+    setErr('')
+    try {
+      const { data } = await api.get('/evaluation/council-o/pdf/', { params: { council: detail.council_id } })
+      if (data.pdf_url) window.open(data.pdf_url, '_blank')
+    } catch (e) {
+      setErr(e.response?.data?.detail || 'Xuất PDF thất bại.')
+    }
+  }
+
   if (!detail) return <p className="muted-note">Đang tải {title}...</p>
 
   return (
@@ -128,6 +138,8 @@ function CouncilSection({ employee, kind, title, isAdmin, userId }) {
               {detail.passed ? 'Đạt' : 'Chưa đạt'}
             </span>{' '}
             · {detail.status === 'finalized' ? 'Đã chốt' : 'Đang mở'}
+            {' '}
+            <button className="btn-outline btn-sm" style={{ marginLeft: 8 }} onClick={exportPdf}>Xuất PDF</button>
           </div>
 
           <table className="themed" style={{ marginBottom: 8 }}>
@@ -268,10 +280,30 @@ export default function CouncilPanel({ employee }) {
   const role = (user?.role || '').toLowerCase()
   const isAdmin = ['admin', 'om'].includes(role)
   const showShiftOps = ['am', 'kcs', 'admin', 'om'].includes(role)
+  const [winStatus, setWinStatus] = useState(null)
+
+  useEffect(() => {
+    api.get('/evaluation/shiftops/', { params: { employee: employee.id } })
+      .then(({ data }) => setWinStatus(data.window))
+      .catch(() => {})
+  }, [employee.id])
 
   return (
     <div>
       <h3>Hội đồng đánh giá cấp O — {employee.name}</h3>
+      {winStatus && !winStatus.can && (
+        <div className="card" style={{ background: '#fff7e6', borderColor: '#f0c36d', marginBottom: 12 }}>
+          <b>⏳ {winStatus.reason}</b>
+          <div className="muted-note" style={{ fontSize: 12 }}>
+            Cửa sổ đánh giá cấp O: từ ngày làm việc thứ 45 đến hết ngày 60.
+          </div>
+        </div>
+      )}
+      {winStatus && winStatus.can && (
+        <p className="muted-note" style={{ fontSize: 13 }}>
+          Trong khung đánh giá (đã làm {winStatus.days}/60 ngày).
+        </p>
+      )}
       {showShiftOps && <ShiftOpsSection employee={employee} role={role} />}
       <CouncilSection employee={employee} kind="skill" title="Hội đồng tay nghề" isAdmin={isAdmin} userId={user?.id} />
       <CouncilSection employee={employee} kind="interview" title="Hội đồng phỏng vấn" isAdmin={isAdmin} userId={user?.id} />

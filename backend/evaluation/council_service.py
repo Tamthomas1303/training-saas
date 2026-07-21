@@ -45,6 +45,31 @@ def is_council_position(employee):
     return any(k in p for k in ('quan ly', 'giam sat', 'bep truong', 'bep pho'))
 
 
+# Khung thời gian đánh giá cấp O: bắt đầu sau 45 ngày làm việc, khoá sau 60 ngày (phản hồi #7).
+COUNCIL_START_DAY = 45
+COUNCIL_END_DAY = 60
+
+
+def council_window(employee):
+    """Trạng thái cửa sổ đánh giá cấp O theo số ngày làm việc: chỉ chấm được trong [45, 60] ngày."""
+    if not employee.start_date:
+        return {'days': None, 'can': False, 'reason': 'Nhân sự chưa có ngày vào làm.'}
+    days = (timezone.now().date() - employee.start_date).days
+    if days < COUNCIL_START_DAY:
+        return {'days': days, 'can': False,
+                'reason': f'Chưa đủ 45 ngày làm việc (mới {days} ngày) — đánh giá bắt đầu từ ngày 45.'}
+    if days > COUNCIL_END_DAY:
+        return {'days': days, 'can': False,
+                'reason': f'Đã quá 60 ngày thử việc ({days} ngày) — đã khoá, không đánh giá được nữa.'}
+    return {'days': days, 'can': True, 'reason': ''}
+
+
+def _require_window(employee):
+    w = council_window(employee)
+    if not w['can']:
+        raise CouncilError(w['reason'])
+
+
 def _criteria(tenant, eval_type, group, dept_role=''):
     qs = EvaluationCriteria.objects.filter(tenant=tenant, eval_type=eval_type, position_group=group)
     if dept_role:
@@ -108,10 +133,12 @@ def shiftops_form(employee):
     return {
         'position_group': position_group(employee),
         'criteria': _criteria_payload(_criteria(employee.tenant, 'ShiftOps', position_group(employee))),
+        'window': council_window(employee),
     }
 
 
 def submit_shiftops(user, employee, scores, sign=''):
+    _require_window(employee)
     role = (user.role or '').lower()
     grp = position_group(employee)
     if grp == 'FOH' and role not in ('am', 'admin', 'om'):
@@ -191,6 +218,7 @@ def member_form(member):
                      'restaurant': employee.restaurant.name if employee.restaurant else ''},
         'dept_role': member.dept_role,
         'criteria': _criteria_payload(rows),
+        'window': council_window(employee),
         'submissions': [
             {'id': e.id, 'dish_name': e.dish_name, 'percent': float(e.percent), 'result': e.result,
              'scores': {d.criteria_id: float(d.score) for d in e.details.all()}}
@@ -203,6 +231,7 @@ def submit_member_score(member, scores, dish_name='', sign='', evaluator_user=No
     """1 thành viên chấm: tay nghề = 1 bản/món (dish_name); phỏng vấn = 1 bản theo vai."""
     council = member.council
     employee = council.employee
+    _require_window(employee)
     grp = position_group(employee)
     if council.kind == Council.Kind.SKILL:
         eval_type = 'Council_Skill'
@@ -268,6 +297,7 @@ def council_detail(council):
         'kind': council.kind,
         'status': council.status,
         'employee': {'id': employee.id, 'name': employee.name, 'position': employee.position},
+        'window': council_window(employee),
         'members': member_rows,
         'submitted_count': len(member_results),
         'overall': overall,
@@ -298,3 +328,27 @@ def finalize_council(user, council):
     council.save(update_fields=['status'])
     recompute_final_result(employee)
     return {'overall': overall, 'passed': passed, 'kind': council.kind}
+
+
+def export_council_pdf(council):
+    from checklist.storage import StorageError, upload_pdf_bytes
+
+    from .council_pdf import build_council_pdf
+
+    detail = council_detail(council)
+    emp = council.employee
+    ctx = {
+        'title': 'PHIẾU HỘI ĐỒNG ĐÁNH GIÁ CẤP O',
+        'tenant_name': council.tenant.name,
+        'employee': {'name': emp.name, 'position': emp.position,
+                     'restaurant': emp.restaurant.name if emp.restaurant else ''},
+        'kind_label': 'Hội đồng tay nghề' if council.kind == Council.Kind.SKILL else 'Hội đồng phỏng vấn',
+        'members': detail['members'],
+        'overall': detail['overall'], 'passed': detail['passed'], 'threshold': detail['threshold'],
+    }
+    pdf = build_council_pdf(ctx)
+    try:
+        return upload_pdf_bytes(pdf, f'phieuhoidong/{council.tenant_id}',
+                                f'HoiDong_{council.employee_id}_{council.kind}')
+    except StorageError as exc:
+        raise CouncilError(str(exc)) from exc

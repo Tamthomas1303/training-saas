@@ -9,6 +9,7 @@ class EvaluationCriteriaSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'brand', 'position', 'level_group', 'eval_type', 'section',
             'content', 'max_score', 'is_mandatory', 'require_photo', 'order',
+            'position_group', 'dept_role',
         ]
 
 

@@ -1,11 +1,14 @@
 from django.urls import path
+from rest_framework.routers import DefaultRouter
 
 from .council_views import (
+    CouncilCriteriaViewSet,
     CouncilAddMemberView,
     CouncilCreateView,
     CouncilDetailView,
     CouncilFinalizeOView,
     CouncilMemberFormView,
+    CouncilPdfView,
     CouncilSubmitView,
     GuestFormView,
     GuestSubmitView,
@@ -36,7 +39,12 @@ urlpatterns = [
     path('council-o/member-form/', CouncilMemberFormView.as_view(), name='council-o-member-form'),
     path('council-o/submit/', CouncilSubmitView.as_view(), name='council-o-submit'),
     path('council-o/finalize/', CouncilFinalizeOView.as_view(), name='council-o-finalize'),
+    path('council-o/pdf/', CouncilPdfView.as_view(), name='council-o-pdf'),
     path('council-o/', CouncilDetailView.as_view(), name='council-o-detail'),
     path('council-guest/<str:token>/submit/', GuestSubmitView.as_view(), name='council-guest-submit'),
     path('council-guest/<str:token>/', GuestFormView.as_view(), name='council-guest-form'),
 ]
+
+router = DefaultRouter()
+router.register('council-criteria', CouncilCriteriaViewSet, basename='council-criteria')
+urlpatterns += router.urls

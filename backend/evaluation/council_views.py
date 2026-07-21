@@ -1,13 +1,44 @@
 """API Hội đồng đánh giá cấp O (Phase 2). Gồm cả endpoint khách mời (không cần đăng nhập)."""
 from django.shortcuts import get_object_or_404
+from rest_framework import viewsets
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.mixins import TenantScopedViewSetMixin
 from employees.models import Employee
 
 from . import council_service as cs
-from .models import Council, CouncilMember
+from .models import Council, CouncilMember, EvaluationCriteria
+from .serializers import EvaluationCriteriaSerializer
+
+
+class CouncilCriteriaViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
+    """CRUD bộ tiêu chí đánh giá cấp O (Phase 4). Sửa/thêm/xóa chỉ Admin/OM. Lọc theo
+    eval_type (ShiftOps/Council_Skill/Council_Interview) + position_group (FOH/BOH) + dept_role."""
+
+    serializer_class = EvaluationCriteriaSerializer
+    queryset = EvaluationCriteria.objects.all().order_by('eval_type', 'position_group', 'dept_role', 'order')
+    filterset_fields = ['eval_type', 'position_group', 'dept_role']
+    pagination_class = None
+
+    def _guard(self):
+        if (self.request.user.role or '').lower() not in {'admin', 'om'}:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied('Chỉ Admin/OM được sửa tiêu chí đánh giá.')
+
+    def create(self, request, *args, **kwargs):
+        self._guard()
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        self._guard()
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        self._guard()
+        return super().destroy(request, *args, **kwargs)
 
 
 def _err(exc):
@@ -108,6 +139,16 @@ class CouncilFinalizeOView(APIView):
         except cs.CouncilError as e:
             return _err(e)
         return Response(r)
+
+
+class CouncilPdfView(APIView):
+    def get(self, request):
+        council = get_object_or_404(Council, pk=request.query_params.get('council'), tenant=request.user.tenant)
+        try:
+            url = cs.export_council_pdf(council)
+        except cs.CouncilError as e:
+            return _err(e)
+        return Response({'pdf_url': url})
 
 
 # ---------------- Khách mời (không cần đăng nhập) ----------------

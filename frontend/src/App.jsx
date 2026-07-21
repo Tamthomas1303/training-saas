@@ -16,6 +16,7 @@ import KpiDashboardPage from './pages/KpiDashboardPage'
 import UsersPage from './pages/UsersPage'
 import DocumentsPage from './pages/DocumentsPage'
 import GuestCouncilPage from './pages/GuestCouncilPage'
+import CriteriaEditorPage from './pages/CriteriaEditorPage'
 import api from './api/client'
 import { isMobileRole } from './config/menu'
 import { flushQueue, initOfflineSync } from './utils/offlineQueue'
@@ -130,6 +131,14 @@ function App() {
             element={
               <ProtectedRoute roles={['admin']}>
                 <UsersPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/criteria"
+            element={
+              <ProtectedRoute roles={['admin', 'om']}>
+                <CriteriaEditorPage />
               </ProtectedRoute>
             }
           />
