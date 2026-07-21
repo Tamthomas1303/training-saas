@@ -66,8 +66,9 @@ class CriteriaImportView(APIView):
         except Exception as exc:  # noqa: BLE001
             return Response({'detail': f'Không đọc được file: {exc}'}, status=400)
 
+        from django.db import transaction
+
         tenant = request.user.tenant
-        created = updated = skipped = 0
 
         def g(row, *names):
             for n in names:
@@ -81,26 +82,49 @@ class CriteriaImportView(APIView):
             except (TypeError, ValueError):
                 return 0
 
+        # Nhập theo LÔ để tránh timeout với nguồn Supabase (chỉ vài truy vấn thay vì 2/dòng).
+        existing = {
+            (c.brand, c.position, c.eval_type, c.content): c
+            for c in EvaluationCriteria.objects.filter(tenant=tenant)
+        }
+        fields = ['level_group', 'section', 'max_score', 'is_mandatory', 'require_photo', 'order']
+        to_create, to_update, seen = [], [], set()
+        created = updated = skipped = 0
+
         for r in rows:
             content = g(r, 'Content', 'content', 'Noi_Dung')
             if not content:
                 skipped += 1
                 continue
-            _, was_created = EvaluationCriteria.objects.update_or_create(
-                tenant=tenant,
-                brand=g(r, 'Brand'), position=g(r, 'Position'),
-                eval_type=g(r, 'Eval_Type'), content=content,
-                defaults={
-                    'level_group': g(r, 'Level_Group'),
-                    'section': g(r, 'Section'),
-                    'max_score': num(g(r, 'Max_Score')),
-                    'is_mandatory': _b(g(r, 'Is_Mandatory')),
-                    'require_photo': _b(g(r, 'Require_Photo')),
-                    'order': num(g(r, 'Order')),
-                },
-            )
-            created += int(was_created)
-            updated += int(not was_created)
+            brand, position, etype = g(r, 'Brand'), g(r, 'Position'), g(r, 'Eval_Type')
+            key = (brand, position, etype, content)
+            if key in seen:  # trùng trong file
+                skipped += 1
+                continue
+            seen.add(key)
+            vals = {
+                'level_group': g(r, 'Level_Group'), 'section': g(r, 'Section'),
+                'max_score': num(g(r, 'Max_Score')),
+                'is_mandatory': _b(g(r, 'Is_Mandatory')), 'require_photo': _b(g(r, 'Require_Photo')),
+                'order': num(g(r, 'Order')),
+            }
+            obj = existing.get(key)
+            if obj:
+                for k, v in vals.items():
+                    setattr(obj, k, v)
+                to_update.append(obj)
+                updated += 1
+            else:
+                to_create.append(EvaluationCriteria(
+                    tenant=tenant, brand=brand, position=position, eval_type=etype, content=content, **vals,
+                ))
+                created += 1
+
+        with transaction.atomic():
+            if to_create:
+                EvaluationCriteria.objects.bulk_create(to_create, batch_size=500)
+            if to_update:
+                EvaluationCriteria.objects.bulk_update(to_update, fields, batch_size=500)
 
         return Response({'created': created, 'updated': updated, 'skipped': skipped, 'total': len(rows)})
 
