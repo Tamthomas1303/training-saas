@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 
 from .council_views import (
     CouncilCriteriaViewSet,
+    CriteriaImportView,
     CouncilAddMemberView,
     CouncilCreateView,
     CouncilDetailView,
@@ -43,6 +44,8 @@ urlpatterns = [
     path('council-o/', CouncilDetailView.as_view(), name='council-o-detail'),
     path('council-guest/<str:token>/submit/', GuestSubmitView.as_view(), name='council-guest-submit'),
     path('council-guest/<str:token>/', GuestFormView.as_view(), name='council-guest-form'),
+    # Nhập bộ tiêu chí từ file (phải khai báo TRƯỚC router để 'import-file' không bị hiểu là pk)
+    path('council-criteria/import-file/', CriteriaImportView.as_view(), name='criteria-import'),
 ]
 
 router = DefaultRouter()

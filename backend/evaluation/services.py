@@ -6,6 +6,8 @@ from checklist.storage import StorageError, is_data_url, upload_data_url, upload
 from employees.models import Employee
 from employees.permissions import can_evaluate
 from employees.services import (
+    brand_code,
+    checklist_position,
     checklist_progress_percent,
     matching_checklist_items,
     normalize_key,
@@ -61,22 +63,30 @@ def resolve_criteria(employee, eval_type):
     trong tren dong tieu chi thi coi la wildcard (khop moi gia tri). Neu khong co dong nao
     khop, fallback: suy tieu chi tu checklist (moi checklist = 1 tieu chi, chia deu 100 diem).
     """
-    brand = employee.restaurant.brand if employee.restaurant else ''
-    position_key = normalize_key(employee.position)
+    brand_name = employee.restaurant.brand if employee.restaurant else ''
+    # Khớp brand theo cả TÊN (Kampong) lẫn MÃ (KMP) — DB_EvaluationCriteria dùng mã brand.
+    brand_keys = {normalize_key(brand_name), normalize_key(brand_code(brand_name))}
+    # Chuẩn hoá vị trí ('NV Phục vụ' -> 'Phục vụ') giống khớp checklist.
+    position_key = normalize_key(checklist_position(employee.position))
     level_group = employee.level_group
 
-    # eval_type khac 'Skill_BQL' (AM_KCS/Training/Admin/Council) se dung lai tieu chi gan nhan
-    # Skill_BQL neu khong co dong danh rieng cho type do (giong ban goc).
+    # Phiếu BQL đánh giá kỹ năng (Skill_BQL) gồm CẢ Kiến thức + Kỹ năng (đánh giá đầy đủ vị trí).
+    # AM/KCS/Training/Admin dùng lại chính bộ này (giống bản gốc).
+    skill_set = {'Skill_BQL', 'Knowledge'}
+
+    def ok_type(c):
+        if not c.eval_type:
+            return True
+        if eval_type == 'Skill_BQL':
+            return c.eval_type in skill_set
+        return c.eval_type == eval_type or c.eval_type in skill_set
+
     rows = [
         c for c in EvaluationCriteria.objects.filter(tenant=employee.tenant).order_by('order')
-        if (not c.brand or c.brand == brand)
+        if (not c.brand or normalize_key(c.brand) in brand_keys)
         and (not c.position or normalize_key(c.position) == position_key)
-        and (not c.level_group or c.level_group == level_group)
-        and (
-            not c.eval_type
-            or c.eval_type == eval_type
-            or (eval_type != 'Skill_BQL' and c.eval_type == 'Skill_BQL')
-        )
+        and (not c.level_group or not level_group or c.level_group == level_group)
+        and ok_type(c)
     ]
 
     if rows:

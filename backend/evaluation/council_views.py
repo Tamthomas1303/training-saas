@@ -1,6 +1,7 @@
 """API Hội đồng đánh giá cấp O (Phase 2). Gồm cả endpoint khách mời (không cần đăng nhập)."""
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -19,7 +20,7 @@ class CouncilCriteriaViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
 
     serializer_class = EvaluationCriteriaSerializer
     queryset = EvaluationCriteria.objects.all().order_by('eval_type', 'position_group', 'dept_role', 'order')
-    filterset_fields = ['eval_type', 'position_group', 'dept_role']
+    filterset_fields = ['eval_type', 'position_group', 'dept_role', 'brand', 'position', 'level_group']
     pagination_class = None
 
     def _guard(self):
@@ -39,6 +40,69 @@ class CouncilCriteriaViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         self._guard()
         return super().destroy(request, *args, **kwargs)
+
+
+def _b(value):
+    return str(value).strip().lower() in ('true', '1', 'yes', 'x', 'có')
+
+
+class CriteriaImportView(APIView):
+    """POST /api/evaluation/council-criteria/import-file/ (multipart 'file') — nhập bộ tiêu chí
+    từ Excel/CSV (cột: Brand, Position, Level_Group, Eval_Type, Section, Content, Max_Score,
+    Is_Mandatory, Require_Photo, Order). Admin/OM. Chạy lại không nhân đôi."""
+
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        if (request.user.role or '').lower() not in {'admin', 'om'}:
+            return Response({'detail': 'Chỉ Admin/OM được nhập tiêu chí.'}, status=403)
+        f = request.FILES.get('file')
+        if not f:
+            return Response({'detail': 'Chưa chọn file.'}, status=400)
+        from employees.recruitment import load_rows_from_upload
+
+        try:
+            rows = load_rows_from_upload(f)
+        except Exception as exc:  # noqa: BLE001
+            return Response({'detail': f'Không đọc được file: {exc}'}, status=400)
+
+        tenant = request.user.tenant
+        created = updated = skipped = 0
+
+        def g(row, *names):
+            for n in names:
+                if row.get(n) not in (None, ''):
+                    return str(row.get(n)).strip()
+            return ''
+
+        def num(v):
+            try:
+                return int(float(v))
+            except (TypeError, ValueError):
+                return 0
+
+        for r in rows:
+            content = g(r, 'Content', 'content', 'Noi_Dung')
+            if not content:
+                skipped += 1
+                continue
+            _, was_created = EvaluationCriteria.objects.update_or_create(
+                tenant=tenant,
+                brand=g(r, 'Brand'), position=g(r, 'Position'),
+                eval_type=g(r, 'Eval_Type'), content=content,
+                defaults={
+                    'level_group': g(r, 'Level_Group'),
+                    'section': g(r, 'Section'),
+                    'max_score': num(g(r, 'Max_Score')),
+                    'is_mandatory': _b(g(r, 'Is_Mandatory')),
+                    'require_photo': _b(g(r, 'Require_Photo')),
+                    'order': num(g(r, 'Order')),
+                },
+            )
+            created += int(was_created)
+            updated += int(not was_created)
+
+        return Response({'created': created, 'updated': updated, 'skipped': skipped, 'total': len(rows)})
 
 
 def _err(exc):
