@@ -56,6 +56,25 @@ class EmployeeViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
             qs = qs.filter(id__in=matching_ids)
         return qs
 
+    def _require_write(self):
+        """Chỉ Admin/OM được thêm/sửa/xóa nhân sự."""
+        if (self.request.user.role or '').lower() not in {'admin', 'om'}:
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied('Chỉ Admin/OM được thêm/sửa/xóa nhân sự.')
+
+    def create(self, request, *args, **kwargs):
+        self._require_write()
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        self._require_write()
+        return super().update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        self._require_write()
+        return super().destroy(request, *args, **kwargs)
+
     def list(self, request, *args, **kwargs):
         """Batch tinh progress_percent + lms_marks cho ca trang (thay vi tung dong trong
         serializer) de tranh N+1 - xem services.batch_checklist_progress_percent/

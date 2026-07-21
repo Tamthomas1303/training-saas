@@ -3,25 +3,24 @@ import { Link } from 'react-router-dom'
 import AppShell from '../components/AppShell'
 import Badge from '../components/Badge'
 import FilterBar from '../components/FilterBar'
+import Modal from '../components/Modal'
 import Pager from '../components/Pager'
 import ProgressBar from '../components/ProgressBar'
 import Table from '../components/Table'
+import api from '../api/client'
+import { useAuth } from '../auth/AuthContext'
 import { usePaginatedList } from '../hooks/usePaginatedList'
 import * as s from './listPageStyles'
 
 const PAGE_SIZE = 20
 
-const STATUS_LABELS = {
-  probation: 'Thử việc',
-  active: 'Chính thức',
-  resigned: 'Nghỉ việc',
-}
-
-const STATUS_VARIANTS = {
-  probation: 'warning',
-  active: 'success',
-  resigned: 'neutral',
-}
+const STATUS_LABELS = { probation: 'Thử việc', active: 'Chính thức', resigned: 'Nghỉ việc' }
+const STATUS_VARIANTS = { probation: 'warning', active: 'success', resigned: 'neutral' }
+const OPERATION_UNITS = [
+  { value: 'restaurant', label: 'Nhà hàng' },
+  { value: 'office', label: 'Văn phòng' },
+  { value: 'production', label: 'Sản xuất' },
+]
 
 const TRAINING_STATUS_OPTIONS = [
   { value: '', label: 'Tất cả tiến độ' },
@@ -29,6 +28,11 @@ const TRAINING_STATUS_OPTIONS = [
   { value: 'not_started', label: 'Chưa đào tạo' },
   { value: 'done', label: 'Hoàn thành' },
 ]
+
+const EMPTY_EMP = {
+  code: '', name: '', position: '', restaurant: '', operation_unit: 'restaurant',
+  start_date: '', employee_status: 'probation',
+}
 
 function LmsMark({ ok }) {
   return (
@@ -39,12 +43,19 @@ function LmsMark({ ok }) {
 }
 
 export default function EmployeesPage() {
+  const { user } = useAuth()
+  const isAdmin = ['admin', 'om'].includes((user?.role || '').toLowerCase())
+
   const [search, setSearch] = useState('')
   const [restaurant, setRestaurant] = useState('')
   const [employeeStatus, setEmployeeStatus] = useState('')
   const [trainingStatus, setTrainingStatus] = useState('')
   const [order, setOrder] = useState('oldest')
   const [page, setPage] = useState(1)
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [form, setForm] = useState(null)
+  const [formError, setFormError] = useState('')
+  const [saving, setSaving] = useState(false)
 
   const { data: restaurantOptions } = usePaginatedList('/restaurants/', { page_size: 100 })
 
@@ -56,6 +67,7 @@ export default function EmployeesPage() {
     ordering: order === 'newest' ? '-start_date' : 'start_date',
     page,
     page_size: PAGE_SIZE,
+    refreshKey,
   }
   const { data, loading, error } = usePaginatedList('/employees/', params)
 
@@ -66,46 +78,62 @@ export default function EmployeesPage() {
     }
   }
 
+  async function saveEmployee() {
+    setSaving(true)
+    setFormError('')
+    try {
+      await api.post('/employees/', { ...form, restaurant: form.restaurant || null })
+      setForm(null)
+      setRefreshKey((k) => k + 1)
+    } catch (err) {
+      setFormError(
+        err.response?.data?.detail ||
+          Object.values(err.response?.data || {}).flat().join(' ') ||
+          'Không lưu được nhân sự.'
+      )
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function deleteEmployee(id, name) {
+    if (!window.confirm(`Xóa nhân sự "${name}"? Hành động này không hoàn tác.`)) return
+    try {
+      await api.delete(`/employees/${id}/`)
+      setRefreshKey((k) => k + 1)
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Không xóa được nhân sự.')
+    }
+  }
+
   return (
     <AppShell>
-      <h2>Nhân sự</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <h2 style={{ margin: 0 }}>Nhân sự</h2>
+        {isAdmin && <button onClick={() => { setForm({ ...EMPTY_EMP }); setFormError('') }}>+ Thêm nhân sự</button>}
+      </div>
 
       <FilterBar>
-        <input
-          style={s.input}
-          placeholder="Tìm theo mã / tên nhân viên..."
-          value={search}
-          onChange={onFilterChange(setSearch)}
-        />
+        <input style={s.input} placeholder="Tìm theo mã / tên nhân viên..." value={search} onChange={onFilterChange(setSearch)} />
         <select style={s.select} value={restaurant} onChange={onFilterChange(setRestaurant)}>
           <option value="">Tất cả nhà hàng</option>
           {restaurantOptions.results.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.name}
-            </option>
+            <option key={r.id} value={r.id}>{r.name}</option>
           ))}
         </select>
         <select style={s.select} value={employeeStatus} onChange={onFilterChange(setEmployeeStatus)}>
           <option value="">Tất cả trạng thái</option>
           {Object.entries(STATUS_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
+            <option key={value} value={value}>{label}</option>
           ))}
         </select>
         <select style={s.select} value={trainingStatus} onChange={onFilterChange(setTrainingStatus)}>
           {TRAINING_STATUS_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
+            <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
-        <button className={`btn-sm ${order === 'oldest' ? '' : 'btn-outline'}`} onClick={() => { setOrder('oldest'); setPage(1) }}>
-          Cũ nhất
-        </button>
-        <button className={`btn-sm ${order === 'newest' ? '' : 'btn-outline'}`} onClick={() => { setOrder('newest'); setPage(1) }}>
-          Mới nhất
-        </button>
+        <button className={`btn-sm ${order === 'oldest' ? '' : 'btn-outline'}`} onClick={() => { setOrder('oldest'); setPage(1) }}>Cũ nhất</button>
+        <button className={`btn-sm ${order === 'newest' ? '' : 'btn-outline'}`} onClick={() => { setOrder('newest'); setPage(1) }}>Mới nhất</button>
       </FilterBar>
 
       {loading && <p className="muted-note">Đang tải...</p>}
@@ -130,9 +158,7 @@ export default function EmployeesPage() {
             <tbody>
               {data.results.map((e) => (
                 <tr key={e.id}>
-                  <td>
-                    {e.name} - {e.code}
-                  </td>
+                  <td>{e.name} - {e.code}</td>
                   <td>{e.restaurant_name}</td>
                   <td>{e.position}</td>
                   <td>{e.start_date}</td>
@@ -143,26 +169,31 @@ export default function EmployeesPage() {
                   </td>
                   <td style={{ minWidth: 100 }}>
                     <ProgressBar percent={e.progress_percent} />
-                    <div className="muted-note" style={{ fontSize: 12 }}>
-                      {e.progress_percent}%
-                    </div>
+                    <div className="muted-note" style={{ fontSize: 12 }}>{e.progress_percent}%</div>
                   </td>
                   <td style={{ whiteSpace: 'nowrap' }}>
                     <LmsMark ok={e.lms_marks?.course} /> <LmsMark ok={e.lms_marks?.exam} /> <LmsMark ok={e.lms_marks?.skill} />
                   </td>
                   <td>{e.final_result}</td>
-                  <td>
+                  <td style={{ display: 'flex', gap: 6 }}>
                     <Link to={`/employees/${e.id}`}>
                       <button className="btn-outline btn-sm">Chi tiết</button>
                     </Link>
+                    {isAdmin && (
+                      <button
+                        className="btn-outline btn-sm"
+                        style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }}
+                        onClick={() => deleteEmployee(e.id, e.name)}
+                      >
+                        Xóa
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
               {data.results.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="muted-note">
-                    Không có dữ liệu.
-                  </td>
+                  <td colSpan={9} className="muted-note">Không có dữ liệu.</td>
                 </tr>
               )}
             </tbody>
@@ -170,6 +201,65 @@ export default function EmployeesPage() {
           <Pager page={page} pageSize={PAGE_SIZE} count={data.count} onChange={setPage} />
         </>
       )}
+
+      <Modal
+        open={!!form}
+        title="Thêm nhân sự"
+        onClose={() => setForm(null)}
+        footer={
+          <>
+            <button className="btn-outline" onClick={() => setForm(null)}>Hủy</button>
+            <button onClick={saveEmployee} disabled={saving}>Lưu</button>
+          </>
+        }
+      >
+        {form && (
+          <div style={{ display: 'grid', gap: 10 }}>
+            <label>
+              Mã nhân viên
+              <input style={{ display: 'block', width: '100%' }} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
+            </label>
+            <label>
+              Họ tên
+              <input style={{ display: 'block', width: '100%' }} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            </label>
+            <label>
+              Vị trí
+              <input style={{ display: 'block', width: '100%' }} value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} placeholder="VD: Giám sát, Bếp trưởng, NV Phục vụ..." />
+            </label>
+            <label>
+              Nhà hàng
+              <select style={{ display: 'block', width: '100%' }} value={form.restaurant} onChange={(e) => setForm({ ...form, restaurant: e.target.value })}>
+                <option value="">—</option>
+                {restaurantOptions.results.map((r) => (
+                  <option key={r.id} value={r.id}>{r.name}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Khối
+              <select style={{ display: 'block', width: '100%' }} value={form.operation_unit} onChange={(e) => setForm({ ...form, operation_unit: e.target.value })}>
+                {OPERATION_UNITS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Ngày vào
+              <input type="date" style={{ display: 'block', width: '100%' }} value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} />
+            </label>
+            <label>
+              Trạng thái
+              <select style={{ display: 'block', width: '100%' }} value={form.employee_status} onChange={(e) => setForm({ ...form, employee_status: e.target.value })}>
+                {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </label>
+            {formError && <p style={{ color: 'var(--danger)' }}>{formError}</p>}
+          </div>
+        )}
+      </Modal>
     </AppShell>
   )
 }
