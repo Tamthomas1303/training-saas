@@ -1,5 +1,6 @@
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -112,6 +113,69 @@ class PositionListView(APIView):
         for std in ('Quản lý nhà hàng', 'Giám sát', 'Bếp trưởng', 'Bếp phó'):
             positions.add(std)
         return Response(sorted(positions))
+
+
+def _require_data_admin(request):
+    if (request.user.role or '').lower() not in {'admin', 'om'}:
+        from rest_framework.exceptions import PermissionDenied
+
+        raise PermissionDenied('Chỉ Admin/OM được nhập/đồng bộ dữ liệu nhân sự.')
+
+
+class RecruitmentSourceView(APIView):
+    """GET/PUT /api/employees/recruitment-source/ — xem & đặt link CSV tự đồng bộ (Cách 3)."""
+
+    def get(self, request):
+        from .models import RecruitmentSource
+
+        src = RecruitmentSource.objects.filter(tenant=request.user.tenant).first()
+        return Response({'csv_url': src.csv_url if src else ''})
+
+    def put(self, request):
+        _require_data_admin(request)
+        from .models import RecruitmentSource
+
+        url = (request.data.get('csv_url') or '').strip()
+        RecruitmentSource.objects.update_or_create(tenant=request.user.tenant, defaults={'csv_url': url})
+        return Response({'csv_url': url})
+
+
+class RecruitmentSyncNowView(APIView):
+    """POST /api/employees/sync-now/ — kéo dữ liệu ngay từ link đã lưu (Cách 3)."""
+
+    def post(self, request):
+        _require_data_admin(request)
+        from .models import RecruitmentSource
+        from .recruitment import ingest_employees, load_rows_from_url
+
+        src = RecruitmentSource.objects.filter(tenant=request.user.tenant).first()
+        url = src.csv_url if src else ''
+        if not url:
+            return Response({'detail': 'Chưa cấu hình link CSV nguồn.'}, status=400)
+        try:
+            rows = load_rows_from_url(url)
+        except Exception as exc:  # noqa: BLE001
+            return Response({'detail': f'Không đọc được nguồn: {exc}'}, status=400)
+        return Response(ingest_employees(request.user.tenant, rows))
+
+
+class RecruitmentImportFileView(APIView):
+    """POST /api/employees/import-file/ (multipart, field 'file') — nhập từ Excel/CSV (Cách 2)."""
+
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        _require_data_admin(request)
+        from .recruitment import ingest_employees, load_rows_from_upload
+
+        f = request.FILES.get('file')
+        if not f:
+            return Response({'detail': 'Chưa chọn file.'}, status=400)
+        try:
+            rows = load_rows_from_upload(f)
+        except Exception as exc:  # noqa: BLE001
+            return Response({'detail': f'Không đọc được file: {exc}'}, status=400)
+        return Response(ingest_employees(request.user.tenant, rows))
 
 
 class DashboardStatsView(APIView):

@@ -52,3 +52,15 @@ class Employee(models.Model):
 
     def __str__(self):
         return f'{self.code} - {self.name}'
+
+
+class RecruitmentSource(models.Model):
+    """Link CSV nguồn tuyển dụng cấu hình trên giao diện (Cách 3) — 1 dòng/tenant.
+    Lệnh sync_recruitment và nút 'Đồng bộ ngay' đọc link từ đây (không cần vào GitHub)."""
+
+    tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name='recruitment_source')
+    csv_url = models.URLField(max_length=1000, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'RecruitmentSource({self.tenant_id})'

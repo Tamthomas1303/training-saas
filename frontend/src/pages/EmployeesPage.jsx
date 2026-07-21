@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import AppShell from '../components/AppShell'
 import Badge from '../components/Badge'
@@ -57,10 +57,21 @@ export default function EmployeesPage() {
   const [formError, setFormError] = useState('')
   const [saving, setSaving] = useState(false)
   const [positions, setPositions] = useState([])
+  const [showImport, setShowImport] = useState(false)
+  const [sourceUrl, setSourceUrl] = useState('')
+  const [importMsg, setImportMsg] = useState('')
+  const [importBusy, setImportBusy] = useState(false)
+  const fileRef = useRef(null)
 
   useEffect(() => {
     api.get('/employees/positions/').then(({ data }) => setPositions(data)).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (isAdmin) {
+      api.get('/employees/recruitment-source/').then(({ data }) => setSourceUrl(data.csv_url || '')).catch(() => {})
+    }
+  }, [isAdmin])
 
   const { data: restaurantOptions } = usePaginatedList('/restaurants/', { page_size: 100 })
 
@@ -111,12 +122,102 @@ export default function EmployeesPage() {
     }
   }
 
+  function statLine(st) {
+    return (
+      `Xong: ${st.created} tạo mới, ${st.updated} cập nhật, ${st.skipped} bỏ qua` +
+      (st.unmatched_restaurant ? `, ${st.unmatched_restaurant} không khớp nhà hàng` : '') + '.'
+    )
+  }
+  async function uploadFile(file) {
+    if (!file) return
+    setImportBusy(true)
+    setImportMsg('')
+    const fd = new FormData()
+    fd.append('file', file)
+    try {
+      const { data } = await api.post('/employees/import-file/', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      setImportMsg(statLine(data))
+      setRefreshKey((k) => k + 1)
+    } catch (e) {
+      setImportMsg(e.response?.data?.detail || 'Nhập file thất bại.')
+    } finally {
+      setImportBusy(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+  async function saveSource() {
+    setImportBusy(true)
+    setImportMsg('')
+    try {
+      await api.put('/employees/recruitment-source/', { csv_url: sourceUrl })
+      setImportMsg('Đã lưu link nguồn.')
+    } catch (e) {
+      setImportMsg(e.response?.data?.detail || 'Lưu link thất bại.')
+    } finally {
+      setImportBusy(false)
+    }
+  }
+  async function syncNow() {
+    setImportBusy(true)
+    setImportMsg('')
+    try {
+      const { data } = await api.post('/employees/sync-now/')
+      setImportMsg(statLine(data))
+      setRefreshKey((k) => k + 1)
+    } catch (e) {
+      setImportMsg(e.response?.data?.detail || 'Đồng bộ thất bại.')
+    } finally {
+      setImportBusy(false)
+    }
+  }
+
   return (
     <AppShell>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <h2 style={{ margin: 0 }}>Nhân sự</h2>
-        {isAdmin && <button onClick={() => { setForm({ ...EMPTY_EMP }); setFormError('') }}>+ Thêm nhân sự</button>}
+        {isAdmin && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="btn-outline" onClick={() => setShowImport((v) => !v)}>Nhập dữ liệu ▾</button>
+            <button onClick={() => { setForm({ ...EMPTY_EMP }); setFormError('') }}>+ Thêm nhân sự</button>
+          </div>
+        )}
       </div>
+
+      {isAdmin && showImport && (
+        <div className="card" style={{ margin: '12px 0' }}>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>Cách 2 — Nhập từ file (Excel .xlsx hoặc CSV)</div>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".xlsx,.xlsm,.csv"
+              disabled={importBusy}
+              onChange={(e) => uploadFile(e.target.files[0])}
+            />
+            <div className="muted-note" style={{ fontSize: 12 }}>
+              Cột cần có: Employee_ID, Employee_Name, Restaurant_Name, Job_Position, Operation_Unit, Job_Level, Start_Date, Employee_Status.
+            </div>
+          </div>
+          <div style={{ borderTop: '1px solid var(--card-border)', paddingTop: 12 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>Cách 3 — Tự đồng bộ từ Google Sheet</div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <input
+                style={{ flex: 1, minWidth: 240 }}
+                placeholder="Dán link CSV (Google Sheet: File > Share > Publish to web > CSV)..."
+                value={sourceUrl}
+                onChange={(e) => setSourceUrl(e.target.value)}
+              />
+              <button className="btn-outline" onClick={saveSource} disabled={importBusy}>Lưu link</button>
+              <button onClick={syncNow} disabled={importBusy}>Đồng bộ ngay</button>
+            </div>
+            <div className="muted-note" style={{ fontSize: 12 }}>
+              Tự động đồng bộ mỗi 2 giờ trong khung 8h–19h. Chỉ cần dán link ở đây một lần, không cần vào GitHub.
+            </div>
+          </div>
+          {importBusy && <p className="muted-note">Đang xử lý...</p>}
+          {importMsg && <p style={{ color: 'var(--forest-dark)' }}>{importMsg}</p>}
+        </div>
+      )}
 
       <FilterBar>
         <input style={s.input} placeholder="Tìm theo mã / tên nhân viên..." value={search} onChange={onFilterChange(setSearch)} />
