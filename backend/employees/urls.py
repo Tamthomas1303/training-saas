@@ -5,6 +5,7 @@ from .views import (
     DashboardStatsView,
     EmployeeViewSet,
     HomeStatsView,
+    PositionListView,
     StudentChangeStatusView,
     StudentDetailView,
     StudentExportProbationResultView,
@@ -14,6 +15,7 @@ router = DefaultRouter()
 router.register('', EmployeeViewSet, basename='employee')
 
 urlpatterns = [
+    path('positions/', PositionListView.as_view(), name='employee-positions'),
     path('dashboard/', DashboardStatsView.as_view(), name='employee-dashboard'),
     path('home/', HomeStatsView.as_view(), name='employee-home'),
     path('<int:pk>/detail/', StudentDetailView.as_view(), name='employee-detail'),

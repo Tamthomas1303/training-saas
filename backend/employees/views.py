@@ -95,6 +95,25 @@ class EmployeeViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
+class PositionListView(APIView):
+    """GET /api/employees/positions/ — danh sách vị trí gợi ý (chọn khi thêm nhân sự), gộp từ
+    Checklist + Employee của tenant + các vị trí cấp O chuẩn. Tránh gõ tay sai chính tả."""
+
+    def get(self, request):
+        from checklist.models import Checklist
+
+        tenant = request.user.tenant
+        positions = set(
+            Checklist.objects.filter(tenant=tenant).exclude(position='').values_list('position', flat=True)
+        )
+        positions |= set(
+            Employee.objects.filter(tenant=tenant).exclude(position='').values_list('position', flat=True)
+        )
+        for std in ('Quản lý nhà hàng', 'Giám sát', 'Bếp trưởng', 'Bếp phó'):
+            positions.add(std)
+        return Response(sorted(positions))
+
+
 class DashboardStatsView(APIView):
     """GET /api/employees/dashboard/ — so lieu tong hop cho man Dashboard (Admin/Training/
     OM/BOD). Port Api.gs::api_dashboardStats. Khong gioi han role - moi role deu xem duoc

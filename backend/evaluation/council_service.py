@@ -10,12 +10,20 @@ council_service.py — nghiệp vụ Hội đồng đánh giá cấp O (mục 7 
 Người ngoài (QC/HCNS...) chấm qua link khách mời (token), không cần tài khoản.
 """
 import secrets
+import unicodedata
 
 from django.utils import timezone
 
 from checklist.storage import StorageError, is_data_url, upload_data_url
 from employees.models import Employee
 from employees.services import normalize_key, recompute_final_result
+
+
+def _no_accent(text):
+    """Bỏ dấu tiếng Việt + thường hoá, để so khớp vị trí không phụ thuộc dấu."""
+    s = unicodedata.normalize('NFD', (text or ''))
+    s = ''.join(c for c in s if unicodedata.category(c) != 'Mn')
+    return s.lower().replace('đ', 'd')
 
 from .models import Council, CouncilMember, Evaluation, EvaluationCriteria, EvaluationDetail
 
@@ -28,12 +36,12 @@ class CouncilError(Exception):
 
 
 def position_group(employee):
-    """FOH (Quản lý/Giám sát) hay BOH (Bếp trưởng/phó) theo vị trí."""
-    return 'BOH' if 'bep' in normalize_key(employee.position) else 'FOH'
+    """FOH (Quản lý/Giám sát) hay BOH (Bếp trưởng/phó) theo vị trí — so khớp không dấu."""
+    return 'BOH' if 'bep' in _no_accent(employee.position) else 'FOH'
 
 
 def is_council_position(employee):
-    p = normalize_key(employee.position)
+    p = _no_accent(employee.position)
     return any(k in p for k in ('quan ly', 'giam sat', 'bep truong', 'bep pho'))
 
 

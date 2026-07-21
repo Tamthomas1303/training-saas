@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import AppShell from '../components/AppShell'
 import Badge from '../components/Badge'
@@ -56,6 +56,11 @@ export default function EmployeesPage() {
   const [form, setForm] = useState(null)
   const [formError, setFormError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [positions, setPositions] = useState([])
+
+  useEffect(() => {
+    api.get('/employees/positions/').then(({ data }) => setPositions(data)).catch(() => {})
+  }, [])
 
   const { data: restaurantOptions } = usePaginatedList('/restaurants/', { page_size: 100 })
 
@@ -225,7 +230,18 @@ export default function EmployeesPage() {
             </label>
             <label>
               Vị trí
-              <input style={{ display: 'block', width: '100%' }} value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} placeholder="VD: Giám sát, Bếp trưởng, NV Phục vụ..." />
+              <input
+                list="emp-position-list"
+                style={{ display: 'block', width: '100%' }}
+                value={form.position}
+                onChange={(e) => setForm({ ...form, position: e.target.value })}
+                placeholder="Chọn hoặc gõ để lọc vị trí..."
+              />
+              <datalist id="emp-position-list">
+                {positions.map((p) => (
+                  <option key={p} value={p} />
+                ))}
+              </datalist>
             </label>
             <label>
               Nhà hàng
