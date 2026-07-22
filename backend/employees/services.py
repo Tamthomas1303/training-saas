@@ -51,29 +51,34 @@ def checklist_position(job_position):
     return job_position
 
 
-def matching_checklist_items(employee):
+def matching_checklist_items(employee, position=None):
     """Checklist cua 1 nhan su, khop theo Brand (tu restaurant) + Position (normalized).
 
     Port EmployeeService.gs::_checklistFor - chi Brand + Position, KHONG dung Level_Group
     (giu dung logic ban Apps Script cu).
+
+    position=None -> dung vi tri hien tai cua nhan su (onboarding). Truyen position khac (vd vi
+    tri dich khi thang tien - M1.4) de lay checklist cua vi tri do, dung lai cung engine.
     """
     from checklist.models import Checklist  # import tre de tranh vong lap luc nap app
 
     if not employee.restaurant:
         return []
     brand_keys = _brand_keys(employee.restaurant.brand)
-    position_key = normalize_key(checklist_position(employee.position))
+    pos = employee.position if position is None else position
+    position_key = normalize_key(checklist_position(pos))
     return [
         c for c in Checklist.objects.filter(tenant=employee.tenant).order_by('day', 'order')
         if normalize_key(c.brand) in brand_keys and normalize_key(c.position) == position_key
     ]
 
 
-def checklist_progress_percent(employee):
-    """% tien do dao tao = so checklist da Hoan thanh / tong so checklist khop brand+position."""
+def checklist_progress_percent(employee, position=None):
+    """% tien do dao tao = so checklist da Hoan thanh / tong so checklist khop brand+position.
+    position=None -> vi tri hien tai; truyen vi tri dich de tinh tien do vong thang tien (M1.4)."""
     from checklist.models import TrainingProgress
 
-    items = matching_checklist_items(employee)
+    items = matching_checklist_items(employee, position)
     if not items:
         return 0
     done_count = TrainingProgress.objects.filter(

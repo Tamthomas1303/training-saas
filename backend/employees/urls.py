@@ -7,9 +7,11 @@ from .views import (
     ExamBatchListView,
     HomeStatsView,
     LevelUpEnrollmentListView,
+    LevelUpEvaluateView,
     LevelUpOpenTrainingView,
     LevelUpOptionsView,
     LevelUpRegisterView,
+    LevelUpRoundView,
     PositionListView,
     StudentOfficeResultView,
     RecruitmentImportFileView,
@@ -40,6 +42,14 @@ urlpatterns = [
     path(
         'levelup-enrollments/<int:pk>/open-training/', LevelUpOpenTrainingView.as_view(),
         name='employee-levelup-open-training',
+    ),
+    path(
+        'levelup-enrollments/<int:pk>/round/', LevelUpRoundView.as_view(),
+        name='employee-levelup-round',
+    ),
+    path(
+        'levelup-enrollments/<int:pk>/evaluate/', LevelUpEvaluateView.as_view(),
+        name='employee-levelup-evaluate',
     ),
     path(
         '<int:pk>/export-probation-result/', StudentExportProbationResultView.as_view(),

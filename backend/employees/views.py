@@ -359,6 +359,51 @@ class LevelUpOpenTrainingView(APIView):
         return Response(LevelUpEnrollmentSerializer(enrollment).data)
 
 
+class LevelUpRoundView(APIView):
+    """GET /api/employees/levelup-enrollments/<id>/round/ — dữ liệu 1 vòng thăng tiến (checklist
+    vị trí đích + tiến độ + LMS/thi + đánh giá kỹ năng của vòng). Theo phạm vi nhà hàng."""
+
+    def get(self, request, pk):
+        from .career import levelup_round_detail
+        from .models import LevelUpEnrollment
+
+        enrollment = get_object_or_404(
+            LevelUpEnrollment.objects.select_related('employee', 'employee__restaurant'),
+            pk=pk, tenant=request.user.tenant,
+        )
+        from employees.permissions import get_restaurant_scope
+
+        scope = get_restaurant_scope(request.user)
+        if not scope['all'] and enrollment.employee.restaurant_id not in scope['restaurant_ids']:
+            return Response({'detail': 'Bạn không đủ quyền xem vòng đào tạo này.'}, status=403)
+        return Response(levelup_round_detail(enrollment))
+
+
+class LevelUpEvaluateView(APIView):
+    """POST /api/employees/levelup-enrollments/<id>/evaluate/ — chấm đánh giá vòng thăng tiến
+    (Skill_BQL / AM_KCS) theo tiêu chí vị trí đích. Body giống phiếu đánh giá thường."""
+
+    def post(self, request, pk):
+        from evaluation.services import ValidationError as EvalValidationError, save_levelup_evaluation
+        from .models import LevelUpEnrollment
+        from evaluation.serializers import EvaluationSerializer
+
+        enrollment = get_object_or_404(
+            LevelUpEnrollment.objects.select_related('employee', 'employee__restaurant'),
+            pk=pk, tenant=request.user.tenant,
+        )
+        from employees.permissions import get_restaurant_scope
+
+        scope = get_restaurant_scope(request.user)
+        if not scope['all'] and enrollment.employee.restaurant_id not in scope['restaurant_ids']:
+            return Response({'detail': 'Bạn không đủ quyền đánh giá vòng này.'}, status=403)
+        try:
+            evaluation = save_levelup_evaluation(request.user, enrollment, request.data)
+        except EvalValidationError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        return Response(EvaluationSerializer(evaluation).data, status=200)
+
+
 class StudentExportProbationResultView(APIView):
     """POST /api/employees/<id>/export-probation-result/ — xuat phieu ket qua thu viec PDF,
     chi Admin/BQL va chi khi final_result la 'Pass thu viec' (enforce server-side, chat hon

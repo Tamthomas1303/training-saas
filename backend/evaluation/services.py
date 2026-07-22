@@ -56,18 +56,21 @@ def is_council_position(job_position):
     return bool(COUNCIL_POSITION_RE.search(job_position or ''))
 
 
-def resolve_criteria(employee, eval_type):
+def resolve_criteria(employee, eval_type, position=None):
     """Tra ve (source, items). Port EvaluationService.gs::getCriteria.
 
     Khoa loc DB_EvaluationCriteria: brand/position/level_group/eval_type - truong nao de
     trong tren dong tieu chi thi coi la wildcard (khop moi gia tri). Neu khong co dong nao
     khop, fallback: suy tieu chi tu checklist (moi checklist = 1 tieu chi, chia deu 100 diem).
+
+    position=None -> vi tri hien tai; truyen vi tri dich de danh gia vong thang tien (M1.4).
     """
     brand_name = employee.restaurant.brand if employee.restaurant else ''
     # Khớp brand theo cả TÊN (Kampong) lẫn MÃ (KMP) — DB_EvaluationCriteria dùng mã brand.
     brand_keys = {normalize_key(brand_name), normalize_key(brand_code(brand_name))}
     # Chuẩn hoá vị trí ('NV Phục vụ' -> 'Phục vụ') giống khớp checklist.
-    position_key = normalize_key(checklist_position(employee.position))
+    eval_position = employee.position if position is None else position
+    position_key = normalize_key(checklist_position(eval_position))
     level_group = employee.level_group
 
     # Phiếu BQL đánh giá kỹ năng (Skill_BQL) gồm CẢ Kiến thức + Kỹ năng (đánh giá đầy đủ vị trí).
@@ -102,7 +105,7 @@ def resolve_criteria(employee, eval_type):
             for c in rows
         ]
 
-    checklist_items = matching_checklist_items(employee)
+    checklist_items = matching_checklist_items(employee, position)
     n = len(checklist_items) or 1
     per = round(100 / n)
     return 'fallback_checklist', [
@@ -331,6 +334,165 @@ def save_evaluation(user, payload):
 
 def result_label(result):
     return 'Đạt' if result == Evaluation.Result.PASS else 'Không đạt'
+
+
+# Vai trò được chấm đánh giá vòng thăng tiến (M1.4). BQL đánh giá kỹ năng; AM/KCS kiểm tra random.
+LEVELUP_EVAL_TYPES = {'Skill_BQL', 'AM_KCS'}
+
+
+def save_levelup_evaluation(user, enrollment, payload):
+    """Lưu 1 phiếu đánh giá cho MỘT vòng thăng tiến (M1.4). Tiêu chí khớp theo VỊ TRÍ ĐÍCH của
+    enrollment (dùng lại resolve_criteria + engine chấm). Phiếu gắn vào enrollment; KHÔNG ghi đè
+    skill_score/skill_result onboarding của nhân sự — kết quả vòng đọc lại ở M1.5.
+    """
+    from employees.models import LevelUpEnrollment
+
+    tenant = user.tenant
+    employee = enrollment.employee
+    eval_type = payload.get('eval_type')
+
+    if not can_evaluate(user):
+        raise ValidationError('Bạn không có quyền đánh giá nhân sự.')
+    role = (user.role or '').lower()
+    if eval_type not in LEVELUP_EVAL_TYPES:
+        raise ValidationError('Loại đánh giá không hợp lệ cho vòng thăng tiến.')
+    if eval_type not in ALLOWED_EVAL_TYPES_BY_ROLE.get(role, set()):
+        raise ValidationError('Vai trò của bạn không được thực hiện loại đánh giá này.')
+    if enrollment.status != LevelUpEnrollment.Status.TRAINING:
+        raise ValidationError('Chỉ đánh giá khi vòng thăng tiến đang ở trạng thái "Đang đào tạo".')
+
+    position = enrollment.target_position
+
+    if eval_type == 'Skill_BQL':
+        # BQL chỉ đánh giá kỹ năng khi checklist VỊ TRÍ ĐÍCH đã 100%.
+        if checklist_progress_percent(employee, position) < 100:
+            raise ValidationError('Chưa hoàn thành đào tạo vị trí đích, chưa thể đánh giá kỹ năng.')
+        # Một phiếu Skill_BQL đã hoàn thành mỗi vòng (scope theo enrollment, không phải toàn nhân sự).
+        if Evaluation.objects.filter(
+            tenant=tenant, enrollment=enrollment, eval_type='Skill_BQL', status=Evaluation.Status.DONE,
+        ).exists():
+            raise ValidationError('Vòng này đã được đánh giá kỹ năng rồi.')
+
+    if eval_type == 'AM_KCS':
+        has_bql_pass = Evaluation.objects.filter(
+            tenant=tenant, enrollment=enrollment, eval_type='Skill_BQL', status=Evaluation.Status.DONE,
+        ).exists()
+        if not has_bql_pass:
+            raise ValidationError('Vòng này chưa được BQL đánh giá kỹ năng, chưa thể kiểm tra random.')
+
+    evaluation = Evaluation.objects.filter(
+        tenant=tenant, enrollment=enrollment, evaluator=user, eval_type=eval_type,
+        status=Evaluation.Status.DRAFT,
+    ).first()
+    if not evaluation:
+        evaluation = Evaluation(
+            tenant=tenant, employee=employee, enrollment=enrollment, evaluator=user, eval_type=eval_type,
+        )
+
+    for field in ('sign_evaluator', 'sign_trainee'):
+        value = payload.get(field)
+        if not value:
+            continue
+        if is_data_url(value):
+            try:
+                url = upload_data_url(value, f'signatures/{tenant.id}', f'lvup_{field}_{enrollment.id}')
+            except StorageError as exc:
+                raise ValidationError(str(exc)) from exc
+            setattr(evaluation, field, url)
+        else:
+            setattr(evaluation, field, value)
+
+    if payload.get('note') is not None:
+        evaluation.note = payload.get('note')
+
+    _, criteria_items = resolve_criteria(employee, eval_type, position)
+    criteria_by_id = {c['criteria_id']: c for c in criteria_items}
+    incoming_by_id = {str(d.get('criteria_id')): d for d in (payload.get('details') or [])}
+
+    total = max_total = 0
+    mandatory_fail = False
+    missing_photo = []
+    detail_rows = []
+    for criteria_id, meta in criteria_by_id.items():
+        incoming = incoming_by_id.get(criteria_id, {})
+        try:
+            score = max(0, min(float(meta['max_score']), float(incoming.get('score', 0) or 0)))
+        except (TypeError, ValueError):
+            score = 0
+        photo_value = incoming.get('photo')
+        photo_url = ''
+        if photo_value:
+            if is_data_url(photo_value):
+                try:
+                    photo_url = upload_data_url(
+                        photo_value, f'evaluation/{tenant.id}/{employee.id}',
+                        f'lvup_{enrollment.id}_{criteria_id}',
+                    )
+                except StorageError as exc:
+                    raise ValidationError(str(exc)) from exc
+            else:
+                photo_url = photo_value
+        if meta['is_mandatory'] and score <= 0:
+            mandatory_fail = True
+        if meta['require_photo'] and not photo_url:
+            missing_photo.append(meta['content'])
+        total += score
+        max_total += meta['max_score']
+        detail_rows.append(EvaluationDetail(
+            tenant=tenant, evaluation=evaluation, criteria_id=criteria_id, content=meta['content'],
+            max_score=meta['max_score'], is_mandatory=meta['is_mandatory'], require_photo=meta['require_photo'],
+            score=score, photo_url=photo_url, note=incoming.get('note', '') or '',
+        ))
+
+    percent = round(total / max_total * 100) if max_total else 0
+    want_complete = bool(payload.get('complete'))
+    if want_complete:
+        if not evaluation.sign_evaluator or not evaluation.sign_trainee:
+            raise ValidationError('Cần đủ chữ ký của người đánh giá và nhân viên để hoàn thành.')
+        if missing_photo:
+            raise ValidationError(
+                f'Cần chụp ảnh minh chứng cho {len(missing_photo)} tiêu chí kỹ năng/thực hành trước khi hoàn thành.'
+            )
+
+    result = (
+        Evaluation.Result.PASS if (percent >= SKILL_PASS_THRESHOLD and not mandatory_fail)
+        else Evaluation.Result.FAIL
+    )
+    evaluation.total_score = total
+    evaluation.max_score = max_total
+    evaluation.percent = percent
+    evaluation.result = result
+    evaluation.date = timezone.now().date()
+    evaluation.status = Evaluation.Status.DONE if want_complete else Evaluation.Status.DRAFT
+    if want_complete:
+        evaluation.completed_at = timezone.now()
+    evaluation.save()
+
+    EvaluationDetail.objects.filter(evaluation=evaluation).delete()
+    for row in detail_rows:
+        row.evaluation = evaluation
+    EvaluationDetail.objects.bulk_create(detail_rows)
+
+    # AM/KCS random KHÔNG ĐẠT → reset tiến độ đào tạo VỊ TRÍ ĐÍCH của vòng này (giữ dữ liệu),
+    # để BQL/trainer đào tạo lại; không đụng checklist onboarding.
+    if want_complete and eval_type == 'AM_KCS' and result == Evaluation.Result.FAIL:
+        from employees.services import matching_checklist_items
+        from checklist.models import TrainingProgress
+
+        target_ids = [c.id for c in matching_checklist_items(employee, position)]
+        TrainingProgress.objects.filter(
+            employee=employee, checklist_id__in=target_ids, status=TrainingProgress.Status.DONE,
+        ).update(status=TrainingProgress.Status.PENDING, completed_at=None)
+
+    return evaluation
+
+
+def levelup_skill_evaluation(enrollment):
+    """Phiếu Skill_BQL đã hoàn thành của vòng (nếu có) — dùng cho M1.5."""
+    return Evaluation.objects.filter(
+        tenant=enrollment.tenant, enrollment=enrollment, eval_type='Skill_BQL',
+        status=Evaluation.Status.DONE,
+    ).order_by('-completed_at').first()
 
 
 def save_council_score(user, payload):

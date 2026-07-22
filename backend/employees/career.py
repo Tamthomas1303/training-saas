@@ -210,6 +210,61 @@ def open_training(enrollment):
     return True, None
 
 
+def levelup_progress_percent(enrollment):
+    """% tiến độ đào tạo của vòng = checklist VỊ TRÍ ĐÍCH đã Hoàn thành / tổng."""
+    from .services import checklist_progress_percent
+
+    return checklist_progress_percent(enrollment.employee, enrollment.target_position)
+
+
+def levelup_round_detail(enrollment):
+    """Dữ liệu 1 vòng thăng tiến để đào tạo + đánh giá (M1.4): checklist vị trí đích + trạng thái
+    từng mục, % tiến độ, LMS/thi (theo dõi CLS), và kết quả đánh giá kỹ năng của vòng."""
+    from checklist.models import TrainingProgress
+    from evaluation.services import levelup_skill_evaluation
+    from .services import exam_pass, lms_done, matching_checklist_items
+
+    employee = enrollment.employee
+    items = matching_checklist_items(employee, enrollment.target_position)
+    status_by_checklist = dict(
+        TrainingProgress.objects.filter(
+            employee=employee, checklist_id__in=[c.id for c in items]
+        ).values_list('checklist_id', 'status')
+    )
+    checklist = [
+        {
+            'id': c.id,
+            'day': c.day,
+            'category': c.category,
+            'task_name': c.task_name,
+            'doc_url': c.doc_url,
+            'status': status_by_checklist.get(c.id, TrainingProgress.Status.PENDING),
+        }
+        for c in items
+    ]
+    done = sum(1 for c in checklist if c['status'] == TrainingProgress.Status.DONE)
+    percent = round(done / len(checklist) * 100) if checklist else 0
+
+    skill_eval = levelup_skill_evaluation(enrollment)
+    return {
+        'enrollment_id': enrollment.id,
+        'employee_id': employee.id,
+        'employee_name': employee.name,
+        'target_position': enrollment.target_position,
+        'zone': enrollment.zone,
+        'from_level': enrollment.from_level,
+        'target_level': enrollment.target_level,
+        'exam_batch': enrollment.exam_batch,
+        'status': enrollment.status,
+        'checklist': checklist,
+        'progress_percent': percent,
+        'lms_done': lms_done(employee),
+        'exam_pass': exam_pass(employee),
+        'skill_percent': float(skill_eval.percent) if skill_eval else None,
+        'skill_result': (skill_eval.result if skill_eval else ''),
+    }
+
+
 def levelup_options(employee):
     """Gói dữ liệu cho màn BQL đăng ký thăng tiến: level hiện tại/đích, khối, vị trí đã đạt,
     cổng đăng ký (can/reason), danh sách vị trí đích hợp lệ và các đợt thi còn mở."""

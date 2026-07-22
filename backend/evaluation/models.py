@@ -93,6 +93,12 @@ class Evaluation(models.Model):
         'CouncilMember', on_delete=models.SET_NULL, related_name='evaluations', null=True, blank=True
     )
     dish_name = models.CharField(max_length=255, blank=True)
+    # M1.4: phiếu đánh giá thuộc MỘT vòng thăng tiến (chấm theo vị trí đích). Null = đánh giá
+    # onboarding như cũ (không ảnh hưởng dữ liệu/luồng hiện tại).
+    enrollment = models.ForeignKey(
+        'employees.LevelUpEnrollment', on_delete=models.CASCADE, related_name='evaluations',
+        null=True, blank=True,
+    )
 
     def __str__(self):
         return f'{self.employee_id} - {self.eval_type} - {self.evaluator_id}'
