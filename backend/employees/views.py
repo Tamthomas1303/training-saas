@@ -255,6 +255,23 @@ class StudentOfficeResultView(APIView):
         return Response({'office_result': result, 'final_result': employee.final_result})
 
 
+class LevelUpOptionsView(APIView):
+    """GET /api/employees/<id>/levelup-options/ — dữ liệu cho BQL đăng ký thăng tiến (M1.2):
+    level hiện tại/đích, khối FOH/BOH, vị trí đã đạt, cổng đăng ký + danh sách vị trí đích hợp lệ.
+    BQL/Trainer chỉ xem nhân sự nhà hàng mình; Admin/OM toàn hệ thống."""
+
+    def get(self, request, pk):
+        employee = get_object_or_404(Employee, pk=pk, tenant=request.user.tenant)
+        from employees.permissions import get_restaurant_scope
+
+        scope = get_restaurant_scope(request.user)
+        if not scope['all'] and employee.restaurant_id not in scope['restaurant_ids']:
+            return Response({'detail': 'Bạn không đủ quyền xem nhân sự nhà hàng này.'}, status=403)
+        from .career import levelup_options
+
+        return Response(levelup_options(employee))
+
+
 class StudentExportProbationResultView(APIView):
     """POST /api/employees/<id>/export-probation-result/ — xuat phieu ket qua thu viec PDF,
     chi Admin/BQL va chi khi final_result la 'Pass thu viec' (enforce server-side, chat hon

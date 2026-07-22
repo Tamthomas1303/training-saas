@@ -5,6 +5,7 @@ from .views import (
     DashboardStatsView,
     EmployeeViewSet,
     HomeStatsView,
+    LevelUpOptionsView,
     PositionListView,
     StudentOfficeResultView,
     RecruitmentImportFileView,
@@ -28,6 +29,7 @@ urlpatterns = [
     path('<int:pk>/detail/', StudentDetailView.as_view(), name='employee-detail'),
     path('<int:pk>/change-status/', StudentChangeStatusView.as_view(), name='employee-change-status'),
     path('<int:pk>/office-result/', StudentOfficeResultView.as_view(), name='employee-office-result'),
+    path('<int:pk>/levelup-options/', LevelUpOptionsView.as_view(), name='employee-levelup-options'),
     path(
         '<int:pk>/export-probation-result/', StudentExportProbationResultView.as_view(),
         name='employee-export-probation-result',

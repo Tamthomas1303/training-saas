@@ -105,3 +105,40 @@ def registration_status(employee):
         return {'can': False, 'reason': f'Chưa đủ 3 tháng ở vị trí hiện tại (mới ~{months:.1f} tháng).',
                 'current_level': current, 'next_level': nxt}
     return {'can': True, 'reason': '', 'current_level': current, 'next_level': nxt}
+
+
+def eligible_target_positions(employee):
+    """Vị trí đích BQL được chọn: lấy từ checklist của tenant, CÙNG KHỐI (FOH/BOH) với vị trí
+    hiện tại, LOẠI các vị trí nhân sự đã đạt. Không có thứ tự — BQL tự chọn."""
+    from checklist.models import Checklist
+
+    zone = zone_of_position(employee.position)
+    achieved = {_no_accent(p) for p in achieved_positions(employee)}
+    positions = set(
+        Checklist.objects.filter(tenant=employee.tenant)
+        .exclude(position='')
+        .values_list('position', flat=True)
+    )
+    out = []
+    for p in sorted(positions):
+        if zone_of_position(p) != zone:
+            continue
+        if _no_accent(p) in achieved:
+            continue
+        out.append(p)
+    return out
+
+
+def levelup_options(employee):
+    """Gói dữ liệu cho màn BQL đăng ký thăng tiến: level hiện tại/đích, khối, vị trí đã đạt,
+    cổng đăng ký (can/reason) và danh sách vị trí đích hợp lệ."""
+    status = registration_status(employee)
+    return {
+        **status,
+        'zone': zone_of_position(employee.position),
+        'current_position': employee.position,
+        'achieved_positions': achieved_positions(employee),
+        'positions_achieved_count': positions_achieved_count(employee),
+        'eligible_for_talent_pool': eligible_for_talent_pool(employee),
+        'options': eligible_target_positions(employee),
+    }
