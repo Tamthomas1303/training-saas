@@ -404,6 +404,65 @@ class LevelUpEvaluateView(APIView):
         return Response(EvaluationSerializer(evaluation).data, status=200)
 
 
+LEVELUP_DECIDE_ROLES = {'admin', 'om'}
+
+
+class LevelUpCompleteView(APIView):
+    """POST /api/employees/levelup-enrollments/<id>/complete/ — Phòng Đào tạo chốt lên level nếu đủ
+    điều kiện (LMS 100% + thi đạt + checklist 100% + điểm tổng 40/60 ≥85%). Chỉ Admin/OM."""
+
+    def post(self, request, pk):
+        if (request.user.role or '').lower() not in LEVELUP_DECIDE_ROLES:
+            return Response({'detail': 'Chỉ Admin/OM (Phòng Đào tạo) được chốt lên level.'}, status=403)
+        from .career import complete_levelup
+        from .models import LevelUpEnrollment
+
+        enrollment = get_object_or_404(LevelUpEnrollment, pk=pk, tenant=request.user.tenant)
+        result, err = complete_levelup(enrollment, request.user)
+        if err:
+            return Response({'detail': err}, status=400)
+        return Response(result)
+
+
+class LevelUpFailView(APIView):
+    """POST /api/employees/levelup-enrollments/<id>/fail/ — đánh dấu vòng không đạt. Chỉ Admin/OM."""
+
+    def post(self, request, pk):
+        if (request.user.role or '').lower() not in LEVELUP_DECIDE_ROLES:
+            return Response({'detail': 'Chỉ Admin/OM được đánh dấu không đạt.'}, status=403)
+        from .career import fail_levelup
+        from .models import LevelUpEnrollment
+        from .serializers import LevelUpEnrollmentSerializer
+
+        enrollment = get_object_or_404(LevelUpEnrollment, pk=pk, tenant=request.user.tenant)
+        ok, err = fail_levelup(enrollment, request.user)
+        if not ok:
+            return Response({'detail': err}, status=400)
+        return Response(LevelUpEnrollmentSerializer(enrollment).data)
+
+
+class TalentPoolListView(APIView):
+    """GET /api/employees/talent-pool/ — nhân sự nguồn (đủ 3 vị trí / major S3). Chỉ Admin/OM."""
+
+    def get(self, request):
+        if (request.user.role or '').lower() not in LEVELUP_DECIDE_ROLES:
+            return Response({'detail': 'Chỉ Admin/OM được xem danh sách nhân sự nguồn.'}, status=403)
+        from .career import achieved_positions, major_level, talent_pool_employees
+
+        rows = [
+            {
+                'id': e.id,
+                'code': e.code,
+                'name': e.name,
+                'restaurant_name': e.restaurant.name if e.restaurant else '',
+                'level': major_level(e.job_level),
+                'achieved_positions': achieved_positions(e),
+            }
+            for e in talent_pool_employees(request.user.tenant)
+        ]
+        return Response(rows)
+
+
 class StudentExportProbationResultView(APIView):
     """POST /api/employees/<id>/export-probation-result/ — xuat phieu ket qua thu viec PDF,
     chi Admin/BQL va chi khi final_result la 'Pass thu viec' (enforce server-side, chat hon

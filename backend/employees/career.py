@@ -23,6 +23,11 @@ POSITIONS_FOR_TALENT_POOL = 3
 EXAM_MONTHS = (4, 8, 12)
 EXAM_REGISTER_LEAD_MONTHS = 1
 
+# M1.5 — lên level: điểm tổng = 40% thi lý thuyết + 60% đánh giá thực hành, phải ≥ 85%.
+LEVELUP_PASS_THRESHOLD = 85
+LEVELUP_EXAM_WEIGHT = 0.4
+LEVELUP_SKILL_WEIGHT = 0.6
+
 
 def _no_accent(text):
     s = unicodedata.normalize('NFD', (text or ''))
@@ -262,7 +267,128 @@ def levelup_round_detail(enrollment):
         'exam_pass': exam_pass(employee),
         'skill_percent': float(skill_eval.percent) if skill_eval else None,
         'skill_result': (skill_eval.result if skill_eval else ''),
+        'completion': levelup_completion_status(enrollment),
     }
+
+
+def levelup_completion_status(enrollment):
+    """M1.5 — kiểm 4 điều kiện lên level cho 1 vòng:
+      1) LMS học xong  2) checklist vị trí đích 100%  3) thi đạt (CLS)
+      4) điểm tổng 40% thi + 60% thực hành ≥ 85%.
+    Trả dict chi tiết + can_complete + reason."""
+    from evaluation.services import levelup_skill_evaluation
+    from .services import best_exam_score, exam_pass, lms_done
+
+    employee = enrollment.employee
+    lms = lms_done(employee)
+    checklist_pct = levelup_progress_percent(enrollment)
+    checklist_ok = checklist_pct >= 100
+    exam_ok = exam_pass(employee)
+    exam_score = best_exam_score(employee)
+
+    skill_eval = levelup_skill_evaluation(enrollment)
+    skill_percent = float(skill_eval.percent) if skill_eval else None
+
+    combined = None
+    combined_ok = False
+    if skill_percent is not None:
+        combined = round(LEVELUP_EXAM_WEIGHT * exam_score + LEVELUP_SKILL_WEIGHT * skill_percent, 1)
+        combined_ok = combined >= LEVELUP_PASS_THRESHOLD
+
+    reasons = []
+    if not lms:
+        reasons.append('chưa hoàn thành LMS')
+    if not checklist_ok:
+        reasons.append(f'đào tạo vị trí đích mới {checklist_pct}%')
+    if not exam_ok:
+        reasons.append('chưa đạt thi lý thuyết')
+    if skill_percent is None:
+        reasons.append('chưa có đánh giá kỹ năng (Skill_BQL)')
+    elif not combined_ok:
+        reasons.append(f'điểm tổng {combined}% < 85%')
+
+    already_open = enrollment.status == LevelUpEnrollment.Status.TRAINING
+    can_complete = bool(lms and checklist_ok and exam_ok and combined_ok and already_open)
+    return {
+        'lms': lms,
+        'checklist_percent': checklist_pct,
+        'checklist_ok': checklist_ok,
+        'exam_pass': exam_ok,
+        'exam_score': exam_score,
+        'skill_percent': skill_percent,
+        'combined_score': combined,
+        'combined_ok': combined_ok,
+        'threshold': LEVELUP_PASS_THRESHOLD,
+        'weights': {'exam': LEVELUP_EXAM_WEIGHT, 'skill': LEVELUP_SKILL_WEIGHT},
+        'can_complete': can_complete,
+        'reason': '' if can_complete else ('; '.join(reasons) or 'Vòng không ở trạng thái đang đào tạo.'),
+    }
+
+
+def complete_levelup(enrollment, user=None):
+    """Chốt lên level nếu đủ điều kiện (M1.5): đánh dấu vòng hoàn thành + nâng major level +
+    ghi vị trí đã đạt. Nếu đủ 3 vị trí (gồm vị trí vào làm) → S3 → thuộc diện nhân sự nguồn.
+    Trả (result_dict, None) hoặc (None, 'lý do')."""
+    status = levelup_completion_status(enrollment)
+    if not status['can_complete']:
+        return None, status['reason']
+
+    employee = enrollment.employee
+    enrollment.status = LevelUpEnrollment.Status.COMPLETED
+    enrollment.completed_at = timezone.now()
+    enrollment.save(update_fields=['status', 'completed_at'])
+
+    # Nâng major level: giữ định dạng [chữ][major].[bậc nhỏ] → đặt về '.1' của major đích.
+    target_major = enrollment.target_level or next_major_level(major_level(employee.job_level))
+    if target_major:
+        employee.job_level = f'{target_major}.1'
+        employee.save(update_fields=['job_level'])
+
+    count = positions_achieved_count(employee)
+    is_talent_pool = eligible_for_talent_pool(employee)
+    if is_talent_pool:
+        note = (f'{employee.name} đã đạt vị trí "{enrollment.target_position}", lên {target_major} '
+                f'và hoàn thành đủ {count} vị trí → vào danh sách NHÂN SỰ NGUỒN.')
+    else:
+        note = (f'{employee.name} đã đạt vị trí "{enrollment.target_position}", lên {target_major} '
+                f'({count}/{POSITIONS_FOR_TALENT_POOL} vị trí).')
+
+    return {
+        'enrollment_id': enrollment.id,
+        'employee_id': employee.id,
+        'new_level': target_major,
+        'job_level': employee.job_level,
+        'target_position': enrollment.target_position,
+        'positions_achieved_count': count,
+        'achieved_positions': achieved_positions(employee),
+        'is_talent_pool': is_talent_pool,
+        'message': note,
+    }, None
+
+
+def fail_levelup(enrollment, user=None):
+    """Đánh dấu vòng KHÔNG ĐẠT (đóng vòng, không lên level). Cho phép đăng ký lại đợt sau."""
+    if enrollment.status not in (
+        LevelUpEnrollment.Status.REGISTERED, LevelUpEnrollment.Status.TRAINING,
+    ):
+        return False, 'Vòng đã kết thúc, không thể đánh dấu không đạt.'
+    enrollment.status = LevelUpEnrollment.Status.FAILED
+    enrollment.completed_at = timezone.now()
+    enrollment.save(update_fields=['status', 'completed_at'])
+    return True, None
+
+
+def talent_pool_employees(tenant):
+    """Danh sách nhân sự nguồn (đủ 3 vị trí / major S3). Dẫn xuất — chưa cần field riêng (M2)."""
+    from .models import Employee
+
+    out = []
+    for e in Employee.objects.filter(tenant=tenant).exclude(
+        employee_status=Employee.EmployeeStatus.RESIGNED
+    ):
+        if eligible_for_talent_pool(e):
+            out.append(e)
+    return out
 
 
 def levelup_options(employee):
