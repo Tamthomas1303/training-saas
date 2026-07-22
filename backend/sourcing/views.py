@@ -19,11 +19,15 @@ from .serializers import (
     ProgramContentSerializer,
     ProgramSerializer,
 )
+from .models import Notification
 from .services import (
     enrollment_contents,
     enrollment_summary,
     finalize_enrollment,
     mark_attendance,
+    notify_enrollment_added,
+    notify_enrollment_result,
+    notify_session_created,
     session_roster,
     toggle_content,
 )
@@ -85,7 +89,8 @@ class CohortSessionViewSet(AdminOmWriteMixin, TenantScopedViewSetMixin, viewsets
 
     def perform_create(self, serializer):
         # Sinh mã QR tự điểm danh khi tạo buổi (học viên quét để tự điểm danh — M2.3).
-        serializer.save(tenant=self.request.user.tenant, qr_token=secrets.token_urlsafe(24))
+        session = serializer.save(tenant=self.request.user.tenant, qr_token=secrets.token_urlsafe(24))
+        notify_session_created(session)
 
 
 class SessionAttendanceView(APIView):
@@ -137,6 +142,7 @@ class EnrollmentViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
         enrollment = Enrollment.objects.create(
             tenant=request.user.tenant, cohort=cohort, employee=employee, added_by=request.user,
         )
+        notify_enrollment_added(enrollment)
         return Response(EnrollmentSerializer(enrollment).data, status=201)
 
     def destroy(self, request, *args, **kwargs):
@@ -181,7 +187,39 @@ class EnrollmentResultView(APIView):
         _, err = finalize_enrollment(enrollment, request.data.get('result'))
         if err:
             return Response({'detail': err}, status=400)
+        notify_enrollment_result(enrollment)
         return Response(EnrollmentSerializer(enrollment).data)
+
+
+class NotificationListView(APIView):
+    """GET /api/sourcing/notifications/ — thông báo của chính user + số chưa đọc.
+    POST — đánh dấu đã đọc: {id} (một) hoặc {all: true} (tất cả)."""
+
+    def get(self, request):
+        qs = Notification.objects.filter(tenant=request.user.tenant, user=request.user)[:50]
+        items = [
+            {
+                'id': n.id, 'title': n.title, 'body': n.body, 'link': n.link,
+                'category': n.category, 'is_read': n.is_read,
+                'created_at': n.created_at.isoformat(),
+            }
+            for n in qs
+        ]
+        unread = Notification.objects.filter(
+            tenant=request.user.tenant, user=request.user, is_read=False,
+        ).count()
+        return Response({'items': items, 'unread': unread})
+
+    def post(self, request):
+        base = Notification.objects.filter(tenant=request.user.tenant, user=request.user, is_read=False)
+        if request.data.get('all'):
+            base.update(is_read=True)
+        elif request.data.get('id'):
+            base.filter(pk=request.data.get('id')).update(is_read=True)
+        unread = Notification.objects.filter(
+            tenant=request.user.tenant, user=request.user, is_read=False,
+        ).count()
+        return Response({'unread': unread})
 
 
 class AttendInfoView(APIView):

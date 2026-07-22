@@ -1,6 +1,10 @@
+import logging
+
 from django.utils import timezone
 
-from .models import Attendance, CohortSession, ContentProgress, Enrollment, ProgramContent
+from .models import Attendance, CohortSession, ContentProgress, Enrollment, Notification, ProgramContent
+
+logger = logging.getLogger(__name__)
 
 
 def session_roster(session):
@@ -102,3 +106,85 @@ def finalize_enrollment(enrollment, result):
     enrollment.completed_at = timezone.now()
     enrollment.save(update_fields=['result', 'status', 'completed_at'])
     return enrollment, None
+
+
+# ---- Thông báo (M2.5): in-app + email ----
+
+def notification_targets(tenant, restaurant=None, include_user=None):
+    """Người nhận thông báo: Admin/OM của tenant (Phòng Đào tạo) + BQL/Trainer của nhà hàng liên
+    quan + người tạo đợt."""
+    from accounts.models import User
+
+    base = User.objects.filter(tenant=tenant, status=User.Status.ACTIVE)
+    users = set(base.filter(role__in=['admin', 'om']))
+    if restaurant is not None:
+        users |= set(base.filter(role__in=['bql', 'trainer'], restaurant=restaurant))
+    if include_user is not None:
+        users.add(include_user)
+    return [u for u in users if u is not None]
+
+
+def notify_users(users, title, body='', link='', category=''):
+    """Tạo thông báo in-app cho từng user + gửi email (nếu có địa chỉ & đã cấu hình SMTP).
+    Lỗi email không làm hỏng request (fail_silently)."""
+    from django.conf import settings
+    from django.core.mail import send_mail
+
+    seen = set()
+    rows = []
+    emails = []
+    for u in users:
+        if u is None or u.id in seen:
+            continue
+        seen.add(u.id)
+        rows.append(Notification(
+            tenant=u.tenant, user=u, title=title, body=body, link=link, category=category,
+        ))
+        addr = (u.email or u.google_email or '').strip()
+        if addr:
+            emails.append(addr)
+    if rows:
+        Notification.objects.bulk_create(rows)
+    for addr in emails:
+        try:
+            send_mail(title, body or title, settings.DEFAULT_FROM_EMAIL, [addr], fail_silently=True)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning('Gửi email thông báo thất bại (%s): %s', addr, exc)
+    return len(rows)
+
+
+def notify_enrollment_added(enrollment):
+    cohort = enrollment.cohort
+    emp = enrollment.employee
+    users = notification_targets(cohort.tenant, restaurant=emp.restaurant, include_user=cohort.created_by)
+    notify_users(
+        users,
+        title=f'Học viên mới trong đợt "{cohort.name}"',
+        body=f'{emp.name} ({emp.code}) đã được thêm vào đợt đào tạo "{cohort.name}".',
+        link='/sourcing', category='cohort',
+    )
+
+
+def notify_session_created(session):
+    cohort = session.cohort
+    users = notification_targets(cohort.tenant, include_user=cohort.created_by)
+    when = session.date.isoformat() if session.date else ''
+    notify_users(
+        users,
+        title=f'Buổi học mới — đợt "{cohort.name}"',
+        body=f'Buổi {session.session_no or ""} {("- " + session.title) if session.title else ""} '
+             f'{("ngày " + when) if when else ""}.'.strip(),
+        link='/sourcing', category='cohort',
+    )
+
+
+def notify_enrollment_result(enrollment):
+    cohort = enrollment.cohort
+    emp = enrollment.employee
+    users = notification_targets(cohort.tenant, restaurant=emp.restaurant, include_user=cohort.created_by)
+    notify_users(
+        users,
+        title=f'Kết quả đào tạo — {emp.name}',
+        body=f'{emp.name} ({emp.code}) đợt "{cohort.name}": kết quả {enrollment.result}.',
+        link='/sourcing', category='cohort',
+    )

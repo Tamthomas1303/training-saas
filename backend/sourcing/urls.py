@@ -9,6 +9,7 @@ from .views import (
     EnrollmentContentsView,
     EnrollmentResultView,
     EnrollmentViewSet,
+    NotificationListView,
     ProgramContentViewSet,
     ProgramViewSet,
     SessionAttendanceView,
@@ -27,6 +28,7 @@ urlpatterns = [
     path('cohort-sessions/<int:pk>/attendance/', SessionAttendanceView.as_view(), name='session-attendance'),
     path('enrollments/<int:pk>/contents/', EnrollmentContentsView.as_view(), name='enrollment-contents'),
     path('enrollments/<int:pk>/result/', EnrollmentResultView.as_view(), name='enrollment-result'),
+    path('notifications/', NotificationListView.as_view(), name='notifications'),
     path('attend/<str:token>/', AttendInfoView.as_view(), name='attend-info'),
     path('attend/<str:token>/checkin/', AttendCheckInView.as_view(), name='attend-checkin'),
 ] + router.urls

@@ -246,3 +246,19 @@ PROBATION_S_DAYS = int(os.environ.get('PROBATION_S_DAYS', '15'))
 PROBATION_O_DAYS = int(os.environ.get('PROBATION_O_DAYS', '60'))
 # Ngưỡng "sắp đến hạn thử việc" trên dashboard (days_left <= ngưỡng này, gồm cả quá hạn/âm)
 PROBATION_DEADLINE_WARN_DAYS = int(os.environ.get('PROBATION_DEADLINE_WARN_DAYS', '10'))
+
+# ---- Email (M2.5) ----
+# Đặt EMAIL_HOST/EMAIL_HOST_USER/EMAIL_HOST_PASSWORD (secret) để gửi mail thật (vd Gmail SMTP:
+# host smtp.gmail.com, port 587, dùng App Password). Chưa đặt → in ra console, không gửi thật.
+EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True') == 'True'
+DEFAULT_FROM_EMAIL = os.environ.get(
+    'DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'no-reply@training.local'
+)
+EMAIL_BACKEND = (
+    'django.core.mail.backends.smtp.EmailBackend' if EMAIL_HOST
+    else 'django.core.mail.backends.console.EmailBackend'
+)
