@@ -1,18 +1,26 @@
+from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    AttendCheckInView,
+    AttendInfoView,
     CohortSessionViewSet,
     CohortViewSet,
     ProgramContentViewSet,
     ProgramViewSet,
+    SessionAttendanceView,
 )
 
-# M2.2 — chương trình + checklist nội dung + đợt & buổi học. Điểm danh/QR (M2.3), học viên
-# (M2.4), thông báo (M2.5) thêm dần.
+# M2.2 — chương trình + checklist nội dung + đợt & buổi học. M2.3 — điểm danh (QR tự quét +
+# điều chỉnh tay). Học viên (M2.4), thông báo (M2.5) thêm dần.
 router = DefaultRouter()
 router.register('programs', ProgramViewSet, basename='program')
 router.register('program-contents', ProgramContentViewSet, basename='program-content')
 router.register('cohorts', CohortViewSet, basename='cohort')
 router.register('cohort-sessions', CohortSessionViewSet, basename='cohort-session')
 
-urlpatterns = router.urls
+urlpatterns = [
+    path('cohort-sessions/<int:pk>/attendance/', SessionAttendanceView.as_view(), name='session-attendance'),
+    path('attend/<str:token>/', AttendInfoView.as_view(), name='attend-info'),
+    path('attend/<str:token>/checkin/', AttendCheckInView.as_view(), name='attend-checkin'),
+] + router.urls

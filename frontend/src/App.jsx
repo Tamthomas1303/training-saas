@@ -16,6 +16,7 @@ import KpiDashboardPage from './pages/KpiDashboardPage'
 import UsersPage from './pages/UsersPage'
 import DocumentsPage from './pages/DocumentsPage'
 import GuestCouncilPage from './pages/GuestCouncilPage'
+import GuestAttendPage from './pages/GuestAttendPage'
 import CriteriaEditorPage from './pages/CriteriaEditorPage'
 import LevelUpPage from './pages/LevelUpPage'
 import api from './api/client'
@@ -39,6 +40,7 @@ function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/council-guest/:token" element={<GuestCouncilPage />} />
+          <Route path="/attend/:token" element={<GuestAttendPage />} />
           <Route
             path="/"
             element={
