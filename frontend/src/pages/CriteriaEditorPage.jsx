@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import AppShell from '../components/AppShell'
 import FilterBar from '../components/FilterBar'
 import Modal from '../components/Modal'
-import Table from '../components/Table'
+import Pager from '../components/Pager'
 import api from '../api/client'
 import * as s from './listPageStyles'
 
@@ -43,7 +43,9 @@ export default function CriteriaEditorPage() {
   const [rows, setRows] = useState([])
   const [form, setForm] = useState(null)
   const [msg, setMsg] = useState('')
+  const [page, setPage] = useState(1)
   const fileRef = useRef(null)
+  const PAGE_SIZE = 25
 
   const isO = mode === 'O'
   const isInterview = isO && oType === 'Council_Interview'
@@ -59,6 +61,9 @@ export default function CriteriaEditorPage() {
     api.get('/evaluation/council-criteria/', { params }).then(({ data }) => setRows(data)).catch(() => setRows([]))
   }
   useEffect(load, [mode, oType, group, deptRole, sType, brand, position])
+  useEffect(() => setPage(1), [mode, oType, group, deptRole, sType, brand, position])
+
+  const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   function openAdd() {
     if (isO) {
@@ -168,38 +173,43 @@ export default function CriteriaEditorPage() {
 
       {msg && <p style={{ color: 'var(--forest-dark)' }}>{msg}</p>}
 
-      <Table>
-        <thead>
-          <tr>
-            <th style={{ width: 40 }}>STT</th>
-            {!isO && <th>Brand</th>}
-            {!isO && <th>Vị trí</th>}
-            <th>Mục</th>
-            <th>Nội dung</th>
-            <th style={{ width: 70 }}>Tối đa</th>
-            <th style={{ width: 110 }}></th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={r.id}>
-              <td>{i + 1}</td>
-              {!isO && <td>{r.brand}</td>}
-              {!isO && <td>{r.position}</td>}
-              <td>{r.section}</td>
-              <td>{r.content}</td>
-              <td style={{ textAlign: 'center' }}>{r.max_score}</td>
-              <td style={{ display: 'flex', gap: 6 }}>
-                <button className="btn-outline btn-sm" onClick={() => openEdit(r)}>Sửa</button>
-                <button className="btn-outline btn-sm" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }} onClick={() => del(r)}>Xóa</button>
-              </td>
+      <div className="table-sticky">
+        <table className="themed">
+          <thead>
+            <tr>
+              <th style={{ width: 40 }}>STT</th>
+              {!isO && <th>Brand</th>}
+              {!isO && <th>Vị trí</th>}
+              <th>Mục</th>
+              <th>Nội dung</th>
+              <th style={{ width: 70 }}>Tối đa</th>
+              <th style={{ width: 110 }}></th>
             </tr>
-          ))}
-          {rows.length === 0 && (
-            <tr><td colSpan={isO ? 5 : 7} className="muted-note">Chưa có tiêu chí. {!isO && 'Dùng "Nhập từ file" để nạp bộ tiêu chí ban đầu.'}</td></tr>
-          )}
-        </tbody>
-      </Table>
+          </thead>
+          <tbody>
+            {pageRows.map((r, i) => (
+              <tr key={r.id}>
+                <td>{(page - 1) * PAGE_SIZE + i + 1}</td>
+                {!isO && <td>{r.brand}</td>}
+                {!isO && <td>{r.position}</td>}
+                <td>{r.section}</td>
+                <td>{r.content}</td>
+                <td style={{ textAlign: 'center' }}>{r.max_score}</td>
+                <td style={{ display: 'flex', gap: 6 }}>
+                  <button className="btn-outline btn-sm" onClick={() => openEdit(r)}>Sửa</button>
+                  <button className="btn-outline btn-sm" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }} onClick={() => del(r)}>Xóa</button>
+                </td>
+              </tr>
+            ))}
+            {rows.length === 0 && (
+              <tr><td colSpan={isO ? 5 : 7} className="muted-note">Chưa có tiêu chí. {!isO && 'Dùng "Nhập từ file" để nạp bộ tiêu chí ban đầu.'}</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ marginTop: 10 }}>
+        <Pager page={page} pageSize={PAGE_SIZE} count={rows.length} onChange={setPage} />
+      </div>
 
       <Modal
         open={!!form}
