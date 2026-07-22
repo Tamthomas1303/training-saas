@@ -64,3 +64,31 @@ class RecruitmentSource(models.Model):
 
     def __str__(self):
         return f'RecruitmentSource({self.tenant_id})'
+
+
+class LevelUpEnrollment(models.Model):
+    """Đợt đào tạo thăng tiến (v2.1 / M1): nhân sự học MỘT vị trí mới (BQL chọn) để lên major
+    level (S1→S2→S3). Hoàn thành 1 vị trí = lên 1 level; đủ 3 vị trí (gồm vị trí vào làm) → S3."""
+
+    class Status(models.TextChoices):
+        REGISTERED = 'registered', 'Đăng ký'
+        TRAINING = 'training', 'Đang đào tạo'
+        COMPLETED = 'completed', 'Hoàn thành (lên level)'
+        FAILED = 'failed', 'Không đạt'
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='level_up_enrollments')
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='level_up_enrollments')
+    target_position = models.CharField(max_length=100)
+    zone = models.CharField(max_length=10, blank=True)          # FOH / BOH
+    from_level = models.CharField(max_length=10, blank=True)     # major level lúc đăng ký (S1/S2)
+    target_level = models.CharField(max_length=10, blank=True)   # major level đích (S2/S3)
+    exam_batch = models.CharField(max_length=20, blank=True)     # vd 2026-T4 / 2026-T8 / 2026-T12
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.REGISTERED)
+    registered_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, related_name='level_up_registered', null=True, blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f'{self.employee_id} → {self.target_position} ({self.target_level})'
