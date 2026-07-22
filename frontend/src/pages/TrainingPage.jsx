@@ -48,6 +48,8 @@ export default function TrainingPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [openItemId, setOpenItemId] = useState(null)
+  // M1.6: đào tạo checklist của vị trí đích (thăng tiến) thay vì vị trí hiện tại.
+  const [targetPosition, setTargetPosition] = useState(null)
 
   const { data: employeeOptions } = usePaginatedList('/employees/', {
     search: employeeSearch,
@@ -55,13 +57,16 @@ export default function TrainingPage() {
     page_size: PAGE_SIZE,
   })
 
-  async function selectEmployee(emp) {
+  async function selectEmployee(emp, position = null) {
     setSelectedEmployee(emp)
+    setTargetPosition(position)
     setOpenItemId(null)
     setLoading(true)
     setError('')
     try {
-      const { data } = await api.get('/checklist/training/', { params: { employee: emp.id } })
+      const { data } = await api.get('/checklist/training/', {
+        params: { employee: emp.id, position: position || undefined },
+      })
       setChecklistData(data)
     } catch {
       setError('Không tải được checklist.')
@@ -74,11 +79,12 @@ export default function TrainingPage() {
     setSelectedEmployee(null)
     setChecklistData(null)
     setOpenItemId(null)
+    setTargetPosition(null)
   }
 
-  // Vào từ nút "Bắt đầu đào tạo" ở Trang chủ → tự chọn nhân sự luôn
+  // Vào từ nút "Bắt đầu đào tạo" ở Trang chủ / "Đào tạo vị trí đích" ở màn Thăng tiến → tự chọn.
   useEffect(() => {
-    if (location.state?.employee) selectEmployee(location.state.employee)
+    if (location.state?.employee) selectEmployee(location.state.employee, location.state.position || null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -167,6 +173,11 @@ export default function TrainingPage() {
           <h3>
             {selectedEmployee.name} — {selectedEmployee.position} — {selectedEmployee.restaurant_name}
           </h3>
+          {targetPosition && (
+            <div className="card" style={{ padding: 8, margin: '4px 0 12px', borderLeft: '3px solid var(--forest)' }}>
+              🚀 Đào tạo <b>vị trí đích (thăng tiến): {targetPosition}</b> — checklist bên dưới theo vị trí này.
+            </div>
+          )}
 
           {loading && <p className="muted-note">Đang tải...</p>}
           {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}

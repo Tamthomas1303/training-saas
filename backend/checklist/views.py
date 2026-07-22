@@ -68,7 +68,10 @@ class EmployeeChecklistView(APIView):
         employee = get_object_or_404(Employee, pk=employee_id, tenant=request.user.tenant)
         employee_data = EmployeeSerializer(employee, context={'request': request}).data
 
-        checklists = matching_checklist_items(employee)
+        # M1.6: cho phép đào tạo checklist của MỘT vị trí khác (vị trí đích khi thăng tiến).
+        # Mặc định = vị trí hiện tại (onboarding).
+        position = request.query_params.get('position') or None
+        checklists = matching_checklist_items(employee, position)
 
         progress_by_checklist = {
             p.checklist_id: p

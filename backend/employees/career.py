@@ -226,7 +226,7 @@ def levelup_round_detail(enrollment):
     """Dữ liệu 1 vòng thăng tiến để đào tạo + đánh giá (M1.4): checklist vị trí đích + trạng thái
     từng mục, % tiến độ, LMS/thi (theo dõi CLS), và kết quả đánh giá kỹ năng của vòng."""
     from checklist.models import TrainingProgress
-    from evaluation.services import levelup_skill_evaluation
+    from evaluation.services import levelup_skill_evaluation, resolve_criteria
     from .services import exam_pass, lms_done, matching_checklist_items
 
     employee = enrollment.employee
@@ -251,6 +251,7 @@ def levelup_round_detail(enrollment):
     percent = round(done / len(checklist) * 100) if checklist else 0
 
     skill_eval = levelup_skill_evaluation(enrollment)
+    _, criteria = resolve_criteria(employee, 'Skill_BQL', enrollment.target_position)
     return {
         'enrollment_id': enrollment.id,
         'employee_id': employee.id,
@@ -267,6 +268,7 @@ def levelup_round_detail(enrollment):
         'exam_pass': exam_pass(employee),
         'skill_percent': float(skill_eval.percent) if skill_eval else None,
         'skill_result': (skill_eval.result if skill_eval else ''),
+        'criteria': criteria,
         'completion': levelup_completion_status(enrollment),
     }
 
