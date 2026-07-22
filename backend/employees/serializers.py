@@ -3,7 +3,7 @@ from rest_framework import serializers
 from accounts.models import User
 from restaurants.models import Restaurant
 
-from .models import Employee
+from .models import Employee, LevelUpEnrollment
 
 
 class EmployeeSerializer(serializers.ModelSerializer):
@@ -52,3 +52,21 @@ class EmployeeSerializer(serializers.ModelSerializer):
             tenant = request.user.tenant
             self.fields['restaurant'].queryset = Restaurant.objects.filter(tenant=tenant)
             self.fields['trainer'].queryset = User.objects.filter(tenant=tenant)
+
+
+class LevelUpEnrollmentSerializer(serializers.ModelSerializer):
+    employee_code = serializers.CharField(source='employee.code', read_only=True, default='')
+    employee_name = serializers.CharField(source='employee.name', read_only=True, default='')
+    restaurant_name = serializers.CharField(source='employee.restaurant.name', read_only=True, default='')
+    status_label = serializers.CharField(source='get_status_display', read_only=True)
+    registered_by_name = serializers.CharField(source='registered_by.full_name', read_only=True, default='')
+
+    class Meta:
+        model = LevelUpEnrollment
+        fields = [
+            'id', 'employee', 'employee_code', 'employee_name', 'restaurant_name',
+            'target_position', 'zone', 'from_level', 'target_level', 'exam_batch',
+            'status', 'status_label', 'registered_by', 'registered_by_name',
+            'created_at', 'completed_at',
+        ]
+        read_only_fields = fields

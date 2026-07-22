@@ -4,8 +4,12 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     DashboardStatsView,
     EmployeeViewSet,
+    ExamBatchListView,
     HomeStatsView,
+    LevelUpEnrollmentListView,
+    LevelUpOpenTrainingView,
     LevelUpOptionsView,
+    LevelUpRegisterView,
     PositionListView,
     StudentOfficeResultView,
     RecruitmentImportFileView,
@@ -30,6 +34,13 @@ urlpatterns = [
     path('<int:pk>/change-status/', StudentChangeStatusView.as_view(), name='employee-change-status'),
     path('<int:pk>/office-result/', StudentOfficeResultView.as_view(), name='employee-office-result'),
     path('<int:pk>/levelup-options/', LevelUpOptionsView.as_view(), name='employee-levelup-options'),
+    path('<int:pk>/levelup-register/', LevelUpRegisterView.as_view(), name='employee-levelup-register'),
+    path('exam-batches/', ExamBatchListView.as_view(), name='employee-exam-batches'),
+    path('levelup-enrollments/', LevelUpEnrollmentListView.as_view(), name='employee-levelup-enrollments'),
+    path(
+        'levelup-enrollments/<int:pk>/open-training/', LevelUpOpenTrainingView.as_view(),
+        name='employee-levelup-open-training',
+    ),
     path(
         '<int:pk>/export-probation-result/', StudentExportProbationResultView.as_view(),
         name='employee-export-probation-result',

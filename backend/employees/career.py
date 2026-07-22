@@ -9,6 +9,7 @@ Quy tắc đã chốt:
 """
 import re
 import unicodedata
+from datetime import date
 
 from django.utils import timezone
 
@@ -17,6 +18,10 @@ from .models import LevelUpEnrollment
 MAX_MAJOR = 3
 MIN_MONTHS_BETWEEN = 3
 POSITIONS_FOR_TALENT_POOL = 3
+
+# 3 đợt thi/năm: tháng 4 / 8 / 12. Đăng ký trước tối thiểu 1 tháng.
+EXAM_MONTHS = (4, 8, 12)
+EXAM_REGISTER_LEAD_MONTHS = 1
 
 
 def _no_accent(text):
@@ -129,9 +134,85 @@ def eligible_target_positions(employee):
     return out
 
 
+def _minus_months(d, months):
+    m = d.month - months
+    y = d.year
+    while m <= 0:
+        m += 12
+        y -= 1
+    return date(y, m, 1)
+
+
+def upcoming_exam_batches(today=None, horizon_months=14):
+    """3 đợt thi/năm (T4/T8/T12). Trả các đợt còn MỞ đăng ký: hôm nay phải trước ngày đầu đợt
+    ít nhất 1 tháng. Mỗi đợt: code '2026-T4', label, ngày thi (đầu tháng), hạn đăng ký."""
+    today = today or timezone.now().date()
+    out = []
+    year = today.year
+    for y in (year, year + 1):
+        for m in EXAM_MONTHS:
+            exam_date = date(y, m, 1)
+            deadline = _minus_months(exam_date, EXAM_REGISTER_LEAD_MONTHS)
+            if today >= deadline:
+                continue  # đã quá hạn đăng ký (trong vòng 1 tháng trước đợt) hoặc đã qua
+            if (exam_date.year - today.year) * 12 + (exam_date.month - today.month) > horizon_months:
+                continue
+            out.append({
+                'code': f'{y}-T{m}',
+                'label': f'Đợt T{m}/{y}',
+                'exam_date': exam_date.isoformat(),
+                'register_deadline': deadline.isoformat(),
+            })
+    return out
+
+
+def _valid_batch_codes(today=None):
+    return {b['code'] for b in upcoming_exam_batches(today)}
+
+
+def register_levelup(employee, target_position, exam_batch, user):
+    """BQL đăng ký nhân sự cho MỘT vị trí đích + đợt thi. Trả (enrollment, None) nếu thành công,
+    hoặc (None, 'lý do') nếu bị chặn. Chốt lại toàn bộ điều kiện ở server."""
+    status = registration_status(employee)
+    if not status['can']:
+        return None, status['reason']
+
+    target_position = (target_position or '').strip()
+    if not target_position:
+        return None, 'Chưa chọn vị trí đích.'
+    if target_position not in eligible_target_positions(employee):
+        return None, 'Vị trí đích không hợp lệ (phải cùng khối và chưa đạt).'
+
+    exam_batch = (exam_batch or '').strip()
+    if exam_batch not in _valid_batch_codes():
+        return None, 'Đợt thi không hợp lệ hoặc đã quá hạn đăng ký (đăng ký trước 1 tháng).'
+
+    enrollment = LevelUpEnrollment.objects.create(
+        tenant=employee.tenant,
+        employee=employee,
+        target_position=target_position,
+        zone=zone_of_position(target_position),
+        from_level=status['current_level'],
+        target_level=status['next_level'],
+        exam_batch=exam_batch,
+        status=LevelUpEnrollment.Status.REGISTERED,
+        registered_by=user if getattr(user, 'is_authenticated', False) else None,
+    )
+    return enrollment, None
+
+
+def open_training(enrollment):
+    """Phòng Đào tạo ghép khoá CLS xong → mở vòng đào tạo (registered → training)."""
+    if enrollment.status != LevelUpEnrollment.Status.REGISTERED:
+        return False, 'Chỉ mở đào tạo cho đợt đang ở trạng thái "Đăng ký".'
+    enrollment.status = LevelUpEnrollment.Status.TRAINING
+    enrollment.save(update_fields=['status'])
+    return True, None
+
+
 def levelup_options(employee):
     """Gói dữ liệu cho màn BQL đăng ký thăng tiến: level hiện tại/đích, khối, vị trí đã đạt,
-    cổng đăng ký (can/reason) và danh sách vị trí đích hợp lệ."""
+    cổng đăng ký (can/reason), danh sách vị trí đích hợp lệ và các đợt thi còn mở."""
     status = registration_status(employee)
     return {
         **status,
@@ -141,4 +222,5 @@ def levelup_options(employee):
         'positions_achieved_count': positions_achieved_count(employee),
         'eligible_for_talent_pool': eligible_for_talent_pool(employee),
         'options': eligible_target_positions(employee),
+        'exam_batches': upcoming_exam_batches(),
     }

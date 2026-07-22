@@ -272,6 +272,93 @@ class LevelUpOptionsView(APIView):
         return Response(levelup_options(employee))
 
 
+LEVELUP_REGISTER_ROLES = {'admin', 'om', 'bql'}
+LEVELUP_OPEN_ROLES = {'admin', 'om', 'trainer'}
+
+
+class ExamBatchListView(APIView):
+    """GET /api/employees/exam-batches/ — các đợt thi còn mở đăng ký (T4/T8/T12, trước 1 tháng)."""
+
+    def get(self, request):
+        from .career import upcoming_exam_batches
+
+        return Response(upcoming_exam_batches())
+
+
+class LevelUpRegisterView(APIView):
+    """POST /api/employees/<id>/levelup-register/ — BQL đăng ký nhân sự cho vị trí đích + đợt thi.
+    Body: {target_position, exam_batch}. Chốt chặn 3 tháng + cùng khối + đợt hợp lệ ở server."""
+
+    def post(self, request, pk):
+        if (request.user.role or '').lower() not in LEVELUP_REGISTER_ROLES:
+            return Response({'detail': 'Chỉ Admin/OM/BQL được đăng ký thăng tiến.'}, status=403)
+        employee = get_object_or_404(Employee, pk=pk, tenant=request.user.tenant)
+        from employees.permissions import get_restaurant_scope
+
+        scope = get_restaurant_scope(request.user)
+        if not scope['all'] and employee.restaurant_id not in scope['restaurant_ids']:
+            return Response({'detail': 'Bạn không đủ quyền với nhân sự nhà hàng này.'}, status=403)
+        from .career import register_levelup
+        from .serializers import LevelUpEnrollmentSerializer
+
+        enrollment, err = register_levelup(
+            employee,
+            request.data.get('target_position'),
+            request.data.get('exam_batch'),
+            request.user,
+        )
+        if err:
+            return Response({'detail': err}, status=400)
+        return Response(LevelUpEnrollmentSerializer(enrollment).data, status=201)
+
+
+class LevelUpEnrollmentListView(APIView):
+    """GET /api/employees/levelup-enrollments/ — danh sách đợt thăng tiến (theo phạm vi nhà hàng).
+    Lọc tuỳ chọn: ?status= &exam_batch= &employee=."""
+
+    def get(self, request):
+        from .models import LevelUpEnrollment
+        from .serializers import LevelUpEnrollmentSerializer
+
+        qs = LevelUpEnrollment.objects.filter(tenant=request.user.tenant).select_related(
+            'employee', 'employee__restaurant', 'registered_by'
+        )
+        from employees.permissions import get_restaurant_scope
+
+        scope = get_restaurant_scope(request.user)
+        if not scope['all']:
+            qs = qs.filter(employee__restaurant_id__in=scope['restaurant_ids'])
+        status_f = request.query_params.get('status')
+        if status_f:
+            qs = qs.filter(status=status_f)
+        batch_f = request.query_params.get('exam_batch')
+        if batch_f:
+            qs = qs.filter(exam_batch=batch_f)
+        emp_f = request.query_params.get('employee')
+        if emp_f:
+            qs = qs.filter(employee_id=emp_f)
+        qs = qs.order_by('-created_at')
+        return Response(LevelUpEnrollmentSerializer(qs, many=True).data)
+
+
+class LevelUpOpenTrainingView(APIView):
+    """POST /api/employees/levelup-enrollments/<id>/open-training/ — Phòng Đào tạo ghép khoá CLS
+    xong → mở vòng đào tạo (Đăng ký → Đang đào tạo). Chỉ Admin/OM/Trainer."""
+
+    def post(self, request, pk):
+        if (request.user.role or '').lower() not in LEVELUP_OPEN_ROLES:
+            return Response({'detail': 'Chỉ Admin/OM/Trainer được mở vòng đào tạo.'}, status=403)
+        from .career import open_training
+        from .models import LevelUpEnrollment
+        from .serializers import LevelUpEnrollmentSerializer
+
+        enrollment = get_object_or_404(LevelUpEnrollment, pk=pk, tenant=request.user.tenant)
+        ok, err = open_training(enrollment)
+        if not ok:
+            return Response({'detail': err}, status=400)
+        return Response(LevelUpEnrollmentSerializer(enrollment).data)
+
+
 class StudentExportProbationResultView(APIView):
     """POST /api/employees/<id>/export-probation-result/ — xuat phieu ket qua thu viec PDF,
     chi Admin/BQL va chi khi final_result la 'Pass thu viec' (enforce server-side, chat hon
