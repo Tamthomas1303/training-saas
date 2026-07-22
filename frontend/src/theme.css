@@ -225,6 +225,19 @@ textarea:focus {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
+/* Bảng có tiêu đề CỐ ĐỊNH khi cuộn (màn Tiêu chí) */
+.table-sticky {
+  max-height: 65vh;
+  overflow: auto;
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+}
+.table-sticky table.themed thead th {
+  position: sticky;
+  top: 0;
+  background: var(--card);
+  z-index: 2;
+}
 
 /* Bảng có tiêu đề cố định (sticky header) khi cuộn — dễ theo dõi danh sách dài */
 .table-sticky {

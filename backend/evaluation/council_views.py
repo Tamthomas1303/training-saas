@@ -1,4 +1,5 @@
 """API Hội đồng đánh giá cấp O (Phase 2). Gồm cả endpoint khách mời (không cần đăng nhập)."""
+import django_filters
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -14,13 +15,22 @@ from .models import Council, CouncilMember, EvaluationCriteria
 from .serializers import EvaluationCriteriaSerializer
 
 
+class CriteriaFilter(django_filters.FilterSet):
+    # eval_type lọc theo chuỗi (không phụ thuộc 'choices') để 'Knowledge' lọc được.
+    eval_type = django_filters.CharFilter(lookup_expr='exact')
+
+    class Meta:
+        model = EvaluationCriteria
+        fields = ['eval_type', 'position_group', 'dept_role', 'brand', 'position', 'level_group']
+
+
 class CouncilCriteriaViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
     """CRUD bộ tiêu chí đánh giá cấp O (Phase 4). Sửa/thêm/xóa chỉ Admin/OM. Lọc theo
     eval_type (ShiftOps/Council_Skill/Council_Interview) + position_group (FOH/BOH) + dept_role."""
 
     serializer_class = EvaluationCriteriaSerializer
     queryset = EvaluationCriteria.objects.all().order_by('eval_type', 'position_group', 'dept_role', 'order')
-    filterset_fields = ['eval_type', 'position_group', 'dept_role', 'brand', 'position', 'level_group']
+    filterset_class = CriteriaFilter
     pagination_class = None
 
     def _guard(self):
