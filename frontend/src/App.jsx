@@ -19,6 +19,7 @@ import GuestCouncilPage from './pages/GuestCouncilPage'
 import GuestAttendPage from './pages/GuestAttendPage'
 import CriteriaEditorPage from './pages/CriteriaEditorPage'
 import LevelUpPage from './pages/LevelUpPage'
+import SourcingPage from './pages/SourcingPage'
 import api from './api/client'
 import { isMobileRole } from './config/menu'
 import { flushQueue, initOfflineSync } from './utils/offlineQueue'
@@ -150,6 +151,14 @@ function App() {
             element={
               <ProtectedRoute roles={['admin', 'om', 'bql', 'am', 'kcs', 'trainer']}>
                 <LevelUpPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/sourcing"
+            element={
+              <ProtectedRoute roles={['admin', 'om', 'bql', 'trainer']}>
+                <SourcingPage />
               </ProtectedRoute>
             }
           />

@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router-dom'
 import HeaderSearch from './HeaderSearch'
+import NotificationsBell from './NotificationsBell'
 import OfflineBadge from './OfflineBadge'
 import UserMenu from './UserMenu'
 
@@ -25,9 +26,7 @@ export default function TopBar({ menu, user, onLogout }) {
         <div className="topbar-actions">
           <HeaderSearch />
           <OfflineBadge />
-          <span className="bell" title="Thông báo">
-            🔔
-          </span>
+          <NotificationsBell />
           <UserMenu />
           <button className="btn-outline btn-sm" onClick={onLogout}>
             Đăng xuất

@@ -1,6 +1,7 @@
 import { useAuth } from '../auth/AuthContext'
 import { getMenuForRole, isMobileRole } from '../config/menu'
 import BottomNav from './BottomNav'
+import NotificationsBell from './NotificationsBell'
 import OfflineBadge from './OfflineBadge'
 import TopBar from './TopBar'
 
@@ -16,9 +17,7 @@ export default function AppShell({ children }) {
           <span className="topbar-user">{user?.full_name || user?.username}</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <OfflineBadge />
-            <span className="bell" title="Thông báo">
-              🔔
-            </span>
+            <NotificationsBell />
             <button className="btn-outline btn-sm" onClick={logout}>
               Đăng xuất
             </button>

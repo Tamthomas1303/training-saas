@@ -15,19 +15,20 @@ export const MENU_ITEMS = {
   users: { label: 'Người dùng', icon: '🧑‍💼', path: '/users' },
   criteria: { label: 'Tiêu chí', icon: '📝', path: '/criteria' },
   levelup: { label: 'Thăng tiến', icon: '🚀', path: '/levelup' },
+  sourcing: { label: 'ĐT nguồn', icon: '🎯', path: '/sourcing' },
 }
 
 // Vai tro "toan he thong" -> shell desktop (topbar); con lai -> shell mobile (bottom-nav).
 const MOBILE_ROLES = new Set(['trainer', 'bql', 'am', 'kcs'])
 
 const ROLE_MENU = {
-  admin: ['dashboard', 'students', 'checklist', 'evaluation', 'levelup', 'kpi', 'kpiDashboard', 'commission', 'documents', 'criteria', 'users'],
-  om: ['dashboard', 'students', 'checklist', 'evaluation', 'levelup', 'kpi', 'kpiDashboard', 'commission', 'documents', 'criteria'],
+  admin: ['dashboard', 'students', 'checklist', 'evaluation', 'levelup', 'sourcing', 'kpi', 'kpiDashboard', 'commission', 'documents', 'criteria', 'users'],
+  om: ['dashboard', 'students', 'checklist', 'evaluation', 'levelup', 'sourcing', 'kpi', 'kpiDashboard', 'commission', 'documents', 'criteria'],
   bod: ['dashboard', 'students', 'checklist', 'kpi', 'kpiDashboard', 'commission', 'documents'],
   am: ['home', 'training', 'evaluation', 'levelup', 'kpi', 'documents'],
   kcs: ['home', 'training', 'evaluation', 'levelup', 'kpi', 'documents'],
-  bql: ['home', 'training', 'evaluation', 'levelup', 'kpi', 'documents'],
-  trainer: ['home', 'training', 'levelup', 'documents'],
+  bql: ['home', 'training', 'evaluation', 'levelup', 'sourcing', 'kpi', 'documents'],
+  trainer: ['home', 'training', 'levelup', 'sourcing', 'documents'],
 }
 
 export function isMobileRole(role) {
