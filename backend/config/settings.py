@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     'evaluation',
     'kpi',
     'cls_sync',
+    'sourcing',
 ]
 
 MIDDLEWARE = [
