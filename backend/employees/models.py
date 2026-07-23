@@ -95,6 +95,28 @@ class HrSyncSource(models.Model):
         return f'HrSyncSource({self.tenant_id}, {self.kind})'
 
 
+class TalentReview(models.Model):
+    """G3 — cổng AM/KCS phỏng vấn đánh giá sẵn sàng TRƯỚC khi nhân sự (đủ 3 vị trí) chính thức
+    vào danh sách nhân sự nguồn. Duyệt = vào nguồn; từ chối = chưa vào."""
+
+    class Decision(models.TextChoices):
+        PENDING = 'pending', 'Chờ đánh giá'
+        APPROVED = 'approved', 'Duyệt vào nguồn'
+        REJECTED = 'rejected', 'Chưa sẵn sàng'
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='talent_reviews')
+    employee = models.OneToOneField(Employee, on_delete=models.CASCADE, related_name='talent_review')
+    decision = models.CharField(max_length=20, choices=Decision.choices, default=Decision.PENDING)
+    note = models.TextField(blank=True)
+    reviewed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, related_name='talent_reviews_done', null=True, blank=True
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f'TalentReview({self.employee_id}, {self.decision})'
+
+
 class MgmtDevelopment(models.Model):
     """Hồ sơ phát triển Ban quản lý / cấp O (nạp từ Daotao_BQL). Gom: nội dung đã đào tạo,
     điểm thi theo vai, đánh giá, trạng thái sẵn sàng (Target_Code/Final_Status)."""

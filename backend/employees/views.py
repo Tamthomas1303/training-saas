@@ -597,8 +597,11 @@ class LevelUpFailView(APIView):
         return Response(LevelUpEnrollmentSerializer(enrollment).data)
 
 
+TALENT_REVIEW_ROLES = {'admin', 'om', 'am', 'kcs'}
+
+
 class TalentPoolListView(APIView):
-    """GET /api/employees/talent-pool/ — nhân sự nguồn (đủ 3 vị trí / major S3). Chỉ Admin/OM."""
+    """GET /api/employees/talent-pool/ — nhân sự nguồn CHÍNH THỨC (đủ 3 vị trí + AM/KCS đã duyệt)."""
 
     def get(self, request):
         if (request.user.role or '').lower() not in LEVELUP_DECIDE_ROLES:
@@ -607,9 +610,7 @@ class TalentPoolListView(APIView):
 
         rows = [
             {
-                'id': e.id,
-                'code': e.code,
-                'name': e.name,
+                'id': e.id, 'code': e.code, 'name': e.name,
                 'restaurant_name': e.restaurant.name if e.restaurant else '',
                 'level': major_level(e.job_level),
                 'achieved_positions': achieved_positions(e),
@@ -617,6 +618,54 @@ class TalentPoolListView(APIView):
             for e in talent_pool_employees(request.user.tenant)
         ]
         return Response(rows)
+
+
+class TalentCandidateListView(APIView):
+    """GET /api/employees/talent-candidates/ — ứng viên nguồn (đủ 3 vị trí) + trạng thái đánh giá
+    sẵn sàng của AM/KCS (G3). Admin/OM/AM/KCS."""
+
+    def get(self, request):
+        if (request.user.role or '').lower() not in TALENT_REVIEW_ROLES:
+            return Response({'detail': 'Bạn không có quyền xem danh sách ứng viên nguồn.'}, status=403)
+        from .career import achieved_positions, major_level, talent_candidates
+
+        rows = []
+        for c in talent_candidates(request.user.tenant):
+            e = c['employee']
+            rows.append({
+                'id': e.id, 'code': e.code, 'name': e.name,
+                'restaurant_name': e.restaurant.name if e.restaurant else '',
+                'position': e.position, 'level': major_level(e.job_level),
+                'positions_count': c['positions_count'],
+                'achieved_positions': achieved_positions(e),
+                'decision': c['decision'], 'note': c['note'], 'reviewed_by': c['reviewed_by'],
+            })
+        return Response(rows)
+
+
+class TalentReviewView(APIView):
+    """POST /api/employees/<id>/talent-review/ — AM/KCS/Admin đánh giá sẵn sàng: {decision, note}.
+    decision = approved (vào nguồn) / rejected (chưa sẵn sàng)."""
+
+    def post(self, request, pk):
+        if (request.user.role or '').lower() not in TALENT_REVIEW_ROLES:
+            return Response({'detail': 'Chỉ AM/KCS/Admin/OM được đánh giá sẵn sàng.'}, status=403)
+        from django.utils import timezone
+
+        from .models import TalentReview
+
+        employee = get_object_or_404(Employee, pk=pk, tenant=request.user.tenant)
+        decision = request.data.get('decision')
+        if decision not in ('approved', 'rejected'):
+            return Response({'detail': 'Quyết định không hợp lệ (approved / rejected).'}, status=400)
+        TalentReview.objects.update_or_create(
+            tenant=request.user.tenant, employee=employee,
+            defaults={
+                'decision': decision, 'note': request.data.get('note', '') or '',
+                'reviewed_by': request.user, 'reviewed_at': timezone.now(),
+            },
+        )
+        return Response({'decision': decision})
 
 
 class StudentExportProbationResultView(APIView):

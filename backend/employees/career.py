@@ -380,17 +380,51 @@ def fail_levelup(enrollment, user=None):
     return True, None
 
 
-def talent_pool_employees(tenant):
-    """Danh sách nhân sự nguồn (đủ 3 vị trí / major S3). Dẫn xuất — chưa cần field riêng (M2)."""
-    from .models import Employee
+def _completed_count_map(tenant):
+    """{employee_id: số đợt thăng tiến đã hoàn thành} — 1 truy vấn, tránh N+1."""
+    from collections import defaultdict
 
-    out = []
-    for e in Employee.objects.filter(tenant=tenant).exclude(
-        employee_status=Employee.EmployeeStatus.RESIGNED
+    from .models import LevelUpEnrollment
+
+    m = defaultdict(int)
+    for eid in (
+        LevelUpEnrollment.objects.filter(tenant=tenant, status=LevelUpEnrollment.Status.COMPLETED)
+        .values_list('employee_id', flat=True)
     ):
-        if eligible_for_talent_pool(e):
-            out.append(e)
+        m[eid] += 1
+    return m
+
+
+def talent_candidates(tenant):
+    """G3 — nhân sự đủ 3 vị trí (ứng viên nguồn), kèm quyết định review của AM/KCS (nếu có).
+    Tính theo lô."""
+    from .models import Employee, TalentReview
+
+    cmap = _completed_count_map(tenant)
+    emps = list(
+        Employee.objects.filter(tenant=tenant)
+        .exclude(employee_status=Employee.EmployeeStatus.RESIGNED)
+        .select_related('restaurant')
+    )
+    reviews = {r.employee_id: r for r in TalentReview.objects.filter(tenant=tenant).select_related('reviewed_by')}
+    out = []
+    for e in emps:
+        count = 1 + cmap.get(e.id, 0)
+        if count < POSITIONS_FOR_TALENT_POOL:
+            continue
+        r = reviews.get(e.id)
+        out.append({
+            'employee': e, 'positions_count': count,
+            'decision': r.decision if r else 'pending',
+            'note': r.note if r else '',
+            'reviewed_by': (r.reviewed_by.full_name or r.reviewed_by.username) if (r and r.reviewed_by) else '',
+        })
     return out
+
+
+def talent_pool_employees(tenant):
+    """Nhân sự nguồn CHÍNH THỨC = ứng viên đủ 3 vị trí ĐÃ được AM/KCS duyệt (G3)."""
+    return [c['employee'] for c in talent_candidates(tenant) if c['decision'] == 'approved']
 
 
 def levelup_eligible_list(employees):

@@ -7,6 +7,7 @@ import Modal from '../components/Modal'
 import ProgressBar from '../components/ProgressBar'
 import Table from '../components/Table'
 import SignaturePad from '../components/SignaturePad'
+import CouncilPanel from '../components/CouncilPanel'
 import api from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import * as s from './listPageStyles'
@@ -26,6 +27,7 @@ function roleFlags(role) {
     canOpen: ['admin', 'om', 'trainer'].includes(r),
     canDecide: ['admin', 'om'].includes(r),
     canEvaluate: ['admin', 'om', 'bql', 'am', 'kcs'].includes(r),
+    canReview: ['admin', 'om', 'am', 'kcs'].includes(r),
     isTraining: ['admin', 'om'].includes(r),
   }
 }
@@ -362,6 +364,8 @@ export default function LevelUpPage() {
   const [roundId, setRoundId] = useState(null)
   const [talent, setTalent] = useState([])
   const [eligible, setEligible] = useState([])
+  const [reviewEmp, setReviewEmp] = useState(null)
+  const [councilEmp, setCouncilEmp] = useState(null)
 
   async function load() {
     setLoading(true)
@@ -378,14 +382,15 @@ export default function LevelUpPage() {
   useEffect(() => {
     api.get('/employees/exam-batches/').then(({ data }) => setBatches(data)).catch(() => {})
   }, [])
+  function loadTalent() {
+    api.get('/employees/talent-candidates/').then(({ data }) => setTalent(data)).catch(() => {})
+  }
   useEffect(() => {
-    if (tab === 'talent' && f.canDecide) {
-      api.get('/employees/talent-pool/').then(({ data }) => setTalent(data)).catch(() => {})
-    }
+    if (tab === 'talent' && f.canReview) loadTalent()
     if (tab === 'eligible') {
       api.get('/employees/levelup-eligible/').then(({ data }) => setEligible(data)).catch(() => {})
     }
-  }, [tab, f.canDecide])
+  }, [tab, f.canReview])
 
   function loadEligible() {
     api.get('/employees/levelup-eligible/').then(({ data }) => setEligible(data)).catch(() => {})
@@ -426,7 +431,7 @@ export default function LevelUpPage() {
       <div style={{ display: 'flex', gap: 8, margin: '10px 0' }}>
         <button className={`btn-sm ${tab === 'eligible' ? '' : 'btn-outline'}`} onClick={() => setTab('eligible')}>Theo dõi lộ trình</button>
         <button className={`btn-sm ${tab === 'enrollments' ? '' : 'btn-outline'}`} onClick={() => setTab('enrollments')}>Đợt thăng tiến</button>
-        {f.canDecide && <button className={`btn-sm ${tab === 'talent' ? '' : 'btn-outline'}`} onClick={() => setTab('talent')}>Nhân sự nguồn</button>}
+        {f.canReview && <button className={`btn-sm ${tab === 'talent' ? '' : 'btn-outline'}`} onClick={() => setTab('talent')}>Nhân sự nguồn</button>}
       </div>
 
       {tab === 'eligible' && (
@@ -507,20 +512,38 @@ export default function LevelUpPage() {
         </>
       )}
 
-      {tab === 'talent' && f.canDecide && (
-        <Table>
-          <thead><tr><th>Mã</th><th>Họ tên</th><th>Nhà hàng</th><th>Level</th><th>Vị trí đã đạt</th></tr></thead>
-          <tbody>
-            {talent.map((e) => (
-              <tr key={e.id}>
-                <td>{e.code}</td><td>{e.name}</td><td>{e.restaurant_name}</td>
-                <td><Badge variant="success">{e.level}</Badge></td>
-                <td>{(e.achieved_positions || []).join(', ')}</td>
-              </tr>
-            ))}
-            {talent.length === 0 && <tr><td colSpan={5} className="muted-note">Chưa có nhân sự nguồn.</td></tr>}
-          </tbody>
-        </Table>
+      {tab === 'talent' && f.canReview && (
+        <>
+          <p className="muted-note">Nhân sự đủ 3 vị trí → AM/KCS phỏng vấn đánh giá sẵn sàng. Duyệt = chính thức vào nhân sự nguồn; sau đó Phòng Đào tạo lập hội đồng đánh giá phát triển lên BQL.</p>
+          <Table>
+            <thead>
+              <tr><th>Nhân sự</th><th>Nhà hàng</th><th>Level</th><th>Vị trí đã đạt</th><th>Duyệt sẵn sàng</th><th></th></tr>
+            </thead>
+            <tbody>
+              {talent.map((e) => (
+                <tr key={e.id}>
+                  <td>{e.name} - {e.code}</td>
+                  <td>{e.restaurant_name}</td>
+                  <td><Badge variant="success">{e.level}</Badge></td>
+                  <td>{(e.achieved_positions || []).join(', ')}</td>
+                  <td>
+                    {e.decision === 'approved' ? <Badge variant="success">Đã vào nguồn</Badge>
+                      : e.decision === 'rejected' ? <Badge variant="danger">Chưa sẵn sàng</Badge>
+                      : <Badge variant="warning">Chờ đánh giá</Badge>}
+                    {e.reviewed_by && <div className="muted-note" style={{ fontSize: 11 }}>{e.reviewed_by}</div>}
+                  </td>
+                  <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button className="btn-outline btn-sm" onClick={() => setReviewEmp(e)}>Đánh giá sẵn sàng</button>
+                    {f.canDecide && e.decision === 'approved' && (
+                      <button className="btn-outline btn-sm" onClick={() => setCouncilEmp(e)}>Lập hội đồng</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {talent.length === 0 && <tr><td colSpan={6} className="muted-note">Chưa có ứng viên đủ 3 vị trí.</td></tr>}
+            </tbody>
+          </Table>
+        </>
       )}
 
       {showRegister && (
@@ -532,6 +555,42 @@ export default function LevelUpPage() {
         />
       )}
       {roundId && <RoundModal enrollmentId={roundId} onClose={() => setRoundId(null)} onChanged={load} />}
+      {reviewEmp && <TalentReviewModal emp={reviewEmp} onClose={() => setReviewEmp(null)} onDone={() => { setReviewEmp(null); loadTalent() }} />}
+      {councilEmp && (
+        <Modal open title={`Hội đồng đánh giá — ${councilEmp.name}`} onClose={() => setCouncilEmp(null)} footer={<button className="btn-outline" onClick={() => setCouncilEmp(null)}>Đóng</button>}>
+          <CouncilPanel employee={{ id: councilEmp.id, name: councilEmp.name, position: councilEmp.position, restaurant: councilEmp.restaurant_name }} />
+        </Modal>
+      )}
     </AppShell>
+  )
+}
+
+function TalentReviewModal({ emp, onClose, onDone }) {
+  const [note, setNote] = useState(emp.note || '')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  async function submit(decision) {
+    setBusy(true); setMsg('')
+    try {
+      await api.post(`/employees/${emp.id}/talent-review/`, { decision, note })
+      onDone()
+    } catch (e) {
+      setMsg(e.response?.data?.detail || 'Không lưu được.')
+    } finally { setBusy(false) }
+  }
+  return (
+    <Modal open title={`Đánh giá sẵn sàng — ${emp.name}`} onClose={onClose}
+      footer={
+        <>
+          <button className="btn-outline" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }} disabled={busy} onClick={() => submit('rejected')}>Chưa sẵn sàng</button>
+          <button disabled={busy} onClick={() => submit('approved')}>Duyệt vào nguồn</button>
+        </>
+      }>
+      <p className="muted-note">AM/KCS phỏng vấn đánh giá: sẵn sàng phát triển lên, mức độ gắn bó lâu dài, phù hợp văn hóa công ty.</p>
+      <label>Ghi chú đánh giá
+        <textarea style={{ display: 'block', width: '100%' }} rows={4} value={note} onChange={(e) => setNote(e.target.value)} />
+      </label>
+      {msg && <p style={{ color: 'var(--danger)' }}>{msg}</p>}
+    </Modal>
   )
 }

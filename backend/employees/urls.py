@@ -21,7 +21,9 @@ from .views import (
     LevelUpOptionsView,
     LevelUpRegisterView,
     LevelUpRoundView,
+    TalentCandidateListView,
     TalentPoolListView,
+    TalentReviewView,
     PositionListView,
     StudentOfficeResultView,
     RecruitmentImportFileView,
@@ -77,6 +79,8 @@ urlpatterns = [
         name='employee-levelup-fail',
     ),
     path('talent-pool/', TalentPoolListView.as_view(), name='employee-talent-pool'),
+    path('talent-candidates/', TalentCandidateListView.as_view(), name='employee-talent-candidates'),
+    path('<int:pk>/talent-review/', TalentReviewView.as_view(), name='employee-talent-review'),
     path(
         '<int:pk>/export-probation-result/', StudentExportProbationResultView.as_view(),
         name='employee-export-probation-result',
