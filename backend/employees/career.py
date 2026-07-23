@@ -427,6 +427,66 @@ def talent_pool_employees(tenant):
     return [c['employee'] for c in talent_candidates(tenant) if c['decision'] == 'approved']
 
 
+GAP_TYPES = {'skill', 'shiftops', 'interview', 'exam', 'cohort'}
+GAP_LABELS = {
+    'skill': 'Chưa đánh giá kỹ năng', 'shiftops': 'Chưa đánh giá vận hành ca',
+    'interview': 'Chưa có kết quả phỏng vấn', 'exam': 'Chưa đạt thi lý thuyết',
+    'cohort': 'Chưa tham gia đợt/khóa đã chọn',
+}
+
+
+def competency_gap(tenant, gap, scope_ids=None, level_group=None, cohort_id=None):
+    """G5 — lọc theo khung năng lực: trả danh sách nhân sự CÒN THIẾU mục đã chọn (chưa đánh giá /
+    chưa đạt thi / chưa tham gia khóa) để lập danh sách đào tạo/thi/đánh giá. Tính theo lô."""
+    from .models import Employee
+
+    qs = Employee.objects.filter(tenant=tenant).exclude(
+        employee_status=Employee.EmployeeStatus.RESIGNED
+    ).select_related('restaurant')
+    if level_group:
+        qs = qs.filter(level_group__iexact=level_group)
+    if scope_ids is not None:
+        qs = qs.filter(restaurant_id__in=scope_ids)
+    emps = list(qs)
+
+    if gap == 'skill':
+        emps = [e for e in emps if not (e.skill_result or '').strip()]
+    elif gap == 'shiftops':
+        emps = [e for e in emps if not (e.shift_ops or '').strip()]
+    elif gap == 'interview':
+        emps = [e for e in emps if not (e.interview_result or '').strip()]
+    elif gap == 'exam':
+        from django.conf import settings
+        from cls_sync.models import ExamResult
+
+        thr = settings.COMMISSION_EXAM_THRESHOLD
+        passed = set(
+            ExamResult.objects.filter(
+                employee__in=emps, passed=True, score__gte=thr
+            ).values_list('employee_id', flat=True)
+        )
+        emps = [e for e in emps if e.id not in passed]
+    elif gap == 'cohort' and cohort_id:
+        from sourcing.models import Attendance
+
+        attended = set(
+            Attendance.objects.filter(session__cohort_id=cohort_id, present=True)
+            .values_list('enrollment__employee_id', flat=True)
+        )
+        emps = [e for e in emps if e.id not in attended]
+    else:
+        emps = []
+
+    return [
+        {
+            'id': e.id, 'code': e.code, 'name': e.name,
+            'restaurant_name': e.restaurant.name if e.restaurant else '',
+            'position': e.position, 'level_group': e.level_group, 'job_level': e.job_level,
+        }
+        for e in emps
+    ]
+
+
 def levelup_eligible_list(employees):
     """G2 — danh sách theo dõi lộ trình: nhân sự cấp S còn dưới S3, kèm trạng thái đủ/chưa đủ
     điều kiện đăng ký thăng tiến (chặn 3 tháng + đợt đang mở). Tính theo lô, tránh N+1."""

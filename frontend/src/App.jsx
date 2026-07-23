@@ -24,6 +24,7 @@ import SourcingPage from './pages/SourcingPage'
 import HubPage from './pages/HubPage'
 import MgmtDevPage from './pages/MgmtDevPage'
 import TrainingCatalogPage from './pages/TrainingCatalogPage'
+import CompetencyGapPage from './pages/CompetencyGapPage'
 import api from './api/client'
 import { isMobileRole } from './config/menu'
 import { flushQueue, initOfflineSync } from './utils/offlineQueue'
@@ -180,6 +181,14 @@ function App() {
             element={
               <ProtectedRoute roles={['admin', 'om']}>
                 <TrainingCatalogPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/competency-gap"
+            element={
+              <ProtectedRoute roles={['admin', 'om', 'am', 'kcs', 'bql', 'trainer']}>
+                <CompetencyGapPage />
               </ProtectedRoute>
             }
           />

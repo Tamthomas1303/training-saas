@@ -2,6 +2,7 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    CompetencyGapView,
     DashboardStatsView,
     EmployeeViewSet,
     EvaluationHistoryImportView,
@@ -54,6 +55,7 @@ urlpatterns = [
     path('<int:pk>/change-status/', StudentChangeStatusView.as_view(), name='employee-change-status'),
     path('<int:pk>/office-result/', StudentOfficeResultView.as_view(), name='employee-office-result'),
     path('levelup-eligible/', LevelUpEligibleView.as_view(), name='employee-levelup-eligible'),
+    path('competency-gap/', CompetencyGapView.as_view(), name='employee-competency-gap'),
     path('<int:pk>/levelup-options/', LevelUpOptionsView.as_view(), name='employee-levelup-options'),
     path('<int:pk>/levelup-register/', LevelUpRegisterView.as_view(), name='employee-levelup-register'),
     path('exam-batches/', ExamBatchListView.as_view(), name='employee-exam-batches'),

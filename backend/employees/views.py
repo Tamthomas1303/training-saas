@@ -393,6 +393,30 @@ class StudentOfficeResultView(APIView):
         return Response({'office_result': result, 'final_result': employee.final_result})
 
 
+class CompetencyGapView(APIView):
+    """GET /api/employees/competency-gap/?gap=&level_group=&cohort= — lọc theo khung năng lực:
+    danh sách nhân sự còn thiếu (chưa đánh giá/chưa đạt thi/chưa tham gia khóa). Admin/OM/AM/KCS/BQL."""
+
+    def get(self, request):
+        if (request.user.role or '').lower() not in {'admin', 'om', 'am', 'kcs', 'bql', 'trainer'}:
+            return Response({'detail': 'Bạn không có quyền dùng công cụ này.'}, status=403)
+        from .career import GAP_TYPES, competency_gap
+
+        gap = request.query_params.get('gap')
+        if gap not in GAP_TYPES:
+            return Response({'detail': 'Loại thiếu hụt không hợp lệ.'}, status=400)
+        from employees.permissions import get_restaurant_scope
+
+        scope = get_restaurant_scope(request.user)
+        scope_ids = None if scope['all'] else scope['restaurant_ids']
+        rows = competency_gap(
+            request.user.tenant, gap, scope_ids=scope_ids,
+            level_group=request.query_params.get('level_group') or None,
+            cohort_id=request.query_params.get('cohort') or None,
+        )
+        return Response(rows)
+
+
 class LevelUpEligibleView(APIView):
     """GET /api/employees/levelup-eligible/ — danh sách theo dõi lộ trình (cấp S còn dưới S3) +
     trạng thái đủ điều kiện đăng ký. Theo phạm vi nhà hàng."""
