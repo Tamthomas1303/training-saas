@@ -140,6 +140,46 @@ class RecruitmentSourceView(APIView):
         return Response({'csv_url': url})
 
 
+class HrSyncSourceView(APIView):
+    """GET/PUT /api/employees/hr-sync-sources/ — cấu hình link CSV các tab 'Auto Syncing - HR
+    Data' (v2.1). GET: liệt kê mọi tab + link hiện có. PUT {kind, csv_url}: đặt link 1 tab."""
+
+    def get(self, request):
+        from .models import HrSyncSource
+
+        by_kind = {s.kind: s.csv_url for s in HrSyncSource.objects.filter(tenant=request.user.tenant)}
+        return Response([
+            {'kind': k, 'label': label, 'csv_url': by_kind.get(k, '')}
+            for k, label in HrSyncSource.Kind.choices
+        ])
+
+    def put(self, request):
+        _require_data_admin(request)
+        from .models import HrSyncSource
+
+        kind = (request.data.get('kind') or '').strip()
+        if kind not in dict(HrSyncSource.Kind.choices):
+            return Response({'detail': 'Loại nguồn không hợp lệ.'}, status=400)
+        url = (request.data.get('csv_url') or '').strip()
+        HrSyncSource.objects.update_or_create(
+            tenant=request.user.tenant, kind=kind, defaults={'csv_url': url},
+        )
+        return Response({'kind': kind, 'csv_url': url})
+
+
+class HrSyncRosterView(APIView):
+    """POST /api/employees/hr-sync-roster/ — hợp nhất roster từ các tab đã cấu hình & upsert."""
+
+    def post(self, request):
+        _require_data_admin(request)
+        from .hr_import import sync_roster
+
+        try:
+            return Response(sync_roster(request.user.tenant))
+        except Exception as exc:  # noqa: BLE001
+            return Response({'detail': f'Đồng bộ roster thất bại: {exc}'}, status=400)
+
+
 class RecruitmentSyncNowView(APIView):
     """POST /api/employees/sync-now/ — kéo dữ liệu ngay từ link đã lưu (Cách 3)."""
 

@@ -66,6 +66,32 @@ class RecruitmentSource(models.Model):
         return f'RecruitmentSource({self.tenant_id})'
 
 
+class HrSyncSource(models.Model):
+    """Link CSV cho từng tab của Google Sheet 'Auto Syncing - HR Data' (v2.1). Mỗi tenant có
+    nhiều dòng, mỗi dòng ứng với một tab (roster cũ, lộ trình cấp S, đào tạo BQL, khóa học,
+    đánh giá...). Lệnh đồng bộ đọc link ở đây, tự tìm dòng tiêu đề và map về đúng đích."""
+
+    class Kind(models.TextChoices):
+        LICHSU = 'lichsu', 'Data_LichSu (nhân sự cũ)'
+        BACKUP = 'backup', 'DB_BACKUP (nhân sự mới từ 1/7)'
+        LOTRINH = 'lotrinh', 'Quanly_Lotrinh (vị trí đã pass cấp S)'
+        BQL = 'bql', 'Daotao_BQL (đào tạo/đánh giá cấp O)'
+        DANHGIA = 'danhgia', 'Input_DanhGia_BQL (đánh giá cấp O)'
+        COURSES = 'courses', 'Raw_Data_Khoa_Hoc (tham gia khóa)'
+        MALOP = 'malop', 'Ma_Khoa_Hoc (danh mục khóa)'
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='hr_sync_sources')
+    kind = models.CharField(max_length=20, choices=Kind.choices)
+    csv_url = models.URLField(max_length=1000, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('tenant', 'kind')
+
+    def __str__(self):
+        return f'HrSyncSource({self.tenant_id}, {self.kind})'
+
+
 class LevelUpEnrollment(models.Model):
     """Đợt đào tạo thăng tiến (v2.1 / M1): nhân sự học MỘT vị trí mới (BQL chọn) để lên major
     level (S1→S2→S3). Hoàn thành 1 vị trí = lên 1 level; đủ 3 vị trí (gồm vị trí vào làm) → S3."""
