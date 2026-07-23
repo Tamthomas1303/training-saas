@@ -132,7 +132,7 @@ def load_rows_from_upload(uploaded_file):
 def ingest_employees(tenant, rows):
     """Tạo/cập nhật nhân sự từ list[dict]. Trả thống kê. Dùng chung cho cả 3 cách nhập."""
     resolve_restaurant = restaurant_resolver(tenant)
-    created = updated = skipped = derived = unmatched = 0
+    created = updated = skipped = derived = unmatched = positions_added = 0
 
     for row in rows:
         code = (row.get('Employee_ID') or '').strip()
@@ -156,16 +156,18 @@ def ingest_employees(tenant, rows):
 
         job_position = (row.get('Job_Position') or '').strip()
         operation_unit = (row.get('Operation_Unit') or '').strip()
-        job_level = (row.get('Job_Level') or '').strip()
+        # Nhân sự cũ mở rộng (M4.1): Current_Level ưu tiên hơn Job_Level; Join_Date hơn Start_Date.
+        job_level = (row.get('Current_Level') or row.get('Job_Level') or '').strip()
+        start_date = _parse_date(row.get('Join_Date')) or _parse_date(row.get('Start_Date'))
 
-        _, was_created = Employee.objects.update_or_create(
+        employee, was_created = Employee.objects.update_or_create(
             tenant=tenant, code=code,
             defaults={
                 'name': name,
                 'position': job_position,
                 'operation_unit': _map_operation_unit(operation_unit),
                 'job_level': job_level,
-                'start_date': _parse_date(row.get('Start_Date')),
+                'start_date': start_date,
                 'restaurant': restaurant,
                 'employee_status': _map_employee_status(row.get('Employee_Status')),
                 'probation_days': _derive_probation_days(job_position, operation_unit, job_level),
@@ -174,8 +176,44 @@ def ingest_employees(tenant, rows):
         created += int(was_created)
         updated += int(not was_created)
 
+        # Vị trí đã đạt (lịch sử thăng tiến) — tạo LevelUpEnrollment "hoàn thành" cho các vị trí
+        # khác vị trí vào làm, để M1 (đếm vị trí / nhân sự nguồn) phản ánh đúng.
+        positions_added += _sync_positions_achieved(employee, row.get('Positions_Achieved'))
+
     return {
         'created': created, 'updated': updated, 'skipped': skipped,
         'derived_restaurant': derived, 'unmatched_restaurant': unmatched,
+        'positions_history': positions_added,
         'total': len(rows),
     }
+
+
+def _sync_positions_achieved(employee, positions_str):
+    """Nạp 'lịch sử vị trí đã đạt' (phân tách ';') thành LevelUpEnrollment hoàn thành. Bỏ vị trí
+    trùng vị trí vào làm; không tạo trùng khi import lại. Trả số bản ghi tạo mới."""
+    from .models import LevelUpEnrollment
+
+    text = (positions_str or '').strip()
+    if not text:
+        return 0
+    entry_key = _normalize_key(employee.position)
+    added = 0
+    seen = set()
+    for raw in text.split(';'):
+        pos = raw.strip()
+        key = _normalize_key(pos)
+        if not pos or key == entry_key or key in seen:
+            continue
+        seen.add(key)
+        exists = LevelUpEnrollment.objects.filter(
+            employee=employee, target_position=pos, status=LevelUpEnrollment.Status.COMPLETED,
+        ).exists()
+        if exists:
+            continue
+        LevelUpEnrollment.objects.create(
+            tenant=employee.tenant, employee=employee, target_position=pos,
+            status=LevelUpEnrollment.Status.COMPLETED,
+            completed_at=None,
+        )
+        added += 1
+    return added

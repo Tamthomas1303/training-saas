@@ -4,7 +4,9 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     DashboardStatsView,
     EmployeeViewSet,
+    EvaluationHistoryImportView,
     ExamBatchListView,
+    ExamHistoryImportView,
     HomeStatsView,
     LevelUpCompleteView,
     LevelUpEnrollmentListView,
@@ -33,6 +35,8 @@ urlpatterns = [
     path('recruitment-source/', RecruitmentSourceView.as_view(), name='recruitment-source'),
     path('sync-now/', RecruitmentSyncNowView.as_view(), name='recruitment-sync-now'),
     path('import-file/', RecruitmentImportFileView.as_view(), name='recruitment-import-file'),
+    path('import-exam-history/', ExamHistoryImportView.as_view(), name='import-exam-history'),
+    path('import-eval-history/', EvaluationHistoryImportView.as_view(), name='import-eval-history'),
     path('dashboard/', DashboardStatsView.as_view(), name='employee-dashboard'),
     path('home/', HomeStatsView.as_view(), name='employee-home'),
     path('<int:pk>/detail/', StudentDetailView.as_view(), name='employee-detail'),

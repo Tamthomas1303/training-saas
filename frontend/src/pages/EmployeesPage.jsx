@@ -62,6 +62,8 @@ export default function EmployeesPage() {
   const [importMsg, setImportMsg] = useState('')
   const [importBusy, setImportBusy] = useState(false)
   const fileRef = useRef(null)
+  const examRef = useRef(null)
+  const evalRef = useRef(null)
 
   useEffect(() => {
     api.get('/employees/positions/').then(({ data }) => setPositions(data)).catch(() => {})
@@ -145,6 +147,22 @@ export default function EmployeesPage() {
       if (fileRef.current) fileRef.current.value = ''
     }
   }
+  async function uploadHistory(file, url, ref, label) {
+    if (!file) return
+    setImportBusy(true)
+    setImportMsg('')
+    const fd = new FormData()
+    fd.append('file', file)
+    try {
+      const { data } = await api.post(url, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+      setImportMsg(`${label}: ${data.created} tạo mới, ${data.updated ?? 0} cập nhật, ${data.skipped} bỏ qua / ${data.total} dòng.`)
+    } catch (e) {
+      setImportMsg(e.response?.data?.detail || `Nhập ${label} thất bại.`)
+    } finally {
+      setImportBusy(false)
+      if (ref.current) ref.current.value = ''
+    }
+  }
   async function saveSource() {
     setImportBusy(true)
     setImportMsg('')
@@ -196,7 +214,22 @@ export default function EmployeesPage() {
             />
             <div className="muted-note" style={{ fontSize: 12 }}>
               Cột cần có: Employee_ID, Employee_Name, Restaurant_Name, Job_Position, Operation_Unit, Job_Level, Start_Date, Employee_Status.
+              <br />Dữ liệu cũ (tuỳ chọn): Current_Level, Join_Date, Positions_Achieved (các vị trí đã đạt, phân tách bằng dấu “;”).
             </div>
+          </div>
+
+          <div style={{ borderTop: '1px solid var(--card-border)', paddingTop: 12, marginBottom: 12 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>Dữ liệu cũ — Kết quả thi lịch sử (BQL/CLS)</div>
+            <input ref={examRef} type="file" accept=".xlsx,.xlsm,.csv" disabled={importBusy}
+              onChange={(e) => uploadHistory(e.target.files[0], '/employees/import-exam-history/', examRef, 'Kết quả thi')} />
+            <div className="muted-note" style={{ fontSize: 12 }}>Cột: Employee_ID, Exam_Name, Exam_Date, Score, Result, Position.</div>
+          </div>
+
+          <div style={{ borderTop: '1px solid var(--card-border)', paddingTop: 12, marginBottom: 12 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>Dữ liệu cũ — Đánh giá lịch sử</div>
+            <input ref={evalRef} type="file" accept=".xlsx,.xlsm,.csv" disabled={importBusy}
+              onChange={(e) => uploadHistory(e.target.files[0], '/employees/import-eval-history/', evalRef, 'Đánh giá')} />
+            <div className="muted-note" style={{ fontSize: 12 }}>Cột: Employee_ID, Eval_Type, Position, Percent, Result, Date.</div>
           </div>
           <div style={{ borderTop: '1px solid var(--card-border)', paddingTop: 12 }}>
             <div style={{ fontWeight: 600, marginBottom: 4 }}>Cách 3 — Tự đồng bộ từ Google Sheet</div>

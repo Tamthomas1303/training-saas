@@ -178,6 +178,48 @@ class RecruitmentImportFileView(APIView):
         return Response(ingest_employees(request.user.tenant, rows))
 
 
+class ExamHistoryImportView(APIView):
+    """POST /api/employees/import-exam-history/ (multipart 'file') — nạp kết quả thi lịch sử (M4.1,
+    mẫu 2). Chỉ Admin/OM."""
+
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        _require_data_admin(request)
+        from .history_import import ingest_exam_history
+        from .recruitment import load_rows_from_upload
+
+        f = request.FILES.get('file')
+        if not f:
+            return Response({'detail': 'Chưa chọn file.'}, status=400)
+        try:
+            rows = load_rows_from_upload(f)
+        except Exception as exc:  # noqa: BLE001
+            return Response({'detail': f'Không đọc được file: {exc}'}, status=400)
+        return Response(ingest_exam_history(request.user.tenant, rows))
+
+
+class EvaluationHistoryImportView(APIView):
+    """POST /api/employees/import-eval-history/ (multipart 'file') — nạp đánh giá lịch sử (M4.1,
+    mẫu 3). Chỉ Admin/OM."""
+
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        _require_data_admin(request)
+        from .history_import import ingest_evaluation_history
+        from .recruitment import load_rows_from_upload
+
+        f = request.FILES.get('file')
+        if not f:
+            return Response({'detail': 'Chưa chọn file.'}, status=400)
+        try:
+            rows = load_rows_from_upload(f)
+        except Exception as exc:  # noqa: BLE001
+            return Response({'detail': f'Không đọc được file: {exc}'}, status=400)
+        return Response(ingest_evaluation_history(request.user.tenant, rows))
+
+
 class DashboardStatsView(APIView):
     """GET /api/employees/dashboard/ — so lieu tong hop cho man Dashboard (Admin/Training/
     OM/BOD). Port Api.gs::api_dashboardStats. Khong gioi han role - moi role deu xem duoc
