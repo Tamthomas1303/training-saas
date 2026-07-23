@@ -393,6 +393,24 @@ class StudentOfficeResultView(APIView):
         return Response({'office_result': result, 'final_result': employee.final_result})
 
 
+class LevelUpEligibleView(APIView):
+    """GET /api/employees/levelup-eligible/ — danh sách theo dõi lộ trình (cấp S còn dưới S3) +
+    trạng thái đủ điều kiện đăng ký. Theo phạm vi nhà hàng."""
+
+    def get(self, request):
+        from .career import levelup_eligible_list
+
+        qs = Employee.objects.filter(
+            tenant=request.user.tenant, level_group='S',
+        ).exclude(employee_status=Employee.EmployeeStatus.RESIGNED).select_related('restaurant')
+        from employees.permissions import get_restaurant_scope
+
+        scope = get_restaurant_scope(request.user)
+        if not scope['all']:
+            qs = qs.filter(restaurant_id__in=scope['restaurant_ids'])
+        return Response(levelup_eligible_list(list(qs)))
+
+
 class LevelUpOptionsView(APIView):
     """GET /api/employees/<id>/levelup-options/ — dữ liệu cho BQL đăng ký thăng tiến (M1.2):
     level hiện tại/đích, khối FOH/BOH, vị trí đã đạt, cổng đăng ký + danh sách vị trí đích hợp lệ.

@@ -41,6 +41,7 @@ export const DOMAINS = [
     children: [
       { label: 'Ban quản lý — Đào tạo & Đánh giá', path: '/mgmt-development', icon: '📋', roles: ['admin', 'om', 'bod'] },
       { label: 'Chương trình & Đợt (quản lý)', path: '/sourcing?audience=management', icon: '🏛️', roles: ['admin', 'om', 'bql', 'trainer'] },
+      { label: 'Danh mục nội dung đào tạo', path: '/training-catalog', icon: '🗂️', roles: ['admin', 'om'] },
     ],
   },
 ]

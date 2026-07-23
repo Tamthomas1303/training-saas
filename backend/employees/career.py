@@ -393,6 +393,56 @@ def talent_pool_employees(tenant):
     return out
 
 
+def levelup_eligible_list(employees):
+    """G2 — danh sách theo dõi lộ trình: nhân sự cấp S còn dưới S3, kèm trạng thái đủ/chưa đủ
+    điều kiện đăng ký thăng tiến (chặn 3 tháng + đợt đang mở). Tính theo lô, tránh N+1."""
+    from collections import defaultdict
+
+    from .models import LevelUpEnrollment
+
+    cands = [e for e in employees if next_major_level(major_level(e.job_level))]
+    ids = [e.id for e in cands]
+    open_set = set(
+        LevelUpEnrollment.objects.filter(employee_id__in=ids, status__in=['registered', 'training'])
+        .values_list('employee_id', flat=True)
+    )
+    comp_count = defaultdict(int)
+    comp_latest = {}
+    for eid, cat in (
+        LevelUpEnrollment.objects.filter(employee_id__in=ids, status='completed')
+        .values_list('employee_id', 'completed_at')
+    ):
+        comp_count[eid] += 1
+        if cat and (eid not in comp_latest or cat > comp_latest[eid]):
+            comp_latest[eid] = cat
+
+    today = timezone.now().date()
+    rows = []
+    for e in cands:
+        current = major_level(e.job_level)
+        nxt = next_major_level(current)
+        last = comp_latest.get(e.id)
+        last_date = last.date() if last else e.start_date
+        months = round((today - last_date).days / 30.0, 1) if last_date else None
+        has_open = e.id in open_set
+        count = 1 + comp_count.get(e.id, 0)
+        if has_open:
+            can, reason = False, 'Đang có đợt thăng tiến chưa hoàn thành'
+        elif months is not None and months < MIN_MONTHS_BETWEEN:
+            can, reason = False, f'Chưa đủ 3 tháng ở vị trí hiện tại (~{months} tháng)'
+        else:
+            can, reason = True, ''
+        rows.append({
+            'employee_id': e.id, 'code': e.code, 'name': e.name,
+            'restaurant_name': e.restaurant.name if e.restaurant else '',
+            'position': e.position, 'current_level': current, 'next_level': nxt,
+            'months_at_current': months, 'positions_achieved_count': count,
+            'has_open': has_open, 'can': can, 'reason': reason,
+        })
+    rows.sort(key=lambda r: (not r['can'], r['name']))
+    return rows
+
+
 def levelup_options(employee):
     """Gói dữ liệu cho màn BQL đăng ký thăng tiến: level hiện tại/đích, khối, vị trí đã đạt,
     cổng đăng ký (can/reason), danh sách vị trí đích hợp lệ và các đợt thi còn mở."""

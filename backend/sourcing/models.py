@@ -30,6 +30,34 @@ class Program(models.Model):
         return self.name
 
 
+class TrainingContent(models.Model):
+    """Danh mục nội dung đào tạo (catalog) — Admin thêm/bớt theo thay đổi vận hành. Tách khỏi
+    checklist nội dung của từng chương trình (ProgramContent). Dùng cho đào tạo BQL/nguồn."""
+
+    class Category(models.TextChoices):
+        COMMON = 'common', 'Chung / Nền tảng'
+        FOH = 'foh', 'FOH'
+        BOH = 'boh', 'BOH'
+        MANAGEMENT = 'management', 'Quản lý'
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='training_contents')
+    name = models.CharField(max_length=255)
+    code = models.CharField(max_length=50, blank=True)           # có thể map Ma_Khoa_Hoc
+    category = models.CharField(max_length=20, choices=Category.choices, default=Category.COMMON)
+    target_roles = models.CharField(max_length=200, blank=True)  # vd "GS; BP" / "QL; BTr"
+    is_prerequisite = models.BooleanField(default=False)         # vd Train the trainer
+    is_active = models.BooleanField(default=True)
+    note = models.TextField(blank=True)
+    order = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['order', 'name']
+
+    def __str__(self):
+        return self.name
+
+
 class ProgramContent(models.Model):
     """Checklist nội dung của 1 chương trình: buổi / chủ đề / nội dung (admin tạo)."""
 

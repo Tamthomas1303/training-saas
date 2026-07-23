@@ -11,13 +11,14 @@ from accounts.pagination import DefaultPagination
 
 from employees.models import Employee
 
-from .models import Cohort, CohortSession, Enrollment, Program, ProgramContent
+from .models import Cohort, CohortSession, Enrollment, Program, ProgramContent, TrainingContent
 from .serializers import (
     CohortSerializer,
     CohortSessionSerializer,
     EnrollmentSerializer,
     ProgramContentSerializer,
     ProgramSerializer,
+    TrainingContentSerializer,
 )
 from .models import Notification
 from .services import (
@@ -59,6 +60,17 @@ class ProgramViewSet(AdminOmWriteMixin, TenantScopedViewSetMixin, viewsets.Model
     search_fields = ['name', 'description']
     ordering_fields = ['name', 'created_at']
     ordering = ['name']
+
+
+class TrainingContentViewSet(AdminOmWriteMixin, TenantScopedViewSetMixin, viewsets.ModelViewSet):
+    """Danh mục nội dung đào tạo (Admin/OM thêm/bớt)."""
+
+    serializer_class = TrainingContentSerializer
+    queryset = TrainingContent.objects.all()
+    pagination_class = None
+    filterset_fields = ['category', 'is_active', 'is_prerequisite']
+    search_fields = ['name', 'code', 'target_roles']
+    ordering = ['order', 'name']
 
 
 class ProgramContentViewSet(AdminOmWriteMixin, TenantScopedViewSetMixin, viewsets.ModelViewSet):

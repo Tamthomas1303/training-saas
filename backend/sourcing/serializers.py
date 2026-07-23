@@ -1,6 +1,17 @@
 from rest_framework import serializers
 
-from .models import Cohort, CohortSession, Enrollment, Program, ProgramContent
+from .models import Cohort, CohortSession, Enrollment, Program, ProgramContent, TrainingContent
+
+
+class TrainingContentSerializer(serializers.ModelSerializer):
+    category_label = serializers.CharField(source='get_category_display', read_only=True)
+
+    class Meta:
+        model = TrainingContent
+        fields = [
+            'id', 'name', 'code', 'category', 'category_label', 'target_roles',
+            'is_prerequisite', 'is_active', 'note', 'order',
+        ]
 
 
 class ProgramContentSerializer(serializers.ModelSerializer):

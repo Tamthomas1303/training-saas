@@ -243,7 +243,7 @@ function Cond({ ok, label }) {
 }
 
 // ---- Modal đăng ký thăng tiến ----
-function RegisterModal({ batches, onClose, onDone }) {
+function RegisterModal({ batches, presetEmployee, onClose, onDone }) {
   const [term, setTerm] = useState('')
   const [results, setResults] = useState([])
   const [picked, setPicked] = useState(null)
@@ -252,6 +252,11 @@ function RegisterModal({ batches, onClose, onDone }) {
   const [batch, setBatch] = useState('')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+
+  useEffect(() => {
+    if (presetEmployee) pick(presetEmployee)
+    // eslint-disable-next-line
+  }, [])
 
   async function search() {
     const { data } = await api.get('/employees/', { params: { search: term, page_size: 8 } })
@@ -353,8 +358,10 @@ export default function LevelUpPage() {
   const [batchF, setBatchF] = useState('')
   const [batches, setBatches] = useState([])
   const [showRegister, setShowRegister] = useState(false)
+  const [presetEmp, setPresetEmp] = useState(null)
   const [roundId, setRoundId] = useState(null)
   const [talent, setTalent] = useState([])
+  const [eligible, setEligible] = useState([])
 
   async function load() {
     setLoading(true)
@@ -375,7 +382,14 @@ export default function LevelUpPage() {
     if (tab === 'talent' && f.canDecide) {
       api.get('/employees/talent-pool/').then(({ data }) => setTalent(data)).catch(() => {})
     }
+    if (tab === 'eligible') {
+      api.get('/employees/levelup-eligible/').then(({ data }) => setEligible(data)).catch(() => {})
+    }
   }, [tab, f.canDecide])
+
+  function loadEligible() {
+    api.get('/employees/levelup-eligible/').then(({ data }) => setEligible(data)).catch(() => {})
+  }
 
   async function openTraining(id) {
     try {
@@ -410,9 +424,40 @@ export default function LevelUpPage() {
       </div>
 
       <div style={{ display: 'flex', gap: 8, margin: '10px 0' }}>
+        <button className={`btn-sm ${tab === 'eligible' ? '' : 'btn-outline'}`} onClick={() => setTab('eligible')}>Theo dõi lộ trình</button>
         <button className={`btn-sm ${tab === 'enrollments' ? '' : 'btn-outline'}`} onClick={() => setTab('enrollments')}>Đợt thăng tiến</button>
         {f.canDecide && <button className={`btn-sm ${tab === 'talent' ? '' : 'btn-outline'}`} onClick={() => setTab('talent')}>Nhân sự nguồn</button>}
       </div>
+
+      {tab === 'eligible' && (
+        <>
+          <p className="muted-note">Nhân sự cấp S còn dưới S3. Ai đủ điều kiện (đã đủ 3 tháng, không có đợt đang mở) có thể đăng ký thăng tiến ngay.</p>
+          <Table>
+            <thead>
+              <tr><th>Nhân sự</th><th>Nhà hàng</th><th>Vị trí</th><th>Level</th><th>Tháng ở vị trí</th><th>Vị trí đã đạt</th><th>Trạng thái</th><th></th></tr>
+            </thead>
+            <tbody>
+              {eligible.map((r) => (
+                <tr key={r.employee_id}>
+                  <td>{r.name} - {r.code}</td>
+                  <td>{r.restaurant_name}</td>
+                  <td>{r.position}</td>
+                  <td>{r.current_level} → {r.next_level}</td>
+                  <td>{r.months_at_current ?? '—'}</td>
+                  <td>{r.positions_achieved_count}</td>
+                  <td>{r.can ? <Badge variant="success">Đủ điều kiện</Badge> : <Badge variant="warning">{r.reason}</Badge>}</td>
+                  <td>
+                    {f.canRegister && r.can && (
+                      <button className="btn-sm" onClick={() => { setPresetEmp({ id: r.employee_id, name: r.name, code: r.code }); setShowRegister(true) }}>Đăng ký</button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {eligible.length === 0 && <tr><td colSpan={8} className="muted-note">Không có nhân sự cấp S nào trong phạm vi.</td></tr>}
+            </tbody>
+          </Table>
+        </>
+      )}
 
       {tab === 'enrollments' && (
         <>
@@ -481,8 +526,9 @@ export default function LevelUpPage() {
       {showRegister && (
         <RegisterModal
           batches={batches}
-          onClose={() => setShowRegister(false)}
-          onDone={() => { setShowRegister(false); load() }}
+          presetEmployee={presetEmp}
+          onClose={() => { setShowRegister(false); setPresetEmp(null) }}
+          onDone={() => { setShowRegister(false); setPresetEmp(null); load(); loadEligible() }}
         />
       )}
       {roundId && <RoundModal enrollmentId={roundId} onClose={() => setRoundId(null)} onChanged={load} />}
