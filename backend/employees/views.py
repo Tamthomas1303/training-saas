@@ -299,16 +299,21 @@ class MgmtDevelopmentListView(APIView):
             ).values_list('enrollment__employee_id', flat=True):
                 sessions_by_emp[eid] = sessions_by_emp.get(eid, 0) + 1
 
+        from .career import prerequisite_status
+
         rows = []
         for d in devs:
             e = d.employee
+            topics = d.data.get('topics', [])
+            assessments = d.data.get('assessments', {})
             rows.append({
                 'employee_id': e.id, 'code': e.code, 'name': e.name,
                 'position': e.position, 'job_level': e.job_level,
                 'restaurant_name': e.restaurant.name if e.restaurant else '',
                 'target_code': d.target_code, 'final_status': d.final_status, 'source': d.employee_source,
-                'topics': d.data.get('topics', []), 'scores': d.data.get('scores', {}),
-                'assessments': d.data.get('assessments', {}),
+                'topics': topics, 'scores': d.data.get('scores', {}),
+                'assessments': assessments,
+                'prerequisites': prerequisite_status(d.target_code, topics, assessments),
                 'courses_attended': courses_by_emp.get(e.id, 0),
                 'sessions_attended': sessions_by_emp.get(e.id, 0),
             })

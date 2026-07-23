@@ -27,7 +27,8 @@ def _no_accent(text):
 
 from .models import Council, CouncilMember, Evaluation, EvaluationCriteria, EvaluationDetail
 
-PASS_THRESHOLD = 80
+PASS_THRESHOLD = 80          # hội đồng tay nghề / phỏng vấn (mô tả lập hội đồng)
+SHIFT_OPS_THRESHOLD = 85     # đánh giá vận hành ca (AM/KCS) — chốt 85% theo quyết định
 COUNCIL_ADMIN_ROLES = {'admin', 'om'}  # Phòng Đào tạo = admin trong hệ thống này
 
 
@@ -154,7 +155,7 @@ def submit_shiftops(user, employee, scores, sign=''):
           or Evaluation(tenant=employee.tenant, employee=employee, eval_type='ShiftOps', evaluator=user))
     ev.sign_evaluator = _upload_sign(employee.tenant, sign, f'shiftops_{employee.id}_{user.id}')
     percent = _score_evaluation(ev, employee.tenant, rows, scores)
-    employee.shift_ops = 'Đạt' if percent >= PASS_THRESHOLD else 'Không đạt'
+    employee.shift_ops = 'Đạt' if percent >= SHIFT_OPS_THRESHOLD else 'Không đạt'
     employee.save(update_fields=['shift_ops'])
     recompute_final_result(employee)
     return {'percent': percent, 'result': employee.shift_ops}

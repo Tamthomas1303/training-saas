@@ -37,7 +37,7 @@ export default function MgmtDevPage() {
       {loading ? <p className="muted-note">Đang tải...</p> : (
         <Table>
           <thead>
-            <tr><th>Nhân sự</th><th>Nhà hàng</th><th>Vị trí</th><th>Đích</th><th>Trạng thái</th><th>Khóa/Buổi</th><th>Nội dung</th><th></th></tr>
+            <tr><th>Nhân sự</th><th>Nhà hàng</th><th>Vị trí</th><th>Đích</th><th>Trạng thái</th><th>Tiên quyết</th><th>Khóa/Buổi</th><th></th></tr>
           </thead>
           <tbody>
             {shown.map((r) => (
@@ -47,8 +47,8 @@ export default function MgmtDevPage() {
                 <td>{r.position} <span className="muted-note">{r.job_level}</span></td>
                 <td>{TARGET_LABEL[r.target_code] || r.target_code}</td>
                 <td><Badge variant={statusVariant(r.final_status)}>{r.final_status || '—'}</Badge></td>
+                <td>{r.prerequisites?.ok ? <Badge variant="success">Đủ</Badge> : <Badge variant="warning">Thiếu</Badge>}</td>
                 <td>{r.courses_attended} khóa / {r.sessions_attended} buổi</td>
-                <td>{r.topics.length} nội dung</td>
                 <td><button className="btn-outline btn-sm" onClick={() => setDetail(r)}>Chi tiết</button></td>
               </tr>
             ))}
@@ -63,6 +63,15 @@ export default function MgmtDevPage() {
             {detail.position} · {detail.restaurant_name} · Đích: {TARGET_LABEL[detail.target_code] || detail.target_code} · {detail.source}
           </div>
           <div style={{ marginBottom: 6 }}><b>Trạng thái:</b> <Badge variant={statusVariant(detail.final_status)}>{detail.final_status || '—'}</Badge></div>
+
+          <div style={{ fontWeight: 700, marginTop: 10 }}>Điều kiện tiên quyết</div>
+          {(detail.prerequisites?.items || []).map((it, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '2px 0' }}>
+              <span style={{ color: it.ok ? 'var(--forest)' : 'var(--danger)' }}>{it.ok ? '✓' : '✗'}</span>
+              <span style={{ fontSize: 14 }}>{it.label}{it.missing?.length ? ` — thiếu: ${it.missing.join(', ')}` : ''}</span>
+            </div>
+          ))}
+          {(!detail.prerequisites?.items || detail.prerequisites.items.length === 0) && <div className="muted-note">Không có yêu cầu tiên quyết.</div>}
 
           <div style={{ fontWeight: 700, marginTop: 10 }}>Nội dung đã đào tạo ({detail.topics.length})</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>

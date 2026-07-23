@@ -427,6 +427,37 @@ def talent_pool_employees(tenant):
     return [c['employee'] for c in talent_candidates(tenant) if c['decision'] == 'approved']
 
 
+# G6 — chuỗi tiên quyết đào tạo BQL (mô tả mục 3): Train-the-trainer trước; QL cần nội dung GS;
+# Bếp trưởng cần nội dung Bếp phó. Đối chiếu với nội dung đã học (topics) của Daotao_BQL.
+PREREQ_TRAIN_TOPIC = 'Kỹ năng đào tạo'
+GS_CONTENT_TOPICS = {'Xử lý tình huống', 'Kỹ năng mềm', 'VSATTP', 'Kỹ năng Office', 'Dinh dưỡng', 'Vận hành'}
+BP_CONTENT_TOPICS = {'Kiểm soát chi phí', 'Kiểm soát chất lượng', 'Kỹ năng mềm', 'VSATTP', 'Vận hành'}
+PREREQ_BY_TARGET = {
+    'GS': [('train', None)],
+    'BP': [('train', None)],
+    'QL': [('train', None), ('content', 'GS')],
+    'BTr': [('train', None), ('content', 'BP')],
+}
+
+
+def prerequisite_status(target_code, topics, assessments):
+    """Trả trạng thái tiên quyết cho vị trí đích: Train-the-trainer + nội dung role trước đó."""
+    topics = set(topics or [])
+    done_train = (PREREQ_TRAIN_TOPIC in topics) or ((assessments or {}).get('Kỹ năng đào tạo') == 'Đạt')
+    items = []
+    for kind, role in PREREQ_BY_TARGET.get((target_code or '').strip(), []):
+        if kind == 'train':
+            items.append({
+                'label': 'Train the trainer (đánh giá kỹ năng đào tạo)',
+                'ok': done_train, 'missing': [] if done_train else ['Kỹ năng đào tạo'],
+            })
+        else:
+            need = GS_CONTENT_TOPICS if role == 'GS' else BP_CONTENT_TOPICS
+            missing = sorted(need - topics)
+            items.append({'label': f'Hoàn thành nội dung {role}', 'ok': not missing, 'missing': missing})
+    return {'ok': all(i['ok'] for i in items) if items else True, 'items': items}
+
+
 GAP_TYPES = {'skill', 'shiftops', 'interview', 'exam', 'cohort'}
 GAP_LABELS = {
     'skill': 'Chưa đánh giá kỹ năng', 'shiftops': 'Chưa đánh giá vận hành ca',
