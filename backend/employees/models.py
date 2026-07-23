@@ -46,6 +46,9 @@ class Employee(models.Model):
     # Phieu ket qua thu viec da xuat (PDF) - luu lai de lan sau vao xem hien link ngay thay vi
     # phai xuat lai; xuat lai se xoa file cu va thay bang URL moi. Port phan hoi "Phan 1".
     probation_result_pdf_url = models.URLField(max_length=500, blank=True)
+    # Nhân sự CŨ (nạp từ Data_LichSu/lộ trình, không thuộc luồng onboarding hệ mới). True = cũ,
+    # False = nhân sự mới (onboarding từ 1/7, có trong DB_BACKUP). Dùng để tách danh sách theo dõi.
+    is_legacy = models.BooleanField(default=False)
 
     class Meta:
         unique_together = ('tenant', 'code')

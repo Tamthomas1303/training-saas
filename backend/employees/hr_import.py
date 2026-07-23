@@ -93,6 +93,7 @@ def _merge_roster_rows(tenant):
             setf('start_date', (r.get('Start_Date') or '').strip())
             if r.get('Employee_Status') and 'status' not in cur:
                 cur['status'] = r.get('Employee_Status')
+            cur.setdefault('_sources', set()).add(kind)
     return merged
 
 
@@ -121,6 +122,8 @@ def sync_roster(tenant):
         if restaurant is None:
             restaurant = resolve_restaurant(d.get('restaurant_name', ''))
 
+        # Nhân sự mới (onboarding) = có trong DB_BACKUP (tab 'backup', từ 1/7). Còn lại = cũ.
+        is_legacy = 'backup' not in d.get('_sources', set())
         fields = {
             'name': d.get('name', ''),
             'position': d.get('position', ''),
@@ -133,6 +136,7 @@ def sync_roster(tenant):
             'probation_days': _derive_probation_days(
                 d.get('position', ''), d.get('operation_unit', ''), job_level,
             ),
+            'is_legacy': is_legacy,
         }
         obj = existing.get(code)
         if obj:
@@ -151,7 +155,7 @@ def sync_roster(tenant):
             Employee.objects.bulk_update(
                 to_update,
                 ['name', 'position', 'operation_unit', 'job_level', 'level_group',
-                 'start_date', 'restaurant', 'employee_status', 'probation_days'],
+                 'start_date', 'restaurant', 'employee_status', 'probation_days', 'is_legacy'],
                 batch_size=200,
             )
     return {'total': len(merged), 'created': created, 'updated': updated}

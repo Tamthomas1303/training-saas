@@ -19,7 +19,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'start_date', 'restaurant', 'restaurant_name', 'employee_status', 'probation_days',
             'skill_score', 'skill_result', 'shift_ops', 'office_result', 'final_result',
             'trainer', 'trainer_name', 'commission_status', 'retrain_deadline', 'progress_percent',
-            'lms_marks',
+            'lms_marks', 'is_legacy',
         ]
 
     def get_progress_percent(self, obj):

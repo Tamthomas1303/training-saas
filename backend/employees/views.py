@@ -24,7 +24,7 @@ class EmployeeViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
     serializer_class = EmployeeSerializer
     queryset = Employee.objects.select_related('restaurant', 'trainer').all()
     pagination_class = DefaultPagination
-    filterset_fields = ['restaurant', 'employee_status', 'operation_unit', 'level_group']
+    filterset_fields = ['restaurant', 'employee_status', 'operation_unit', 'level_group', 'is_legacy']
     search_fields = ['code', 'name']
     ordering_fields = ['code', 'name', 'start_date']
     ordering = ['name']

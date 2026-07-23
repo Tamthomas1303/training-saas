@@ -98,34 +98,43 @@ def sync_courses(tenant):
             continue
         valid.append((r, emp))
 
-    # 1) Cohort theo Cousera_Code (get_or_create — số ít, ≤ ~25).
-    cohort_by_key = {}
+    # 1) Cohort theo Cousera_Code — BULK (khớp theo name; tạo cái còn thiếu).
+    key_to_name = {}
     for r, _emp in valid:
         code = (r.get('Cousera_Code') or '').strip()
         name = (r.get('Cousera_Name') or '').strip()
         key = code or name
-        if key and key not in cohort_by_key:
-            cohort_by_key[key], _ = Cohort.objects.get_or_create(
-                tenant=tenant, program=program, name=f'{code} — {name}'.strip(' —'),
-                defaults={'status': 'closed'},
-            )
+        if key and key not in key_to_name:
+            key_to_name[key] = (f'{code} — {name}').strip(' —') or key
+    existing_cohorts = {c.name: c for c in Cohort.objects.filter(program=program)}
+    new_cohorts = [
+        Cohort(tenant=tenant, program=program, name=nm, status='closed')
+        for nm in set(key_to_name.values()) if nm not in existing_cohorts
+    ]
+    for c in Cohort.objects.bulk_create(new_cohorts, batch_size=500):
+        existing_cohorts[c.name] = c
+    cohort_by_key = {key: existing_cohorts[nm] for key, nm in key_to_name.items()}
 
-    # 2) Session theo (cohort, Class_Code) (≤ ~110).
-    session_by_key = {}
+    # 2) Session theo (cohort, Class_Code) — BULK.
+    cohort_ids = [c.id for c in set(cohort_by_key.values())]
+    existing_sessions = {
+        (s.cohort_id, s.title): s for s in CohortSession.objects.filter(cohort_id__in=cohort_ids)
+    }
+    sess_date = {}
     for r, _emp in valid:
         key = (r.get('Cousera_Code') or '').strip() or (r.get('Cousera_Name') or '').strip()
         cohort = cohort_by_key.get(key)
         if not cohort:
             continue
         cls = (r.get('Class_Code') or '').strip() or (r.get('Cousera_Name') or '').strip()
-        skey = (cohort.id, cls)
-        if skey not in session_by_key:
-            session_by_key[skey], _ = CohortSession.objects.get_or_create(
-                tenant=tenant, cohort=cohort, title=cls,
-                defaults={'date': _parse_date(r.get('Training_Date'))},
-            )
-
-    cohort_ids = [c.id for c in cohort_by_key.values()]
+        sess_date.setdefault((cohort.id, cls), _parse_date(r.get('Training_Date')))
+    new_sessions = [
+        CohortSession(tenant=tenant, cohort_id=cid, title=cls, date=dt)
+        for (cid, cls), dt in sess_date.items() if (cid, cls) not in existing_sessions
+    ]
+    for s in CohortSession.objects.bulk_create(new_sessions, batch_size=500):
+        existing_sessions[(s.cohort_id, s.title)] = s
+    session_by_key = existing_sessions
     session_ids = [s.id for s in session_by_key.values()]
 
     # 3) Enrollment (cohort, employee) — bulk.
@@ -208,9 +217,18 @@ def sync_bql_results(tenant):
 
 
 def sync_history(tenant):
-    """Chạy cả 3 bước lịch sử (roster phải đồng bộ trước)."""
-    return {
-        'pass_positions': sync_pass_positions(tenant),
-        'courses': sync_courses(tenant),
-        'bql_results': sync_bql_results(tenant),
-    }
+    """Chạy cả 3 bước lịch sử (roster phải đồng bộ trước). Mỗi bước bọc try/except riêng để một
+    bước lỗi không chặn 2 bước kia, và báo rõ bước nào hỏng."""
+    import traceback
+
+    out = {}
+    for name, fn in (
+        ('pass_positions', sync_pass_positions),
+        ('courses', sync_courses),
+        ('bql_results', sync_bql_results),
+    ):
+        try:
+            out[name] = fn(tenant)
+        except Exception as exc:  # noqa: BLE001
+            out[name] = {'error': str(exc), 'where': traceback.format_exc().strip().splitlines()[-1]}
+    return out

@@ -50,6 +50,7 @@ export default function EmployeesPage() {
   const [restaurant, setRestaurant] = useState('')
   const [employeeStatus, setEmployeeStatus] = useState('')
   const [trainingStatus, setTrainingStatus] = useState('')
+  const [staffKind, setStaffKind] = useState('new') // 'new' | 'legacy' | '' (tất cả)
   const [order, setOrder] = useState('oldest')
   const [page, setPage] = useState(1)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -104,6 +105,7 @@ export default function EmployeesPage() {
     restaurant: restaurant || undefined,
     employee_status: employeeStatus || undefined,
     training_status: trainingStatus || undefined,
+    is_legacy: staffKind === 'new' ? false : staffKind === 'legacy' ? true : undefined,
     ordering: order === 'newest' ? '-start_date' : 'start_date',
     page,
     page_size: PAGE_SIZE,
@@ -301,6 +303,11 @@ export default function EmployeesPage() {
 
       <FilterBar>
         <input style={s.input} placeholder="Tìm theo mã / tên nhân viên..." value={search} onChange={onFilterChange(setSearch)} />
+        <select style={s.select} value={staffKind} onChange={onFilterChange(setStaffKind)}>
+          <option value="new">Nhân sự mới</option>
+          <option value="legacy">Nhân sự cũ</option>
+          <option value="">Tất cả</option>
+        </select>
         <select style={s.select} value={restaurant} onChange={onFilterChange(setRestaurant)}>
           <option value="">Tất cả nhà hàng</option>
           {restaurantOptions.results.map((r) => (
