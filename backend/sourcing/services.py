@@ -178,6 +178,94 @@ def notify_session_created(session):
     )
 
 
+def bulk_enroll_and_invite(cohort, user, filters):
+    """C — Lọc nhân sự theo tiêu chí & thêm hàng loạt vào đợt + gửi mời (in-app/email).
+    filters: role/restaurant/level_group/operation_unit/position (đều tuỳ chọn) hoặc employee_ids.
+    Người nhận thông báo: user có tài khoản khớp tên nhân sự được mời + phòng đào tạo."""
+    from employees.models import Employee
+
+    qs = Employee.objects.filter(tenant=cohort.tenant).exclude(
+        employee_status=Employee.EmployeeStatus.RESIGNED
+    )
+    ids = filters.get('employee_ids')
+    if ids:
+        qs = qs.filter(id__in=ids)
+    else:
+        if filters.get('restaurant'):
+            qs = qs.filter(restaurant_id=filters['restaurant'])
+        if filters.get('level_group'):
+            qs = qs.filter(level_group__iexact=filters['level_group'])
+        if filters.get('operation_unit'):
+            qs = qs.filter(operation_unit=filters['operation_unit'])
+        if filters.get('position'):
+            qs = qs.filter(position__icontains=filters['position'])
+
+    existing = set(
+        Enrollment.objects.filter(cohort=cohort).values_list('employee_id', flat=True)
+    )
+    new_emps = [e for e in qs if e.id not in existing]
+    Enrollment.objects.bulk_create([
+        Enrollment(tenant=cohort.tenant, cohort=cohort, employee=e, added_by=user)
+        for e in new_emps
+    ], batch_size=200)
+
+    # Thông báo: khớp nhân sự → user cùng tenant theo full_name (best-effort, vì học viên có thể
+    # chưa có tài khoản) + phòng đào tạo.
+    from accounts.models import User
+
+    names = {e.name.strip().lower() for e in new_emps}
+    matched_users = [
+        u for u in User.objects.filter(tenant=cohort.tenant, status=User.Status.ACTIVE)
+        if (u.full_name or '').strip().lower() in names
+    ]
+    targets = set(matched_users) | set(notification_targets(cohort.tenant, include_user=cohort.created_by))
+    if new_emps:
+        notify_users(
+            targets,
+            title=f'Mời tham gia đào tạo: {cohort.name}',
+            body=f'Bạn/nhân sự của bạn được mời tham gia "{cohort.name}". Quét QR tại buổi học để điểm danh.',
+            link='/sourcing', category='cohort',
+        )
+    return {'invited': len(new_emps), 'already_in': len(existing), 'notified_users': len(matched_users)}
+
+
+def cohort_report(cohort):
+    """Báo cáo tham gia: đối chiếu danh sách mời (enrollment) với có mặt (attendance) theo buổi
+    và theo học viên."""
+    sessions = list(CohortSession.objects.filter(cohort=cohort).order_by('date', 'session_no'))
+    enrollments = list(
+        Enrollment.objects.filter(cohort=cohort).select_related('employee', 'employee__restaurant')
+    )
+    present = {
+        (a.session_id, a.enrollment_id)
+        for a in Attendance.objects.filter(session__cohort=cohort, present=True)
+    }
+    session_rows = [
+        {
+            'session_id': s.id, 'session_no': s.session_no, 'title': s.title,
+            'date': s.date.isoformat() if s.date else None,
+            'invited': len(enrollments),
+            'present': sum(1 for e in enrollments if (s.id, e.id) in present),
+        }
+        for s in sessions
+    ]
+    total_sessions = len(sessions) or 1
+    people_rows = []
+    for e in enrollments:
+        attended = sum(1 for s in sessions if (s.id, e.id) in present)
+        people_rows.append({
+            'employee_code': e.employee.code, 'employee_name': e.employee.name,
+            'restaurant_name': e.employee.restaurant.name if e.employee.restaurant else '',
+            'attended': attended, 'total_sessions': len(sessions),
+            'percent': round(attended / total_sessions * 100),
+            'result': e.result, 'status': e.status,
+        })
+    return {
+        'cohort': cohort.name, 'sessions': session_rows, 'people': people_rows,
+        'invited_total': len(enrollments),
+    }
+
+
 def notify_enrollment_result(enrollment):
     cohort = enrollment.cohort
     emp = enrollment.employee

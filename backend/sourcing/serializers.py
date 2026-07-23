@@ -46,9 +46,10 @@ class CohortSerializer(serializers.ModelSerializer):
         model = Cohort
         fields = [
             'id', 'program', 'program_name', 'audience', 'name', 'location',
-            'start_date', 'end_date', 'status', 'status_label',
+            'start_date', 'end_date', 'status', 'status_label', 'qr_token',
             'session_count', 'enrollment_count', 'created_at',
         ]
+        read_only_fields = ['qr_token']
 
 
 class EnrollmentSerializer(serializers.ModelSerializer):

@@ -17,6 +17,7 @@ import UsersPage from './pages/UsersPage'
 import DocumentsPage from './pages/DocumentsPage'
 import GuestCouncilPage from './pages/GuestCouncilPage'
 import GuestAttendPage from './pages/GuestAttendPage'
+import GuestEventPage from './pages/GuestEventPage'
 import CriteriaEditorPage from './pages/CriteriaEditorPage'
 import LevelUpPage from './pages/LevelUpPage'
 import SourcingPage from './pages/SourcingPage'
@@ -43,6 +44,7 @@ function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/council-guest/:token" element={<GuestCouncilPage />} />
           <Route path="/attend/:token" element={<GuestAttendPage />} />
+          <Route path="/event/:token" element={<GuestEventPage />} />
           <Route
             path="/"
             element={

@@ -179,6 +179,10 @@ function CohortDetailModal({ cohort, canManage, canEnroll, onClose, onChanged })
   const [enrollModal, setEnrollModal] = useState(null)
   const [empTerm, setEmpTerm] = useState('')
   const [empResults, setEmpResults] = useState([])
+  const [showInvite, setShowInvite] = useState(false)
+  const [showReport, setShowReport] = useState(false)
+  const [showEventQR, setShowEventQR] = useState(false)
+  const eventUrl = cohort.qr_token ? `${window.location.origin}/event/${cohort.qr_token}` : ''
 
   async function load() {
     const [ss, en] = await Promise.all([
@@ -220,7 +224,24 @@ function CohortDetailModal({ cohort, canManage, canEnroll, onClose, onChanged })
 
   return (
     <Modal open title={`Đợt: ${cohort.name}`} onClose={onClose} footer={<button className="btn-outline" onClick={onClose}>Đóng</button>}>
-      <div className="muted-note" style={{ marginBottom: 10 }}>{cohort.program_name} · <Badge variant={COHORT_VARIANT[cohort.status]}>{COHORT_STATUS[cohort.status]}</Badge></div>
+      <div className="muted-note" style={{ marginBottom: 8 }}>{cohort.program_name} · <Badge variant={COHORT_VARIANT[cohort.status]}>{COHORT_STATUS[cohort.status]}</Badge></div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+        <button className="btn-outline btn-sm" onClick={() => setShowEventQR(true)}>QR sự kiện</button>
+        {canEnroll && <button className="btn-outline btn-sm" onClick={() => setShowInvite(true)}>Mời hàng loạt</button>}
+        <button className="btn-outline btn-sm" onClick={() => setShowReport(true)}>Báo cáo tham gia</button>
+      </div>
+      {showEventQR && (
+        <div className="card" style={{ padding: 10, textAlign: 'center', marginBottom: 10 }}>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>QR sự kiện — học viên chọn chủ đề rồi điểm danh</div>
+          {cohort.qr_token ? (
+            <>
+              <img alt="QR sự kiện" width={180} height={180} src={'https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=' + encodeURIComponent(eventUrl)} />
+              <div style={{ fontSize: 12, wordBreak: 'break-all', marginTop: 6 }}>{eventUrl}</div>
+            </>
+          ) : <div className="muted-note">Đợt tạo trước bản cập nhật chưa có mã QR sự kiện — tạo đợt mới để có QR.</div>}
+          <div><button className="btn-outline btn-sm" style={{ marginTop: 6 }} onClick={() => setShowEventQR(false)}>Đóng</button></div>
+        </div>
+      )}
 
       {/* Buổi học */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -290,6 +311,98 @@ function CohortDetailModal({ cohort, canManage, canEnroll, onClose, onChanged })
       )}
       {attendSession && <AttendanceModal session={attendSession} canManage={canEnroll} onClose={() => { setAttendSession(null); load() }} />}
       {enrollModal && <EnrollmentModal enrollment={enrollModal} canResult={canEnroll} onClose={() => setEnrollModal(null)} onChanged={() => { load(); onChanged?.() }} />}
+      {showInvite && <InviteModal cohort={cohort} onClose={() => setShowInvite(false)} onDone={() => { setShowInvite(false); load() }} />}
+      {showReport && <ReportModal cohort={cohort} onClose={() => setShowReport(false)} />}
+    </Modal>
+  )
+}
+
+// ---------- Mời hàng loạt theo bộ lọc ----------
+function InviteModal({ cohort, onClose, onDone }) {
+  const [f, setF] = useState({ level_group: '', operation_unit: '', position: '' })
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  async function submit() {
+    setBusy(true); setMsg('')
+    try {
+      const { data } = await api.post(`/sourcing/cohorts/${cohort.id}/bulk-enroll/`, {
+        level_group: f.level_group || undefined,
+        operation_unit: f.operation_unit || undefined,
+        position: f.position || undefined,
+      })
+      setMsg(`Đã mời ${data.invited} người (đã có sẵn ${data.already_in}, gửi thông báo ${data.notified_users} tài khoản).`)
+    } catch (e) {
+      setMsg(e.response?.data?.detail || 'Mời thất bại.')
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <Modal open title="Mời hàng loạt theo bộ lọc" onClose={onClose}
+      footer={<><button className="btn-outline" onClick={onClose}>Đóng</button><button disabled={busy} onClick={submit}>Lọc & mời</button></>}>
+      <div style={{ display: 'grid', gap: 10 }}>
+        <label>Nhóm level
+          <select style={{ display: 'block', width: '100%' }} value={f.level_group} onChange={(e) => setF({ ...f, level_group: e.target.value })}>
+            <option value="">Tất cả</option><option value="S">S</option><option value="O">O</option><option value="P">P (part-time)</option>
+          </select>
+        </label>
+        <label>Khối
+          <select style={{ display: 'block', width: '100%' }} value={f.operation_unit} onChange={(e) => setF({ ...f, operation_unit: e.target.value })}>
+            <option value="">Tất cả</option><option value="restaurant">Nhà hàng</option><option value="office">Văn phòng</option><option value="production">Sản xuất</option>
+          </select>
+        </label>
+        <label>Vị trí chứa
+          <input style={{ display: 'block', width: '100%' }} value={f.position} onChange={(e) => setF({ ...f, position: e.target.value })} placeholder="vd: Bếp trưởng, Giám sát..." />
+        </label>
+        <p className="muted-note" style={{ fontSize: 12 }}>Loại nhân sự đã nghỉ. Thông báo gửi tới tài khoản có tên khớp nhân sự được mời + phòng đào tạo.</p>
+        {msg && <p style={{ color: 'var(--forest-dark)' }}>{msg}</p>}
+      </div>
+    </Modal>
+  )
+}
+
+// ---------- Báo cáo tham gia ----------
+function ReportModal({ cohort, onClose }) {
+  const [data, setData] = useState(null)
+  useEffect(() => { api.get(`/sourcing/cohorts/${cohort.id}/report/`).then(({ data }) => setData(data)) }, [cohort.id])
+
+  function exportCsv() {
+    const cell = (c) => '"' + String(c == null ? '' : c).split('"').join('""') + '"'
+    const head = ['Mã', 'Họ tên', 'Nhà hàng', 'Có mặt', 'Tổng buổi', '%', 'Kết quả']
+    const lines = data.people.map((p) => [p.employee_code, p.employee_name, p.restaurant_name, p.attended, p.total_sessions, p.percent, p.result])
+    const csv = [head, ...lines].map((r) => r.map(cell).join(',')).join('\n')
+    const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }))
+    const a = document.createElement('a'); a.href = url; a.download = 'bao_cao_' + cohort.name + '.csv'; a.click()
+  }
+
+  return (
+    <Modal open title={`Báo cáo tham gia — ${cohort.name}`} onClose={onClose}
+      footer={<><button className="btn-outline" onClick={onClose}>Đóng</button>{data && <button onClick={exportCsv}>Tải CSV</button>}</>}>
+      {!data && <p className="muted-note">Đang tải...</p>}
+      {data && (
+        <>
+          <div style={{ fontWeight: 700, margin: '4px 0' }}>Theo buổi (mời {data.invited_total})</div>
+          <Table>
+            <thead><tr><th>Buổi</th><th>Chủ đề</th><th>Ngày</th><th>Có mặt / Mời</th></tr></thead>
+            <tbody>
+              {data.sessions.map((s) => (
+                <tr key={s.session_id}><td>{s.session_no}</td><td>{s.title}</td><td>{s.date}</td><td>{s.present}/{s.invited}</td></tr>
+              ))}
+              {data.sessions.length === 0 && <tr><td colSpan={4} className="muted-note">Chưa có buổi.</td></tr>}
+            </tbody>
+          </Table>
+          <div style={{ fontWeight: 700, margin: '10px 0 4px' }}>Theo học viên</div>
+          <Table>
+            <thead><tr><th>Học viên</th><th>Nhà hàng</th><th>Tham gia</th><th>%</th></tr></thead>
+            <tbody>
+              {data.people.map((p) => (
+                <tr key={p.employee_code}><td>{p.employee_name} - {p.employee_code}</td><td>{p.restaurant_name}</td><td>{p.attended}/{p.total_sessions}</td><td>{p.percent}%</td></tr>
+              ))}
+              {data.people.length === 0 && <tr><td colSpan={4} className="muted-note">Chưa có học viên.</td></tr>}
+            </tbody>
+          </Table>
+        </>
+      )}
     </Modal>
   )
 }

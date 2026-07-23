@@ -66,6 +66,8 @@ class Cohort(models.Model):
     created_by = models.ForeignKey(
         User, on_delete=models.SET_NULL, related_name='cohorts_created', null=True, blank=True
     )
+    # QR cấp sự kiện (C): học viên quét, chọn chủ đề/buổi rồi điểm danh.
+    qr_token = models.CharField(max_length=64, blank=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

@@ -21,6 +21,8 @@ from .serializers import (
 )
 from .models import Notification
 from .services import (
+    bulk_enroll_and_invite,
+    cohort_report,
     enrollment_contents,
     enrollment_summary,
     finalize_enrollment,
@@ -77,7 +79,10 @@ class CohortViewSet(AdminOmWriteMixin, TenantScopedViewSetMixin, viewsets.ModelV
     ordering = ['-created_at']
 
     def perform_create(self, serializer):
-        serializer.save(tenant=self.request.user.tenant, created_by=self.request.user)
+        serializer.save(
+            tenant=self.request.user.tenant, created_by=self.request.user,
+            qr_token=secrets.token_urlsafe(24),
+        )
 
 
 class CohortSessionViewSet(AdminOmWriteMixin, TenantScopedViewSetMixin, viewsets.ModelViewSet):
@@ -220,6 +225,69 @@ class NotificationListView(APIView):
             tenant=request.user.tenant, user=request.user, is_read=False,
         ).count()
         return Response({'unread': unread})
+
+
+class CohortBulkEnrollView(APIView):
+    """POST /api/sourcing/cohorts/<id>/bulk-enroll/ — lọc nhân sự theo tiêu chí & mời hàng loạt
+    (thêm vào đợt + gửi thông báo/email). Body: restaurant/level_group/operation_unit/position
+    hoặc employee_ids. Chỉ Admin/OM/BQL."""
+
+    def post(self, request, pk):
+        if (request.user.role or '').lower() not in ENROLLMENT_MANAGE_ROLES:
+            return Response({'detail': 'Chỉ Admin/OM/BQL được mời hàng loạt.'}, status=403)
+        cohort = get_object_or_404(Cohort, pk=pk, tenant=request.user.tenant)
+        result = bulk_enroll_and_invite(cohort, request.user, request.data or {})
+        return Response(result)
+
+
+class CohortReportView(APIView):
+    """GET /api/sourcing/cohorts/<id>/report/ — báo cáo tham gia (mời vs có mặt)."""
+
+    def get(self, request, pk):
+        cohort = get_object_or_404(Cohort, pk=pk, tenant=request.user.tenant)
+        return Response(cohort_report(cohort))
+
+
+class EventInfoView(APIView):
+    """GET /api/sourcing/event/<token>/ — QR cấp sự kiện (cohort): học viên chọn CHỦ ĐỀ/buổi rồi
+    điểm danh. Công khai."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request, token):
+        cohort = get_object_or_404(Cohort, qr_token=token)
+        sessions = CohortSession.objects.filter(cohort=cohort).order_by('date', 'session_no')
+        roster = [
+            {'enrollment_id': r['enrollment_id'], 'employee_name': r['employee_name'], 'employee_code': r['employee_code']}
+            for r in session_roster(sessions.first()) if sessions.exists()
+        ] if sessions.exists() else []
+        return Response({
+            'cohort': cohort.name,
+            'program': cohort.program.name,
+            'sessions': [
+                {'id': s.id, 'session_no': s.session_no,
+                 'title': s.title or f'Buổi {s.session_no}', 'date': s.date.isoformat() if s.date else None}
+                for s in sessions
+            ],
+            'roster': roster,
+        })
+
+
+class EventCheckInView(APIView):
+    """POST /api/sourcing/event/<token>/checkin/ — {session, enrollment}. Công khai."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request, token):
+        cohort = get_object_or_404(Cohort, qr_token=token)
+        session = get_object_or_404(CohortSession, pk=request.data.get('session'), cohort=cohort)
+        enrollment = get_object_or_404(Enrollment, pk=request.data.get('enrollment'), cohort=cohort)
+        _, err = mark_attendance(session, enrollment, present=True, method='self')
+        if err:
+            return Response({'detail': err}, status=400)
+        return Response({'ok': True, 'name': enrollment.employee.name, 'session': session.title or session.session_no})
 
 
 class AttendInfoView(APIView):
