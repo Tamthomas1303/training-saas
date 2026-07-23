@@ -64,6 +64,8 @@ export default function EmployeesPage() {
   const fileRef = useRef(null)
   const examRef = useRef(null)
   const evalRef = useRef(null)
+  const [hrSources, setHrSources] = useState([])
+  const [hrMsg, setHrMsg] = useState('')
 
   useEffect(() => {
     api.get('/employees/positions/').then(({ data }) => setPositions(data)).catch(() => {})
@@ -72,8 +74,28 @@ export default function EmployeesPage() {
   useEffect(() => {
     if (isAdmin) {
       api.get('/employees/recruitment-source/').then(({ data }) => setSourceUrl(data.csv_url || '')).catch(() => {})
+      api.get('/employees/hr-sync-sources/').then(({ data }) => setHrSources(data)).catch(() => {})
     }
   }, [isAdmin])
+
+  async function saveHrSource(kind, csv_url) {
+    try {
+      await api.put('/employees/hr-sync-sources/', { kind, csv_url })
+    } catch { /* im lặng */ }
+  }
+  async function runHrSync(url, label) {
+    setImportBusy(true)
+    setHrMsg(`Đang ${label}...`)
+    try {
+      const { data } = await api.post(url)
+      setHrMsg(`${label}: ${JSON.stringify(data)}`)
+      setRefreshKey((k) => k + 1)
+    } catch (e) {
+      setHrMsg(e.response?.data?.detail || `${label} thất bại.`)
+    } finally {
+      setImportBusy(false)
+    }
+  }
 
   const { data: restaurantOptions } = usePaginatedList('/restaurants/', { page_size: 100 })
 
@@ -249,6 +271,31 @@ export default function EmployeesPage() {
           </div>
           {importBusy && <p className="muted-note">Đang xử lý...</p>}
           {importMsg && <p style={{ color: 'var(--forest-dark)' }}>{importMsg}</p>}
+
+          <div style={{ borderTop: '2px solid var(--forest)', paddingTop: 12, marginTop: 12 }}>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Auto Syncing - HR Data (v2.1) — dán link CSV từng tab</div>
+            <div className="muted-note" style={{ fontSize: 12, marginBottom: 8 }}>
+              Mỗi tab của Google Sheet: File → Chia sẻ → Xuất bản lên web → CSV. Dán link tương ứng rồi bấm đồng bộ.
+              Roster hợp nhất các tab nhân sự (ưu tiên nhân sự mới sau 1/7). Nạp lịch sử cần đồng bộ roster trước.
+            </div>
+            {hrSources.map((s, i) => (
+              <div key={s.kind} style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+                <span style={{ minWidth: 190, fontSize: 12 }}>{s.label}</span>
+                <input
+                  style={{ flex: 1, minWidth: 200 }}
+                  placeholder="Dán link CSV..."
+                  defaultValue={s.csv_url}
+                  onChange={(e) => { const next = [...hrSources]; next[i] = { ...s, csv_url: e.target.value }; setHrSources(next) }}
+                  onBlur={(e) => saveHrSource(s.kind, e.target.value)}
+                />
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+              <button onClick={() => runHrSync('/employees/hr-sync-roster/', 'Đồng bộ roster')} disabled={importBusy}>Đồng bộ roster</button>
+              <button className="btn-outline" onClick={() => runHrSync('/employees/hr-sync-history/', 'Nạp lịch sử')} disabled={importBusy}>Nạp lịch sử (Pass/khóa/cấp O)</button>
+            </div>
+            {hrMsg && <p style={{ color: 'var(--forest-dark)', fontSize: 12, wordBreak: 'break-all' }}>{hrMsg}</p>}
+          </div>
         </div>
       )}
 

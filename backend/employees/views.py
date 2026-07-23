@@ -180,6 +180,20 @@ class HrSyncRosterView(APIView):
             return Response({'detail': f'Đồng bộ roster thất bại: {exc}'}, status=400)
 
 
+class HrSyncHistoryView(APIView):
+    """POST /api/employees/hr-sync-history/ — nạp lịch sử (vị trí đã pass cấp S, khóa BQL,
+    kết quả cấp O). Roster nên đồng bộ trước. Chỉ Admin/OM."""
+
+    def post(self, request):
+        _require_data_admin(request)
+        from .hr_history import sync_history
+
+        try:
+            return Response(sync_history(request.user.tenant))
+        except Exception as exc:  # noqa: BLE001
+            return Response({'detail': f'Nạp lịch sử thất bại: {exc}'}, status=400)
+
+
 class RecruitmentSyncNowView(APIView):
     """POST /api/employees/sync-now/ — kéo dữ liệu ngay từ link đã lưu (Cách 3)."""
 
