@@ -2,6 +2,7 @@
 // muc 3-4), anh xa sang cac trang thuc te da dung trong he thong nay (chua co man Documents/
 // Users rieng nen tam khong dua vao menu - se bo sung o dot sau).
 export const MENU_ITEMS = {
+  hub: { label: 'Trung tâm', icon: '🗂️', path: '/hub' },
   home: { label: 'Trang chủ', icon: '🏠', path: '/' },
   dashboard: { label: 'Dashboard', icon: '📊', path: '/dashboard' },
   students: { label: 'Nhân sự', icon: '👥', path: '/employees' },
@@ -21,14 +22,17 @@ export const MENU_ITEMS = {
 // Vai tro "toan he thong" -> shell desktop (topbar); con lai -> shell mobile (bottom-nav).
 const MOBILE_ROLES = new Set(['trainer', 'bql', 'am', 'kcs'])
 
+// M3 — Card Nesting: các chức năng theo vòng đời đào tạo (nhân sự mới / thăng tiến / nguồn / cấp
+// trung) gom vào "Trung tâm" (hub, thẻ cha → thẻ con). Thanh nav phẳng chỉ giữ hub + các mục
+// tiện ích toàn cục (dashboard/home, KPI, phụ cấp, tài liệu, người dùng).
 const ROLE_MENU = {
-  admin: ['dashboard', 'students', 'checklist', 'evaluation', 'levelup', 'sourcing', 'kpi', 'kpiDashboard', 'commission', 'documents', 'criteria', 'users'],
-  om: ['dashboard', 'students', 'checklist', 'evaluation', 'levelup', 'sourcing', 'kpi', 'kpiDashboard', 'commission', 'documents', 'criteria'],
-  bod: ['dashboard', 'students', 'checklist', 'kpi', 'kpiDashboard', 'commission', 'documents'],
-  am: ['home', 'training', 'evaluation', 'levelup', 'kpi', 'documents'],
-  kcs: ['home', 'training', 'evaluation', 'levelup', 'kpi', 'documents'],
-  bql: ['home', 'training', 'evaluation', 'levelup', 'sourcing', 'kpi', 'documents'],
-  trainer: ['home', 'training', 'levelup', 'sourcing', 'documents'],
+  admin: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'users'],
+  om: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents'],
+  bod: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents'],
+  am: ['hub', 'home', 'kpi', 'documents'],
+  kcs: ['hub', 'home', 'kpi', 'documents'],
+  bql: ['hub', 'home', 'kpi', 'documents'],
+  trainer: ['hub', 'home', 'documents'],
 }
 
 export function isMobileRole(role) {
