@@ -17,7 +17,10 @@ from .services import checklist_progress_percent, normalize_key
 
 
 def scoped_employees(user):
-    qs = Employee.objects.filter(tenant=user.tenant).select_related('restaurant', 'trainer')
+    # Loại nhân sự CŨ (is_legacy) khỏi các màn xoay quanh onboarding: Dashboard, Home, KPI.
+    # Họ được nạp chỉ để lưu lịch sử/lộ trình — không tính vào chỉ số đào tạo nhân sự mới.
+    # (Màn danh sách "Nhân sự" dùng queryset riêng nên vẫn xem được nhân sự cũ qua bộ lọc.)
+    qs = Employee.objects.filter(tenant=user.tenant, is_legacy=False).select_related('restaurant', 'trainer')
     scope = get_restaurant_scope(user)
     if not scope['all']:
         qs = qs.filter(restaurant_id__in=scope['restaurant_ids'])
