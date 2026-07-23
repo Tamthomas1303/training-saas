@@ -309,10 +309,33 @@ def recompute_final_result(employee):
 def change_employee_status(employee, new_status):
     """Doi trang thai lam viec cua nhan su + tinh lai ket qua thu viec. Port
     EmployeeService.gs::changeStatus (khong co state-machine kiem tra chuyen trang thai,
-    giong ban goc)."""
+    giong ban goc). M4.3: khi Nghi viec -> dong cac dot dang mo de khong treo bao cao."""
     employee.employee_status = new_status
     employee.save(update_fields=['employee_status'])
+    if new_status == 'resigned':
+        _close_open_enrollments_on_resign(employee)
     return recompute_final_result(employee)
+
+
+def _close_open_enrollments_on_resign(employee):
+    """Nhân sự nghỉ việc → đóng đợt thăng tiến (M1) và đợt đào tạo nguồn (M2) đang mở của họ
+    (đưa về 'Không đạt'), để danh sách/báo cáo không còn coi là đang diễn ra."""
+    from django.utils import timezone
+
+    from .models import LevelUpEnrollment
+
+    now = timezone.now()
+    LevelUpEnrollment.objects.filter(
+        employee=employee, status__in=['registered', 'training'],
+    ).update(status='failed', completed_at=now)
+    try:
+        from sourcing.models import Enrollment as CohortEnrollment
+
+        CohortEnrollment.objects.filter(
+            employee=employee, status__in=['registered', 'studying'],
+        ).update(status='failed', completed_at=now)
+    except Exception:  # noqa: BLE001 - app sourcing có thể chưa migrate ở môi trường cũ
+        pass
 
 
 def probation_conditions(employee):
