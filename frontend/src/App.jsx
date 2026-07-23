@@ -22,6 +22,7 @@ import CriteriaEditorPage from './pages/CriteriaEditorPage'
 import LevelUpPage from './pages/LevelUpPage'
 import SourcingPage from './pages/SourcingPage'
 import HubPage from './pages/HubPage'
+import MgmtDevPage from './pages/MgmtDevPage'
 import api from './api/client'
 import { isMobileRole } from './config/menu'
 import { flushQueue, initOfflineSync } from './utils/offlineQueue'
@@ -162,6 +163,14 @@ function App() {
             element={
               <ProtectedRoute roles={['admin', 'om', 'bql', 'trainer']}>
                 <SourcingPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/mgmt-development"
+            element={
+              <ProtectedRoute roles={['admin', 'om', 'bod']}>
+                <MgmtDevPage />
               </ProtectedRoute>
             }
           />

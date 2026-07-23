@@ -95,6 +95,22 @@ class HrSyncSource(models.Model):
         return f'HrSyncSource({self.tenant_id}, {self.kind})'
 
 
+class MgmtDevelopment(models.Model):
+    """Hồ sơ phát triển Ban quản lý / cấp O (nạp từ Daotao_BQL). Gom: nội dung đã đào tạo,
+    điểm thi theo vai, đánh giá, trạng thái sẵn sàng (Target_Code/Final_Status)."""
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='mgmt_developments')
+    employee = models.OneToOneField(Employee, on_delete=models.CASCADE, related_name='mgmt_dev')
+    target_code = models.CharField(max_length=20, blank=True)     # GS / BP / BTr / QL
+    final_status = models.CharField(max_length=100, blank=True)   # "SẴN SÀNG (GS)" ...
+    employee_source = models.CharField(max_length=100, blank=True)
+    data = models.JSONField(default=dict, blank=True)             # train topics, scores, assessments
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'MgmtDev({self.employee_id}, {self.target_code})'
+
+
 class LevelUpEnrollment(models.Model):
     """Đợt đào tạo thăng tiến (v2.1 / M1): nhân sự học MỘT vị trí mới (BQL chọn) để lên major
     level (S1→S2→S3). Hoàn thành 1 vị trí = lên 1 level; đủ 3 vị trí (gồm vị trí vào làm) → S3."""

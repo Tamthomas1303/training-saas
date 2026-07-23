@@ -216,6 +216,60 @@ def sync_bql_results(tenant):
     return {'updated': updated, 'skipped_no_employee': skipped}
 
 
+# Nội dung đào tạo BQL (cột Train_* của Daotao_BQL) → nhãn dễ đọc.
+TRAIN_LABELS = {
+    'Train_TrainingSkill': 'Kỹ năng đào tạo', 'Train_OfficeSkill': 'Kỹ năng Office',
+    'Train_CostControl': 'Kiểm soát chi phí', 'Train_QualityControl': 'Kiểm soát chất lượng',
+    'Train_Nutrition': 'Dinh dưỡng', 'Train_FoodSafety': 'VSATTP',
+    'Train_SoftSkill': 'Kỹ năng mềm', 'Train_CustomerService': 'Chăm sóc khách hàng',
+    'Train_IssueHandling': 'Xử lý tình huống', 'Train_Operation': 'Vận hành',
+    'Train_Leadership': 'Lãnh đạo', 'Train_InterviewSkill': 'Kỹ năng phỏng vấn',
+    'Train_PlanMgt': 'Quản lý kế hoạch', 'Train_HRM': 'Quản trị nhân sự',
+    'Train_CustomerExp': 'Trải nghiệm khách hàng',
+}
+SCORE_ROLES = [('GS', 'Giám sát'), ('BP', 'Bếp phó'), ('BTr', 'Bếp trưởng'), ('QL', 'Quản lý')]
+
+
+def sync_bql_development(tenant):
+    """B — nạp Daotao_BQL vào MgmtDevelopment (danh sách phát triển Ban quản lý cấp O)."""
+    rows = load_rows_smart(_url_for(tenant, 'bql')) if _url_for(tenant, 'bql') else []
+    if not rows:
+        return {'updated': 0, 'detail': 'Chưa cấu hình link Daotao_BQL.'}
+    from .models import MgmtDevelopment
+
+    emp_by_code = {e.code: e for e in Employee.objects.filter(tenant=tenant)}
+    updated = skipped = 0
+    for r in rows:
+        employee = emp_by_code.get((r.get('Employee_ID') or '').strip())
+        if not employee:
+            skipped += 1
+            continue
+        topics = [label for col, label in TRAIN_LABELS.items() if _checked(r.get(col))]
+        scores = {}
+        for code, name in SCORE_ROLES:
+            sc = (r.get('Score_' + code) or '').strip()
+            res = (r.get('Result_' + code) or '').strip()
+            if sc or (res and res != '-'):
+                scores[name] = {'score': sc, 'result': res}
+        assessments = {
+            'Kỹ năng đào tạo': (r.get('Assess_TrainingSkill') or '').strip(),
+            'Tay nghề': (r.get('Assess_Vocational') or '').strip(),
+            'Vận hành ca': (r.get('Assess_ShiftOps') or '').strip(),
+            'Phỏng vấn': (r.get('Assess_Interview') or '').strip(),
+        }
+        MgmtDevelopment.objects.update_or_create(
+            tenant=tenant, employee=employee,
+            defaults={
+                'target_code': (r.get('Target_Code') or '').strip(),
+                'final_status': (r.get('Final_Status') or '').strip(),
+                'employee_source': (r.get('Employee_Source') or '').strip(),
+                'data': {'topics': topics, 'scores': scores, 'assessments': assessments},
+            },
+        )
+        updated += 1
+    return {'updated': updated, 'skipped_no_employee': skipped}
+
+
 def sync_history(tenant):
     """Chạy cả 3 bước lịch sử (roster phải đồng bộ trước). Mỗi bước bọc try/except riêng để một
     bước lỗi không chặn 2 bước kia, và báo rõ bước nào hỏng."""
@@ -226,6 +280,7 @@ def sync_history(tenant):
         ('pass_positions', sync_pass_positions),
         ('courses', sync_courses),
         ('bql_results', sync_bql_results),
+        ('bql_development', sync_bql_development),
     ):
         try:
             out[name] = fn(tenant)

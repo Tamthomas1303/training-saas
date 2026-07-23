@@ -274,6 +274,48 @@ class EvaluationHistoryImportView(APIView):
         return Response(ingest_evaluation_history(request.user.tenant, rows))
 
 
+class MgmtDevelopmentListView(APIView):
+    """GET /api/employees/mgmt-development/ — danh sách phát triển Ban quản lý (cấp O): nội dung
+    đã đào tạo, điểm thi theo vai, đánh giá, trạng thái sẵn sàng + số khóa/buổi đã tham gia."""
+
+    def get(self, request):
+        if (request.user.role or '').lower() not in {'admin', 'om', 'bod'}:
+            return Response({'detail': 'Chỉ Admin/OM/BOD được xem danh sách Ban quản lý.'}, status=403)
+        from .models import MgmtDevelopment
+
+        tenant = request.user.tenant
+        devs = MgmtDevelopment.objects.filter(tenant=tenant).select_related(
+            'employee', 'employee__restaurant'
+        )
+        from sourcing.models import Attendance, Enrollment, Program
+
+        prog = Program.objects.filter(tenant=tenant, name='Đào tạo Ban quản lý (lịch sử)').first()
+        courses_by_emp, sessions_by_emp = {}, {}
+        if prog:
+            for eid in Enrollment.objects.filter(cohort__program=prog).values_list('employee_id', flat=True):
+                courses_by_emp[eid] = courses_by_emp.get(eid, 0) + 1
+            for eid in Attendance.objects.filter(
+                session__cohort__program=prog, present=True
+            ).values_list('enrollment__employee_id', flat=True):
+                sessions_by_emp[eid] = sessions_by_emp.get(eid, 0) + 1
+
+        rows = []
+        for d in devs:
+            e = d.employee
+            rows.append({
+                'employee_id': e.id, 'code': e.code, 'name': e.name,
+                'position': e.position, 'job_level': e.job_level,
+                'restaurant_name': e.restaurant.name if e.restaurant else '',
+                'target_code': d.target_code, 'final_status': d.final_status, 'source': d.employee_source,
+                'topics': d.data.get('topics', []), 'scores': d.data.get('scores', {}),
+                'assessments': d.data.get('assessments', {}),
+                'courses_attended': courses_by_emp.get(e.id, 0),
+                'sessions_attended': sessions_by_emp.get(e.id, 0),
+            })
+        rows.sort(key=lambda r: (r['final_status'], r['name']))
+        return Response(rows)
+
+
 class DashboardStatsView(APIView):
     """GET /api/employees/dashboard/ — so lieu tong hop cho man Dashboard (Admin/Training/
     OM/BOD). Port Api.gs::api_dashboardStats. Khong gioi han role - moi role deu xem duoc

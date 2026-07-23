@@ -37,9 +37,10 @@ export const DOMAINS = [
     key: 'mid',
     title: 'Cấp trung',
     icon: '🏛️',
-    desc: 'Đào tạo quản lý cấp trung (AM / KCS / Quản lý vận hành) qua chương trình & đợt.',
+    desc: 'Đào tạo & đánh giá Ban quản lý cấp O (Giám sát / Bếp phó / Bếp trưởng / Quản lý).',
     children: [
-      { label: 'Chương trình quản lý cấp trung', path: '/sourcing?audience=management', icon: '🏛️', roles: ['admin', 'om', 'bql', 'trainer'] },
+      { label: 'Ban quản lý — Đào tạo & Đánh giá', path: '/mgmt-development', icon: '📋', roles: ['admin', 'om', 'bod'] },
+      { label: 'Chương trình & Đợt (quản lý)', path: '/sourcing?audience=management', icon: '🏛️', roles: ['admin', 'om', 'bql', 'trainer'] },
     ],
   },
 ]
