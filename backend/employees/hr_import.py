@@ -102,7 +102,11 @@ def sync_roster(tenant):
     if not merged:
         return {'total': 0, 'created': 0, 'updated': 0, 'detail': 'Chưa cấu hình link nguồn roster.'}
 
+    from restaurants.models import Restaurant
+
     resolve_restaurant = restaurant_resolver(tenant)
+    # Nạp sẵn nhà hàng theo MÃ một lần (tránh N+1 → tránh timeout Supabase).
+    rest_by_code = {r.code: r for r in Restaurant.objects.filter(tenant=tenant)}
     existing = {e.code: e for e in Employee.objects.filter(tenant=tenant)}
 
     to_create, to_update = [], []
@@ -112,10 +116,8 @@ def sync_roster(tenant):
         # nhóm level: ưu tiên Job_Level ('S1.2'→S), fallback Level_Group của backup.
         level_group = _level_group(job_level) or (d.get('level_group_raw', '') or '').upper()[:1]
 
-        restaurant = None
         rid = (d.get('restaurant_id') or '').strip()
-        if rid:
-            restaurant = Restaurant_by_code(tenant, rid)
+        restaurant = rest_by_code.get(rid) if rid else None
         if restaurant is None:
             restaurant = resolve_restaurant(d.get('restaurant_name', ''))
 
@@ -153,10 +155,3 @@ def sync_roster(tenant):
                 batch_size=200,
             )
     return {'total': len(merged), 'created': created, 'updated': updated}
-
-
-def Restaurant_by_code(tenant, rid):
-    """Khớp nhà hàng theo mã (Restaurant_ID dạng 'KMP-HNO-DTN'); trả None nếu không có."""
-    from restaurants.models import Restaurant
-
-    return Restaurant.objects.filter(tenant=tenant, code=rid).first()
