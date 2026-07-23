@@ -53,7 +53,7 @@ class ProgramViewSet(AdminOmWriteMixin, TenantScopedViewSetMixin, viewsets.Model
     serializer_class = ProgramSerializer
     queryset = Program.objects.all()
     pagination_class = DefaultPagination
-    filterset_fields = ['audience', 'is_active']
+    filterset_fields = ['audience', 'mode', 'is_active']
     search_fields = ['name', 'description']
     ordering_fields = ['name', 'created_at']
     ordering = ['name']

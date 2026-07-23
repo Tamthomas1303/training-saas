@@ -37,9 +37,10 @@ export const DOMAINS = [
     key: 'mid',
     title: 'Cấp trung',
     icon: '🏛️',
-    desc: 'Quản lý AM / KCS / Quản lý vận hành.',
-    comingSoon: true,
-    children: [],
+    desc: 'Đào tạo quản lý cấp trung (AM / KCS / Quản lý vận hành) qua chương trình & đợt.',
+    children: [
+      { label: 'Chương trình quản lý cấp trung', path: '/sourcing?audience=management', icon: '🏛️', roles: ['admin', 'om', 'bql', 'trainer'] },
+    ],
   },
 ]
 

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import AppShell from '../components/AppShell'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'
@@ -7,6 +8,7 @@ import api from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 
 const AUDIENCE = { source: 'Nhân sự nguồn', management: 'Quản lý cấp trung', other: 'Khác' }
+const MODE = { offline: 'Offline', online: 'Online' }
 const COHORT_STATUS = { open: 'Đang mở đăng ký', ongoing: 'Đang đào tạo', closed: 'Đã kết thúc' }
 const COHORT_VARIANT = { open: 'warning', ongoing: 'mint', closed: 'neutral' }
 const ENR_STATUS = { registered: 'Đăng ký', studying: 'Đang học', completed: 'Hoàn thành', failed: 'Không đạt' }
@@ -295,6 +297,8 @@ function CohortDetailModal({ cohort, canManage, canEnroll, onClose, onChanged })
 export default function SourcingPage() {
   const { user } = useAuth()
   const f = roles(user?.role)
+  const [searchParams] = useSearchParams()
+  const [audienceF, setAudienceF] = useState(searchParams.get('audience') || '')
   const [tab, setTab] = useState(f.manage ? 'programs' : 'cohorts')
   const [programs, setPrograms] = useState([])
   const [cohorts, setCohorts] = useState([])
@@ -318,6 +322,9 @@ export default function SourcingPage() {
     else await api.post('/sourcing/programs/', progForm)
     setProgForm(null); loadPrograms()
   }
+
+  const shownPrograms = audienceF ? programs.filter((p) => p.audience === audienceF) : programs
+  const shownCohorts = audienceF ? cohorts.filter((c) => c.audience === audienceF) : cohorts
   async function saveCohort() {
     await api.post('/sourcing/cohorts/', {
       ...cohortForm, start_date: cohortForm.start_date || null, end_date: cohortForm.end_date || null,
@@ -334,27 +341,34 @@ export default function SourcingPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <h2 style={{ margin: 0 }}>Đào tạo nguồn & Quản lý</h2>
       </div>
-      <div style={{ display: 'flex', gap: 8, margin: '10px 0' }}>
+      <div style={{ display: 'flex', gap: 8, margin: '10px 0', alignItems: 'center', flexWrap: 'wrap' }}>
         {f.manage && <button className={`btn-sm ${tab === 'programs' ? '' : 'btn-outline'}`} onClick={() => setTab('programs')}>Chương trình</button>}
         <button className={`btn-sm ${tab === 'cohorts' ? '' : 'btn-outline'}`} onClick={() => setTab('cohorts')}>Đợt đào tạo</button>
+        <span style={{ flex: 1 }} />
+        <select value={audienceF} onChange={(e) => setAudienceF(e.target.value)}>
+          <option value="">Tất cả đối tượng</option>
+          {Object.entries(AUDIENCE).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
       </div>
 
       {tab === 'programs' && f.manage && (
         <>
-          <div style={{ marginBottom: 8 }}><button onClick={() => setProgForm({ name: '', audience: 'source', description: '', is_active: true })}>+ Chương trình</button></div>
+          <div style={{ marginBottom: 8 }}><button onClick={() => setProgForm({ name: '', audience: audienceF || 'source', mode: 'offline', source_url: '', description: '', is_active: true })}>+ Chương trình</button></div>
           <Table>
-            <thead><tr><th>Tên</th><th>Đối tượng</th><th>Nội dung</th><th>Đợt</th><th></th></tr></thead>
+            <thead><tr><th>Tên</th><th>Đối tượng</th><th>Hình thức</th><th>Nội dung</th><th>Đợt</th><th></th></tr></thead>
             <tbody>
-              {programs.map((p) => (
+              {shownPrograms.map((p) => (
                 <tr key={p.id}>
-                  <td>{p.name}</td><td>{AUDIENCE[p.audience]}</td><td>{p.content_count}</td><td>{p.cohort_count}</td>
+                  <td>{p.name}</td><td>{AUDIENCE[p.audience]}</td>
+                  <td>{MODE[p.mode]}{p.mode === 'online' && p.source_url && <a href={p.source_url} target="_blank" rel="noreferrer" style={{ marginLeft: 4 }}>🔗</a>}</td>
+                  <td>{p.content_count}</td><td>{p.cohort_count}</td>
                   <td style={{ display: 'flex', gap: 6 }}>
                     <button className="btn-outline btn-sm" onClick={() => setContentProgram(p)}>Nội dung</button>
                     <button className="btn-outline btn-sm" onClick={() => setProgForm(p)}>Sửa</button>
                   </td>
                 </tr>
               ))}
-              {programs.length === 0 && <tr><td colSpan={5} className="muted-note">Chưa có chương trình.</td></tr>}
+              {shownPrograms.length === 0 && <tr><td colSpan={6} className="muted-note">Chưa có chương trình.</td></tr>}
             </tbody>
           </Table>
         </>
@@ -362,11 +376,11 @@ export default function SourcingPage() {
 
       {tab === 'cohorts' && (
         <>
-          {f.manage && <div style={{ marginBottom: 8 }}><button disabled={programs.length === 0} onClick={() => setCohortForm({ program: programs[0]?.id, name: '', location: '', start_date: '', end_date: '' })}>+ Đợt đào tạo</button></div>}
+          {f.manage && <div style={{ marginBottom: 8 }}><button disabled={shownPrograms.length === 0} onClick={() => setCohortForm({ program: shownPrograms[0]?.id, name: '', location: '', start_date: '', end_date: '' })}>+ Đợt đào tạo</button></div>}
           <Table>
             <thead><tr><th>Đợt</th><th>Chương trình</th><th>Buổi</th><th>Học viên</th><th>Trạng thái</th><th></th></tr></thead>
             <tbody>
-              {cohorts.map((c) => (
+              {shownCohorts.map((c) => (
                 <tr key={c.id}>
                   <td>{c.name}</td><td>{c.program_name}</td><td>{c.session_count}</td><td>{c.enrollment_count}</td>
                   <td>
@@ -379,7 +393,7 @@ export default function SourcingPage() {
                   <td><button className="btn-outline btn-sm" onClick={() => setOpenCohort(c)}>Mở</button></td>
                 </tr>
               ))}
-              {cohorts.length === 0 && <tr><td colSpan={6} className="muted-note">Chưa có đợt đào tạo.</td></tr>}
+              {shownCohorts.length === 0 && <tr><td colSpan={6} className="muted-note">Chưa có đợt đào tạo.</td></tr>}
             </tbody>
           </Table>
         </>
@@ -394,6 +408,17 @@ export default function SourcingPage() {
                 {Object.entries(AUDIENCE).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </label>
+            <label>Hình thức
+              <select style={{ display: 'block', width: '100%' }} value={progForm.mode || 'offline'} onChange={(e) => setProgForm({ ...progForm, mode: e.target.value })}>
+                <option value="offline">Offline (điểm danh trực tiếp)</option>
+                <option value="online">Online (học/thi trên nền tảng)</option>
+              </select>
+            </label>
+            {progForm.mode === 'online' && (
+              <label>Link nguồn học/thi (online)
+                <input style={{ display: 'block', width: '100%' }} value={progForm.source_url || ''} onChange={(e) => setProgForm({ ...progForm, source_url: e.target.value })} placeholder="https://..." />
+              </label>
+            )}
             <label>Mô tả<textarea style={{ display: 'block', width: '100%' }} rows={3} value={progForm.description} onChange={(e) => setProgForm({ ...progForm, description: e.target.value })} /></label>
             <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}><input type="checkbox" checked={progForm.is_active} onChange={(e) => setProgForm({ ...progForm, is_active: e.target.checked })} /> Đang áp dụng</label>
           </div>

@@ -11,14 +11,15 @@ class ProgramContentSerializer(serializers.ModelSerializer):
 
 class ProgramSerializer(serializers.ModelSerializer):
     audience_label = serializers.CharField(source='get_audience_display', read_only=True)
+    mode_label = serializers.CharField(source='get_mode_display', read_only=True)
     content_count = serializers.IntegerField(source='contents.count', read_only=True)
     cohort_count = serializers.IntegerField(source='cohorts.count', read_only=True)
 
     class Meta:
         model = Program
         fields = [
-            'id', 'name', 'audience', 'audience_label', 'description', 'is_active',
-            'content_count', 'cohort_count', 'created_at',
+            'id', 'name', 'audience', 'audience_label', 'mode', 'mode_label', 'source_url',
+            'description', 'is_active', 'content_count', 'cohort_count', 'created_at',
         ]
 
 

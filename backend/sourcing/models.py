@@ -12,9 +12,16 @@ class Program(models.Model):
         MANAGEMENT = 'management', 'Quản lý cấp trung'
         OTHER = 'other', 'Khác'
 
+    class Mode(models.TextChoices):
+        OFFLINE = 'offline', 'Offline (điểm danh trực tiếp)'
+        ONLINE = 'online', 'Online (học/thi trên nền tảng)'
+
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='programs')
     name = models.CharField(max_length=255)
     audience = models.CharField(max_length=20, choices=Audience.choices, default=Audience.SOURCE)
+    # Cổng chờ offline→online (v2.2): hình thức + link nguồn học/thi khi bật online.
+    mode = models.CharField(max_length=20, choices=Mode.choices, default=Mode.OFFLINE)
+    source_url = models.URLField(max_length=500, blank=True)
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
