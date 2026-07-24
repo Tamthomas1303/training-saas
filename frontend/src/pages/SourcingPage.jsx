@@ -471,7 +471,7 @@ export default function SourcingPage() {
       {tab === 'programs' && f.manage && (
         <>
           <div style={{ marginBottom: 8 }}><button onClick={() => setProgForm({ name: '', audience: audienceF || 'source', mode: 'offline', source_url: '', description: '', is_active: true })}>+ Chương trình</button></div>
-          <Table>
+          <div className="table-sticky"><Table>
             <thead><tr><th>Tên</th><th>Đối tượng</th><th>Hình thức</th><th>Nội dung</th><th>Đợt</th><th></th></tr></thead>
             <tbody>
               {shownPrograms.map((p) => (
@@ -487,14 +487,14 @@ export default function SourcingPage() {
               ))}
               {shownPrograms.length === 0 && <tr><td colSpan={6} className="muted-note">Chưa có chương trình.</td></tr>}
             </tbody>
-          </Table>
+          </Table></div>
         </>
       )}
 
       {tab === 'cohorts' && (
         <>
           {f.manage && <div style={{ marginBottom: 8 }}><button disabled={shownPrograms.length === 0} onClick={() => setCohortForm({ program: shownPrograms[0]?.id, name: '', location: '', start_date: '', end_date: '' })}>+ Đợt đào tạo</button></div>}
-          <Table>
+          <div className="table-sticky"><Table>
             <thead><tr><th>Đợt</th><th>Chương trình</th><th>Buổi</th><th>Học viên</th><th>Trạng thái</th><th></th></tr></thead>
             <tbody>
               {shownCohorts.map((c) => (
@@ -512,7 +512,7 @@ export default function SourcingPage() {
               ))}
               {shownCohorts.length === 0 && <tr><td colSpan={6} className="muted-note">Chưa có đợt đào tạo.</td></tr>}
             </tbody>
-          </Table>
+          </Table></div>
         </>
       )}
 

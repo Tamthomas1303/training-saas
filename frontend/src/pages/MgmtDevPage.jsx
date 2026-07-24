@@ -4,9 +4,11 @@ import BackButton from '../components/BackButton'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'
 import Table from '../components/Table'
+import Pager from '../components/Pager'
 import api from '../api/client'
 
 const TARGET_LABEL = { GS: 'Giám sát', BP: 'Bếp phó', BTr: 'Bếp trưởng', QL: 'Quản lý' }
+const MGMT_PAGE_SIZE = 20
 
 function statusVariant(s) {
   const t = (s || '').toLowerCase()
@@ -19,14 +21,18 @@ export default function MgmtDevPage() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [term, setTerm] = useState('')
+  const [target, setTarget] = useState('')
+  const [page, setPage] = useState(1)
   const [detail, setDetail] = useState(null)
 
   useEffect(() => {
     api.get('/employees/mgmt-development/').then(({ data }) => setRows(data)).catch(() => {}).finally(() => setLoading(false))
   }, [])
 
-  const shown = rows.filter((r) => !term ||
-    r.name.toLowerCase().includes(term.toLowerCase()) || (r.code || '').toLowerCase().includes(term.toLowerCase()))
+  const shown = rows.filter((r) =>
+    (!term || r.name.toLowerCase().includes(term.toLowerCase()) || (r.code || '').toLowerCase().includes(term.toLowerCase())) &&
+    (!target || r.target_code === target))
+  const pageRows = shown.slice((page - 1) * MGMT_PAGE_SIZE, page * MGMT_PAGE_SIZE)
 
   return (
     <AppShell>
@@ -34,15 +40,22 @@ export default function MgmtDevPage() {
       <h2 style={{ marginTop: 0 }}>Ban quản lý — Đào tạo & Đánh giá</h2>
       <p className="muted-note" style={{ marginTop: -6 }}>Nội dung đã đào tạo, điểm thi theo vai, đánh giá và trạng thái sẵn sàng của nhân sự cấp O.</p>
 
-      <input style={{ maxWidth: 320, marginBottom: 10 }} placeholder="Tìm tên / mã..." value={term} onChange={(e) => setTerm(e.target.value)} />
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+        <input style={{ maxWidth: 320 }} placeholder="Tìm tên / mã..." value={term} onChange={(e) => { setTerm(e.target.value); setPage(1) }} />
+        <select value={target} onChange={(e) => { setTarget(e.target.value); setPage(1) }}>
+          <option value="">Tất cả vị trí đích</option>
+          {Object.entries(TARGET_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+      </div>
 
       {loading ? <p className="muted-note">Đang tải...</p> : (
-        <Table>
+        <>
+        <div className="table-sticky"><Table>
           <thead>
             <tr><th>Nhân sự</th><th>Nhà hàng</th><th>Vị trí</th><th>Đích</th><th>Trạng thái</th><th>Tiên quyết</th><th>Khóa/Buổi</th><th></th></tr>
           </thead>
           <tbody>
-            {shown.map((r) => (
+            {pageRows.map((r) => (
               <tr key={r.employee_id}>
                 <td>{r.name} - {r.code}</td>
                 <td>{r.restaurant_name}</td>
@@ -56,7 +69,9 @@ export default function MgmtDevPage() {
             ))}
             {shown.length === 0 && <tr><td colSpan={8} className="muted-note">Chưa có dữ liệu Ban quản lý. Hãy đồng bộ roster + nạp lịch sử (có link Daotao_BQL).</td></tr>}
           </tbody>
-        </Table>
+        </Table></div>
+        <Pager page={page} pageSize={MGMT_PAGE_SIZE} count={shown.length} onChange={setPage} />
+        </>
       )}
 
       {detail && (

@@ -128,7 +128,7 @@ export default function TrainingPage() {
               </button>
             )}
           </FilterBar>
-          <Table>
+          <div className="table-sticky"><Table>
             <thead>
               <tr>
                 <th>Mã NV</th>
@@ -160,7 +160,7 @@ export default function TrainingPage() {
                 </tr>
               )}
             </tbody>
-          </Table>
+          </Table></div>
           <Pager page={page} pageSize={PAGE_SIZE} count={employeeOptions.count} onChange={setPage} />
         </>
       )}
