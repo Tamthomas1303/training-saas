@@ -7,11 +7,15 @@ import FilterBar from '../components/FilterBar'
 import Modal from '../components/Modal'
 import ProgressBar from '../components/ProgressBar'
 import Table from '../components/Table'
+import Pager from '../components/Pager'
 import SignaturePad from '../components/SignaturePad'
 import CouncilPanel from '../components/CouncilPanel'
 import api from '../api/client'
 import { useAuth } from '../auth/AuthContext'
+import { usePaginatedList } from '../hooks/usePaginatedList'
 import * as s from './listPageStyles'
+
+const EMP_STATUS = { probation: 'Thử việc', active: 'Chính thức', resigned: 'Nghỉ việc' }
 
 const STATUS_LABELS = {
   registered: 'Đăng ký', training: 'Đang đào tạo', completed: 'Hoàn thành', failed: 'Không đạt',
@@ -350,6 +354,130 @@ function RegisterModal({ batches, presetEmployee, onClose, onDone }) {
   )
 }
 
+// ---- #8: Danh sách theo dõi & đào tạo lộ trình (cấp S, CRUD) ----
+const PROG_PAGE_SIZE = 20
+function ProgressionList({ onRegister }) {
+  const { user } = useAuth()
+  const isAdmin = ['admin', 'om'].includes((user?.role || '').toLowerCase())
+  const [search, setSearch] = useState('')
+  const [restaurant, setRestaurant] = useState('')
+  const [status, setStatus] = useState('')
+  const [staffKind, setStaffKind] = useState('')
+  const [page, setPage] = useState(1)
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [form, setForm] = useState(null)
+  const [positions, setPositions] = useState([])
+
+  useEffect(() => { api.get('/employees/positions/').then(({ data }) => setPositions(data)).catch(() => {}) }, [])
+  const { data: restaurantOptions } = usePaginatedList('/restaurants/', { page_size: 100 })
+
+  const params = {
+    level_group: 'S', search, restaurant: restaurant || undefined,
+    employee_status: status || undefined,
+    is_legacy: staffKind === 'new' ? false : staffKind === 'legacy' ? true : undefined,
+    page, page_size: PROG_PAGE_SIZE, refreshKey,
+  }
+  const { data, loading, error } = usePaginatedList('/employees/', params)
+
+  function onFilter(setter) { return (e) => { setter(e.target.value); setPage(1) } }
+  async function save() {
+    try {
+      await api.patch(`/employees/${form.id}/`, { position: form.position, job_level: form.job_level, restaurant: form.restaurant || null })
+      setForm(null); setRefreshKey((k) => k + 1)
+    } catch (e) { alert(e.response?.data?.detail || 'Không lưu được.') }
+  }
+  async function del(e) {
+    if (!window.confirm(`Xóa nhân sự "${e.name}"? Không hoàn tác.`)) return
+    try { await api.delete(`/employees/${e.id}/`); setRefreshKey((k) => k + 1) }
+    catch (err) { alert(err.response?.data?.detail || 'Không xóa được.') }
+  }
+  async function changeStatus(e, st) {
+    try { await api.post(`/employees/${e.id}/change-status/`, { employee_status: st }); setRefreshKey((k) => k + 1) }
+    catch (err) { alert(err.response?.data?.detail || 'Không đổi được trạng thái.') }
+  }
+
+  return (
+    <>
+      <p className="muted-note">Nhân sự cấp S theo lộ trình (nhân sự mới đã pass + nhân sự cũ). Sửa vị trí/level, đổi trạng thái, đăng ký thăng tiến.</p>
+      <FilterBar>
+        <input style={s.input} placeholder="Tìm mã / tên..." value={search} onChange={onFilter(setSearch)} />
+        <select style={s.select} value={restaurant} onChange={onFilter(setRestaurant)}>
+          <option value="">Tất cả nhà hàng</option>
+          {restaurantOptions.results.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+        </select>
+        <select style={s.select} value={status} onChange={onFilter(setStatus)}>
+          <option value="">Tất cả trạng thái</option>
+          {Object.entries(EMP_STATUS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        <select style={s.select} value={staffKind} onChange={onFilter(setStaffKind)}>
+          <option value="">Mới + Cũ</option>
+          <option value="new">Chỉ nhân sự mới</option>
+          <option value="legacy">Chỉ nhân sự cũ</option>
+        </select>
+      </FilterBar>
+
+      {loading && <p className="muted-note">Đang tải...</p>}
+      {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
+      {!loading && !error && (
+        <>
+          <div className="table-sticky">
+            <Table>
+              <thead>
+                <tr><th>Nhân sự</th><th>Nhà hàng</th><th>Vị trí</th><th>Level</th><th>Trạng thái</th><th></th></tr>
+              </thead>
+              <tbody>
+                {data.results.map((e) => (
+                  <tr key={e.id}>
+                    <td>{e.name} - {e.code}{e.is_legacy ? <span className="muted-note" style={{ fontSize: 11 }}> (cũ)</span> : ''}</td>
+                    <td>{e.restaurant_name}</td>
+                    <td>{e.position}</td>
+                    <td>{e.job_level}</td>
+                    <td>
+                      {isAdmin ? (
+                        <select value={e.employee_status} onChange={(ev) => changeStatus(e, ev.target.value)}>
+                          {Object.entries(EMP_STATUS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                        </select>
+                      ) : (EMP_STATUS[e.employee_status] || e.employee_status)}
+                    </td>
+                    <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <button className="btn-sm" onClick={() => onRegister({ id: e.id, name: e.name, code: e.code })}>Đăng ký</button>
+                      {isAdmin && <button className="btn-outline btn-sm" onClick={() => setForm({ id: e.id, position: e.position, job_level: e.job_level, restaurant: e.restaurant || '' })}>Sửa</button>}
+                      {isAdmin && <button className="btn-outline btn-sm" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }} onClick={() => del(e)}>Xóa</button>}
+                    </td>
+                  </tr>
+                ))}
+                {data.results.length === 0 && <tr><td colSpan={6} className="muted-note">Không có nhân sự cấp S phù hợp.</td></tr>}
+              </tbody>
+            </Table>
+          </div>
+          <Pager page={page} pageSize={PROG_PAGE_SIZE} count={data.count} onChange={setPage} />
+        </>
+      )}
+
+      {form && (
+        <Modal open title="Sửa nhân sự (lộ trình)" onClose={() => setForm(null)}
+          footer={<><button className="btn-outline" onClick={() => setForm(null)}>Hủy</button><button onClick={save}>Lưu</button></>}>
+          <div style={{ display: 'grid', gap: 10 }}>
+            <label>Vị trí
+              <input list="prog-pos-list" style={{ display: 'block', width: '100%' }} value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} />
+              <datalist id="prog-pos-list">{positions.map((p) => <option key={p} value={p} />)}</datalist>
+            </label>
+            <label>Level (vd S1.2, S2.1)
+              <input style={{ display: 'block', width: '100%' }} value={form.job_level} onChange={(e) => setForm({ ...form, job_level: e.target.value })} />
+            </label>
+            <label>Nhà hàng
+              <select style={{ display: 'block', width: '100%' }} value={form.restaurant} onChange={(e) => setForm({ ...form, restaurant: e.target.value })}>
+                <option value="">—</option>
+                {restaurantOptions.results.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </label>
+          </div>
+        </Modal>
+      )}
+    </>
+  )
+}
+
 export default function LevelUpPage() {
   const { user } = useAuth()
   const f = roleFlags(user?.role)
@@ -364,7 +492,6 @@ export default function LevelUpPage() {
   const [presetEmp, setPresetEmp] = useState(null)
   const [roundId, setRoundId] = useState(null)
   const [talent, setTalent] = useState([])
-  const [eligible, setEligible] = useState([])
   const [reviewEmp, setReviewEmp] = useState(null)
   const [councilEmp, setCouncilEmp] = useState(null)
 
@@ -388,14 +515,7 @@ export default function LevelUpPage() {
   }
   useEffect(() => {
     if (tab === 'talent' && f.canReview) loadTalent()
-    if (tab === 'eligible') {
-      api.get('/employees/levelup-eligible/').then(({ data }) => setEligible(data)).catch(() => {})
-    }
   }, [tab, f.canReview])
-
-  function loadEligible() {
-    api.get('/employees/levelup-eligible/').then(({ data }) => setEligible(data)).catch(() => {})
-  }
 
   async function openTraining(id) {
     try {
@@ -431,39 +551,13 @@ export default function LevelUpPage() {
       </div>
 
       <div style={{ display: 'flex', gap: 8, margin: '10px 0' }}>
-        <button className={`btn-sm ${tab === 'eligible' ? '' : 'btn-outline'}`} onClick={() => setTab('eligible')}>Theo dõi lộ trình</button>
+        <button className={`btn-sm ${tab === 'eligible' ? '' : 'btn-outline'}`} onClick={() => setTab('eligible')}>Theo dõi & đào tạo</button>
         <button className={`btn-sm ${tab === 'enrollments' ? '' : 'btn-outline'}`} onClick={() => setTab('enrollments')}>Đợt thăng tiến</button>
         {f.canReview && <button className={`btn-sm ${tab === 'talent' ? '' : 'btn-outline'}`} onClick={() => setTab('talent')}>Nhân sự nguồn</button>}
       </div>
 
       {tab === 'eligible' && (
-        <>
-          <p className="muted-note">Nhân sự cấp S còn dưới S3. Ai đủ điều kiện (đã đủ 3 tháng, không có đợt đang mở) có thể đăng ký thăng tiến ngay.</p>
-          <Table>
-            <thead>
-              <tr><th>Nhân sự</th><th>Nhà hàng</th><th>Vị trí</th><th>Level</th><th>Tháng ở vị trí</th><th>Vị trí đã đạt</th><th>Trạng thái</th><th></th></tr>
-            </thead>
-            <tbody>
-              {eligible.map((r) => (
-                <tr key={r.employee_id}>
-                  <td>{r.name} - {r.code}</td>
-                  <td>{r.restaurant_name}</td>
-                  <td>{r.position}</td>
-                  <td>{r.current_level} → {r.next_level}</td>
-                  <td>{r.months_at_current ?? '—'}</td>
-                  <td>{r.positions_achieved_count}</td>
-                  <td>{r.can ? <Badge variant="success">Đủ điều kiện</Badge> : <Badge variant="warning">{r.reason}</Badge>}</td>
-                  <td>
-                    {f.canRegister && r.can && (
-                      <button className="btn-sm" onClick={() => { setPresetEmp({ id: r.employee_id, name: r.name, code: r.code }); setShowRegister(true) }}>Đăng ký</button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {eligible.length === 0 && <tr><td colSpan={8} className="muted-note">Không có nhân sự cấp S nào trong phạm vi.</td></tr>}
-            </tbody>
-          </Table>
-        </>
+        <ProgressionList onRegister={(emp) => { setPresetEmp(emp); setShowRegister(true) }} />
       )}
 
       {tab === 'enrollments' && (
@@ -553,7 +647,7 @@ export default function LevelUpPage() {
           batches={batches}
           presetEmployee={presetEmp}
           onClose={() => { setShowRegister(false); setPresetEmp(null) }}
-          onDone={() => { setShowRegister(false); setPresetEmp(null); load(); loadEligible() }}
+          onDone={() => { setShowRegister(false); setPresetEmp(null); load() }}
         />
       )}
       {roundId && <RoundModal enrollmentId={roundId} onClose={() => setRoundId(null)} onChanged={load} />}
