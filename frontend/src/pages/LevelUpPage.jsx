@@ -498,6 +498,8 @@ export default function LevelUpPage() {
   const [presetEmp, setPresetEmp] = useState(null)
   const [roundId, setRoundId] = useState(null)
   const [talent, setTalent] = useState([])
+  const [talentTerm, setTalentTerm] = useState('')
+  const [talentDecision, setTalentDecision] = useState('')
   const [reviewEmp, setReviewEmp] = useState(null)
   const [councilEmp, setCouncilEmp] = useState(null)
 
@@ -620,12 +622,24 @@ export default function LevelUpPage() {
       {tab === 'talent' && f.canReview && (
         <>
           <p className="muted-note">Nhân sự đủ 3 vị trí → AM/KCS phỏng vấn đánh giá sẵn sàng. Duyệt = chính thức vào nhân sự nguồn; sau đó Phòng Đào tạo lập hội đồng đánh giá phát triển lên BQL.</p>
+          <FilterBar>
+            <input style={s.input} placeholder="Tìm tên / mã..." value={talentTerm} onChange={(e) => setTalentTerm(e.target.value)} />
+            <select style={s.select} value={talentDecision} onChange={(e) => setTalentDecision(e.target.value)}>
+              <option value="">Tất cả trạng thái duyệt</option>
+              <option value="pending">Chờ đánh giá</option>
+              <option value="approved">Đã vào nguồn</option>
+              <option value="rejected">Chưa sẵn sàng</option>
+            </select>
+          </FilterBar>
           <div className="table-sticky"><Table>
             <thead>
               <tr><th>Nhân sự</th><th>Nhà hàng</th><th>Level</th><th>Vị trí đã đạt</th><th>Duyệt sẵn sàng</th><th></th></tr>
             </thead>
             <tbody>
-              {talent.map((e) => (
+              {talent.filter((e) =>
+                (!talentTerm || e.name.toLowerCase().includes(talentTerm.toLowerCase()) || (e.code || '').toLowerCase().includes(talentTerm.toLowerCase())) &&
+                (!talentDecision || e.decision === talentDecision)
+              ).map((e) => (
                 <tr key={e.id}>
                   <td>{e.name} - {e.code}</td>
                   <td>{e.restaurant_name}</td>
