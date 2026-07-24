@@ -13,6 +13,77 @@ from reportlab.pdfgen import canvas
 from checklist.pdf import _fetch_image, _placeholder_box
 
 
+def build_levelup_proposal_pdf(ctx):
+    """Phiếu ĐỀ XUẤT LÊN LEVEL (#9). ctx: tenant_name, date, employee{name,code,position,
+    restaurant,start_date}, from_level, target_level, target_position, achieved_positions:[..],
+    positions_count, completion{lms, exam_pass, exam_score, checklist_percent, skill_percent,
+    combined_score, threshold}."""
+    buf = BytesIO()
+    c = canvas.Canvas(buf, pagesize=A4)
+    width, height = A4
+    margin = 18 * mm
+    y = height - margin
+
+    def line(text, size=11, dy=16, bold=False, x=None):
+        nonlocal y
+        c.setFont('VNSans-Bold' if bold else 'VNSans', size)
+        c.drawString(x if x is not None else margin, y, text)
+        y -= dy
+
+    c.setFont('VNSans-Bold', 15)
+    c.drawCentredString(width / 2, y, 'PHIẾU ĐỀ XUẤT NÂNG LEVEL')
+    y -= 18
+    c.setFont('VNSans', 9)
+    c.drawCentredString(width / 2, y, ctx.get('tenant_name', ''))
+    y -= 8
+    c.setFont('VNSans', 9)
+    c.drawCentredString(width / 2, y, f"Ngày lập: {ctx.get('date', '')}")
+    y -= 20
+
+    e = ctx.get('employee', {})
+    line(f"Nhân sự: {e.get('name', '')}  -  Mã: {e.get('code', '')}", bold=True)
+    line(f"Vị trí hiện tại: {e.get('position', '')}   ·   Nhà hàng: {e.get('restaurant', '')}")
+    line(f"Ngày vào làm: {e.get('start_date', '')}")
+    y -= 4
+    line(f"ĐỀ XUẤT: nâng level {ctx.get('from_level', '')}  →  {ctx.get('target_level', '')}", bold=True, size=12)
+    line(f"Hoàn thành vị trí: {ctx.get('target_position', '')}   ·   Tổng vị trí đã đạt: {ctx.get('positions_count', '')}")
+    ap = ctx.get('achieved_positions') or []
+    if ap:
+        line("Các vị trí đã đạt: " + ', '.join(ap), size=10)
+    y -= 6
+
+    comp = ctx.get('completion', {})
+    line("Căn cứ hoàn thành:", bold=True)
+    line(f"  • LMS học lý thuyết: {'Đạt' if comp.get('lms') else 'Chưa'}", size=10, dy=14)
+    line(f"  • Thi lý thuyết: {'Đạt' if comp.get('exam_pass') else 'Chưa'} (điểm {comp.get('exam_score', 0)})", size=10, dy=14)
+    line(f"  • Đào tạo tại điểm (checklist): {comp.get('checklist_percent', 0)}%", size=10, dy=14)
+    line(f"  • Đánh giá thực hành: {comp.get('skill_percent', 0)}%", size=10, dy=14)
+    line(f"  • Điểm tổng (40% thi + 60% thực hành): {comp.get('combined_score', 0)}% "
+         f"(chuẩn ≥ {comp.get('threshold', 85)}%)", size=10, dy=16, bold=True)
+    y -= 10
+
+    line("Đề xuất Phòng Đào tạo trình cấp thẩm quyền phê duyệt nâng level & điều chỉnh bậc lương "
+         "theo quy chế (mỗi lần tăng 1 level).", size=10)
+    y -= 30
+
+    # 3 ô chữ ký
+    col_w = (width - 2 * margin) / 3
+    labels = ['Người lập (Phòng Đào tạo)', 'Quản lý nhà hàng', 'Phê duyệt (BGĐ/HCNS)']
+    c.setFont('VNSans', 10)
+    for i, lb in enumerate(labels):
+        cx = margin + col_w * i + col_w / 2
+        c.drawCentredString(cx, y, lb)
+    y -= 42
+    c.setFont('VNSans', 9)
+    for i in range(3):
+        cx = margin + col_w * i + col_w / 2
+        c.drawCentredString(cx, y, '(Ký, ghi rõ họ tên)')
+
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
 def build_probation_result_pdf(ctx):
     """ctx keys: record_no, tenant_name, employee_code, employee{name,position,restaurant,
     start_date}, checklist:[{name,date,sign_trainer_url,photos:[url,url,url]}],

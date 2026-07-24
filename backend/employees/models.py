@@ -156,6 +156,8 @@ class LevelUpEnrollment(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    # #9: phiếu đề xuất nâng level (PDF) sinh khi chốt lên level.
+    proposal_pdf_url = models.URLField(max_length=500, blank=True)
 
     def __str__(self):
         return f'{self.employee_id} → {self.target_position} ({self.target_level})'

@@ -72,6 +72,6 @@ class LevelUpEnrollmentSerializer(serializers.ModelSerializer):
             'id', 'employee', 'employee_code', 'employee_name', 'restaurant_name',
             'target_position', 'zone', 'from_level', 'target_level', 'exam_batch',
             'status', 'status_label', 'registered_by', 'registered_by_name',
-            'created_at', 'completed_at',
+            'created_at', 'completed_at', 'proposal_pdf_url',
         ]
         read_only_fields = fields

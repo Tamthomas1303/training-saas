@@ -140,6 +140,7 @@ function RoundModal({ enrollmentId, onClose, onChanged }) {
     try {
       const { data } = await api.post(`/employees/levelup-enrollments/${enrollmentId}/complete/`)
       alert(data.message || 'Đã lên level.')
+      if (data.proposal_pdf_url) window.open(data.proposal_pdf_url, '_blank')
       onChanged?.()
       onClose()
     } catch (e) {
@@ -180,6 +181,11 @@ function RoundModal({ enrollmentId, onClose, onChanged }) {
               </button>
             )}
             {!c?.can_complete && c?.reason && <p className="muted-note" style={{ fontSize: 12 }}>Còn thiếu: {c.reason}</p>}
+            {round.proposal_pdf_url && (
+              <p style={{ marginTop: 8 }}>
+                <a href={round.proposal_pdf_url} target="_blank" rel="noreferrer">📄 Xem phiếu đề xuất lên level</a>
+              </p>
+            )}
           </div>
 
           {/* Checklist vị trí đích */}
@@ -597,6 +603,9 @@ export default function LevelUpPage() {
                       )}
                       {f.canDecide && r.status === 'training' && (
                         <button className="btn-outline btn-sm" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }} onClick={() => markFail(r.id)}>Không đạt</button>
+                      )}
+                      {r.proposal_pdf_url && (
+                        <a className="btn-outline btn-sm" href={r.proposal_pdf_url} target="_blank" rel="noreferrer">📄 Phiếu đề xuất</a>
                       )}
                     </td>
                   </tr>

@@ -262,6 +262,7 @@ def levelup_round_detail(enrollment):
         'target_level': enrollment.target_level,
         'exam_batch': enrollment.exam_batch,
         'status': enrollment.status,
+        'proposal_pdf_url': enrollment.proposal_pdf_url,
         'checklist': checklist,
         'progress_percent': percent,
         'lms_done': lms_done(employee),
@@ -355,6 +356,12 @@ def complete_levelup(enrollment, user=None):
         note = (f'{employee.name} đã đạt vị trí "{enrollment.target_position}", lên {target_major} '
                 f'({count}/{POSITIONS_FOR_TALENT_POOL} vị trí).')
 
+    # #9 — sinh phiếu đề xuất nâng level (PDF) để kẹp trình ký. Lỗi PDF không chặn việc lên level.
+    pdf_url = _build_proposal_pdf(enrollment, status, target_major, count)
+    if pdf_url:
+        enrollment.proposal_pdf_url = pdf_url
+        enrollment.save(update_fields=['proposal_pdf_url'])
+
     return {
         'enrollment_id': enrollment.id,
         'employee_id': employee.id,
@@ -364,8 +371,36 @@ def complete_levelup(enrollment, user=None):
         'positions_achieved_count': count,
         'achieved_positions': achieved_positions(employee),
         'is_talent_pool': is_talent_pool,
+        'proposal_pdf_url': pdf_url,
         'message': note,
     }, None
+
+
+def _build_proposal_pdf(enrollment, completion, target_major, count):
+    """Sinh & upload phiếu đề xuất nâng level. Trả URL hoặc '' nếu lỗi (không chặn luồng)."""
+    try:
+        from checklist.storage import upload_pdf_bytes
+        from .pdf import build_levelup_proposal_pdf
+
+        e = enrollment.employee
+        pdf = build_levelup_proposal_pdf({
+            'tenant_name': e.tenant.name,
+            'date': timezone.now().strftime('%d/%m/%Y'),
+            'employee': {
+                'name': e.name, 'code': e.code, 'position': e.position,
+                'restaurant': e.restaurant.name if e.restaurant else '',
+                'start_date': e.start_date.strftime('%d/%m/%Y') if e.start_date else '',
+            },
+            'from_level': enrollment.from_level or major_level(e.job_level),
+            'target_level': target_major,
+            'target_position': enrollment.target_position,
+            'achieved_positions': achieved_positions(e),
+            'positions_count': count,
+            'completion': completion,
+        })
+        return upload_pdf_bytes(pdf, f'phieu-de-xuat-level/{e.tenant_id}', f'DeXuatLevel_{e.id}_{enrollment.id}')
+    except Exception:  # noqa: BLE001
+        return ''
 
 
 def fail_levelup(enrollment, user=None):
