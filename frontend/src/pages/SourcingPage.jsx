@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import AppShell from '../components/AppShell'
 import BackButton from '../components/BackButton'
+import ContentCatalog from '../components/ContentCatalog'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'
 import Table from '../components/Table'
@@ -459,6 +460,7 @@ export default function SourcingPage() {
       <div style={{ display: 'flex', gap: 8, margin: '10px 0', alignItems: 'center', flexWrap: 'wrap' }}>
         {f.manage && <button className={`btn-sm ${tab === 'programs' ? '' : 'btn-outline'}`} onClick={() => setTab('programs')}>Chương trình</button>}
         <button className={`btn-sm ${tab === 'cohorts' ? '' : 'btn-outline'}`} onClick={() => setTab('cohorts')}>Đợt đào tạo</button>
+        <button className={`btn-sm ${tab === 'content' ? '' : 'btn-outline'}`} onClick={() => setTab('content')}>Nội dung đào tạo</button>
         <span style={{ flex: 1 }} />
         <select value={audienceF} onChange={(e) => setAudienceF(e.target.value)}>
           <option value="">Tất cả đối tượng</option>
@@ -513,6 +515,8 @@ export default function SourcingPage() {
           </Table>
         </>
       )}
+
+      {tab === 'content' && <ContentCatalog />}
 
       {progForm && (
         <Modal open title={progForm.id ? 'Sửa chương trình' : 'Thêm chương trình'} onClose={() => setProgForm(null)} footer={<><button className="btn-outline" onClick={() => setProgForm(null)}>Hủy</button><button onClick={saveProgram}>Lưu</button></>}>

@@ -270,6 +270,48 @@ def sync_bql_development(tenant):
     return {'updated': updated, 'skipped_no_employee': skipped}
 
 
+def sync_course_catalog(tenant):
+    """#11 — nạp Ma_Khoa_Hoc → TrainingContent (danh mục nội dung đào tạo, sửa/xóa/thêm được)."""
+    rows = load_rows_smart(_url_for(tenant, 'malop')) if _url_for(tenant, 'malop') else []
+    if not rows:
+        return {'created': 0, 'updated': 0, 'detail': 'Chưa cấu hình link Ma_Khoa_Hoc.'}
+    from sourcing.models import TrainingContent
+
+    def category_of(code):
+        u = (code or '').upper()
+        if 'FOH' in u:
+            return 'foh'
+        if 'BOH' in u:
+            return 'boh'
+        return 'common'
+
+    created = updated = 0
+    for order, r in enumerate(rows, start=1):
+        code = (r.get('Cousera_Code') or '').strip()
+        name = (r.get('Cousera_Name') or '').strip()
+        if not name:
+            continue
+        status = (r.get('Cousera_Status') or '').strip().lower()
+        fields = {
+            'name': name,
+            'category': category_of(code),
+            'target_roles': (r.get('Learner_Group') or '').strip(),
+            'is_prerequisite': 'train the trainer' in name.lower(),
+            'is_active': 'đóng' not in status,
+            'order': order,
+        }
+        obj = TrainingContent.objects.filter(tenant=tenant, code=code).first() if code else None
+        if obj:
+            for k, v in fields.items():
+                setattr(obj, k, v)
+            obj.save()
+            updated += 1
+        else:
+            TrainingContent.objects.create(tenant=tenant, code=code, **fields)
+            created += 1
+    return {'created': created, 'updated': updated}
+
+
 def sync_history(tenant):
     """Chạy cả 3 bước lịch sử (roster phải đồng bộ trước). Mỗi bước bọc try/except riêng để một
     bước lỗi không chặn 2 bước kia, và báo rõ bước nào hỏng."""
@@ -281,6 +323,7 @@ def sync_history(tenant):
         ('courses', sync_courses),
         ('bql_results', sync_bql_results),
         ('bql_development', sync_bql_development),
+        ('course_catalog', sync_course_catalog),
     ):
         try:
             out[name] = fn(tenant)
