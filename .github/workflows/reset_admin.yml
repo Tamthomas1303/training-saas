@@ -1,0 +1,40 @@
+name: Reset Admin Password
+
+# Chay tay khi quen mat khau: Actions > chon "Reset Admin Password" > Run workflow > nhap
+# username + mat khau moi. Command seed_admin se cap nhat mat khau cho user da co (khong tao trung).
+# Yeu cau secrets: DJANGO_SECRET_KEY, DATABASE_URL.
+on:
+  workflow_dispatch:
+    inputs:
+      username:
+        description: "Ten dang nhap can dat lai (mac dinh: admin)"
+        default: "admin"
+        required: true
+      password:
+        description: "Mat khau moi"
+        required: true
+      tenant:
+        description: "Tenant (mac dinh: Demo Tenant)"
+        default: "Demo Tenant"
+        required: true
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
+      DJANGO_DEBUG: 'False'
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - name: Dat lai mat khau
+        run: |
+          echo "::add-mask::${{ inputs.password }}"
+          python manage.py seed_admin --tenant "${{ inputs.tenant }}" --username "${{ inputs.username }}" --password "${{ inputs.password }}"
