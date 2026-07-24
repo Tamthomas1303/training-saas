@@ -238,12 +238,18 @@ def sync_bql_development(tenant):
     from .models import MgmtDevelopment
 
     emp_by_code = {e.code: e for e in Employee.objects.filter(tenant=tenant)}
-    updated = skipped = 0
+    existing = {d.employee_id: d for d in MgmtDevelopment.objects.filter(tenant=tenant)}
+    to_create, to_update = [], []
+    skipped = 0
+    seen = set()
     for r in rows:
         employee = emp_by_code.get((r.get('Employee_ID') or '').strip())
         if not employee:
             skipped += 1
             continue
+        if employee.id in seen:
+            continue
+        seen.add(employee.id)
         topics = [label for col, label in TRAIN_LABELS.items() if _checked(r.get(col))]
         scores = {}
         for code, name in SCORE_ROLES:
@@ -257,22 +263,34 @@ def sync_bql_development(tenant):
             'Vận hành ca': (r.get('Assess_ShiftOps') or '').strip(),
             'Phỏng vấn': (r.get('Assess_Interview') or '').strip(),
         }
-        MgmtDevelopment.objects.update_or_create(
-            tenant=tenant, employee=employee,
-            defaults={
-                'target_code': (r.get('Target_Code') or '').strip(),
-                'final_status': (r.get('Final_Status') or '').strip(),
-                'employee_source': (r.get('Employee_Source') or '').strip(),
-                'data': {'topics': topics, 'scores': scores, 'assessments': assessments},
-            },
-        )
-        updated += 1
-    return {'updated': updated, 'skipped_no_employee': skipped}
+        vals = {
+            'target_code': (r.get('Target_Code') or '').strip(),
+            'final_status': (r.get('Final_Status') or '').strip(),
+            'employee_source': (r.get('Employee_Source') or '').strip(),
+            'data': {'topics': topics, 'scores': scores, 'assessments': assessments},
+        }
+        obj = existing.get(employee.id)
+        if obj:
+            for k, v in vals.items():
+                setattr(obj, k, v)
+            to_update.append(obj)
+        else:
+            to_create.append(MgmtDevelopment(tenant=tenant, employee=employee, **vals))
+    with transaction.atomic():
+        if to_create:
+            MgmtDevelopment.objects.bulk_create(to_create, batch_size=200)
+        if to_update:
+            MgmtDevelopment.objects.bulk_update(
+                to_update, ['target_code', 'final_status', 'employee_source', 'data'], batch_size=200,
+            )
+    return {'updated': len(to_create) + len(to_update), 'skipped_no_employee': skipped}
 
 
 def sync_course_catalog(tenant):
-    """#11 — nạp Ma_Khoa_Hoc → TrainingContent (danh mục nội dung đào tạo, sửa/xóa/thêm được)."""
-    rows = load_rows_smart(_url_for(tenant, 'malop')) if _url_for(tenant, 'malop') else []
+    """#11 — nạp Ma_Khoa_Hoc → TrainingContent (danh mục nội dung đào tạo, sửa/xóa/thêm được).
+    Tab Ma_Khoa_Hoc có cột đầu là 'Cousera_Code' (không phải 'Employee_ID')."""
+    url = _url_for(tenant, 'malop')
+    rows = load_rows_smart(url, key_header='Cousera_Code') if url else []
     if not rows:
         return {'created': 0, 'updated': 0, 'detail': 'Chưa cấu hình link Ma_Khoa_Hoc.'}
     from sourcing.models import TrainingContent
@@ -285,7 +303,9 @@ def sync_course_catalog(tenant):
             return 'boh'
         return 'common'
 
-    created = updated = 0
+    existing = {c.code: c for c in TrainingContent.objects.filter(tenant=tenant) if c.code}
+    to_create, to_update = [], []
+    seen = set()
     for order, r in enumerate(rows, start=1):
         code = (r.get('Cousera_Code') or '').strip()
         name = (r.get('Cousera_Name') or '').strip()
@@ -300,16 +320,24 @@ def sync_course_catalog(tenant):
             'is_active': 'đóng' not in status,
             'order': order,
         }
-        obj = TrainingContent.objects.filter(tenant=tenant, code=code).first() if code else None
-        if obj:
+        obj = existing.get(code) if code else None
+        if obj and code not in seen:
             for k, v in fields.items():
                 setattr(obj, k, v)
-            obj.save()
-            updated += 1
-        else:
-            TrainingContent.objects.create(tenant=tenant, code=code, **fields)
-            created += 1
-    return {'created': created, 'updated': updated}
+            to_update.append(obj)
+        elif not obj:
+            to_create.append(TrainingContent(tenant=tenant, code=code, **fields))
+        if code:
+            seen.add(code)
+    with transaction.atomic():
+        if to_create:
+            TrainingContent.objects.bulk_create(to_create, batch_size=200)
+        if to_update:
+            TrainingContent.objects.bulk_update(
+                to_update, ['name', 'category', 'target_roles', 'is_prerequisite', 'is_active', 'order'],
+                batch_size=200,
+            )
+    return {'created': len(to_create), 'updated': len(to_update)}
 
 
 def sync_history(tenant):
