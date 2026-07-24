@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import AppShell from '../components/AppShell'
+import BackButton from '../components/BackButton'
 import Badge from '../components/Badge'
 import CouncilPanel from '../components/CouncilPanel'
 import FilterBar from '../components/FilterBar'
@@ -223,6 +224,7 @@ export default function EvaluationPage() {
 
   return (
     <AppShell>
+      <BackButton />
       <h2>Đánh giá kỹ năng</h2>
 
       {!selectedEmployee && (
@@ -238,7 +240,7 @@ export default function EvaluationPage() {
               }}
             />
           </FilterBar>
-          <Table>
+          <div className="table-sticky"><Table>
             <thead>
               <tr>
                 <th>Mã NV</th>
@@ -263,7 +265,7 @@ export default function EvaluationPage() {
                 </tr>
               ))}
             </tbody>
-          </Table>
+          </Table></div>
           <Pager page={page} pageSize={PAGE_SIZE} count={employeeOptions.count} onChange={setPage} />
         </>
       )}

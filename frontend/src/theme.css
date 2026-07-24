@@ -238,6 +238,12 @@ textarea:focus {
   background: var(--card);
   z-index: 2;
 }
+/* Fix: <Table> tự bọc trong .table-scroll (overflow) — div lồng này chặn position:sticky.
+   Bỏ overflow của .table-scroll khi nằm trong .table-sticky để .table-sticky là vùng cuộn
+   duy nhất → tiêu đề cố định hoạt động. */
+.table-sticky .table-scroll {
+  overflow: visible;
+}
 
 /* Bảng có tiêu đề cố định (sticky header) khi cuộn — dễ theo dõi danh sách dài */
 .table-sticky {

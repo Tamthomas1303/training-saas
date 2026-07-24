@@ -580,7 +580,7 @@ export default function LevelUpPage() {
           </FilterBar>
 
           {loading ? <p className="muted-note">Đang tải...</p> : (
-            <Table>
+            <div className="table-sticky"><Table>
               <thead>
                 <tr>
                   <th>Nhân sự</th><th>Nhà hàng</th><th>Vị trí đích</th><th>Level</th>
@@ -612,7 +612,7 @@ export default function LevelUpPage() {
                 ))}
                 {rows.length === 0 && <tr><td colSpan={7} className="muted-note">Chưa có đợt thăng tiến nào.</td></tr>}
               </tbody>
-            </Table>
+            </Table></div>
           )}
         </>
       )}
@@ -620,7 +620,7 @@ export default function LevelUpPage() {
       {tab === 'talent' && f.canReview && (
         <>
           <p className="muted-note">Nhân sự đủ 3 vị trí → AM/KCS phỏng vấn đánh giá sẵn sàng. Duyệt = chính thức vào nhân sự nguồn; sau đó Phòng Đào tạo lập hội đồng đánh giá phát triển lên BQL.</p>
-          <Table>
+          <div className="table-sticky"><Table>
             <thead>
               <tr><th>Nhân sự</th><th>Nhà hàng</th><th>Level</th><th>Vị trí đã đạt</th><th>Duyệt sẵn sàng</th><th></th></tr>
             </thead>
@@ -647,7 +647,7 @@ export default function LevelUpPage() {
               ))}
               {talent.length === 0 && <tr><td colSpan={6} className="muted-note">Chưa có ứng viên đủ 3 vị trí.</td></tr>}
             </tbody>
-          </Table>
+          </Table></div>
         </>
       )}
 
