@@ -288,12 +288,25 @@ class MgmtDevelopmentListView(APIView):
     def get(self, request):
         if (request.user.role or '').lower() not in {'admin', 'om', 'bod'}:
             return Response({'detail': 'Chỉ Admin/OM/BOD được xem danh sách Ban quản lý.'}, status=403)
-        from .models import MgmtDevelopment
+        from .models import Employee, MgmtDevelopment
 
         tenant = request.user.tenant
-        devs = MgmtDevelopment.objects.filter(tenant=tenant).select_related(
-            'employee', 'employee__restaurant'
-        )
+        # #7: danh sách Ban quản lý = TẤT CẢ nhân sự cấp O (level_group='O', chưa nghỉ) — gồm cả
+        # người mới điều chuyển sang cấp O — GỘP với dữ liệu phát triển đã import (nếu có).
+        devs = {
+            d.employee_id: d for d in MgmtDevelopment.objects.filter(tenant=tenant)
+        }
+        o_emps = Employee.objects.filter(tenant=tenant, level_group='O').exclude(
+            employee_status=Employee.EmployeeStatus.RESIGNED
+        ).select_related('restaurant')
+        # Bổ sung người có dữ liệu phát triển nhưng level_group chưa 'O' (edge).
+        emp_ids = {e.id for e in o_emps}
+        extra_ids = [eid for eid in devs if eid not in emp_ids]
+        extra = Employee.objects.filter(id__in=extra_ids).exclude(
+            employee_status=Employee.EmployeeStatus.RESIGNED
+        ).select_related('restaurant') if extra_ids else []
+        employees = list(o_emps) + list(extra)
+
         from sourcing.models import Attendance, Enrollment, Program
 
         prog = Program.objects.filter(tenant=tenant, name='Đào tạo Ban quản lý (lịch sử)').first()
@@ -309,18 +322,21 @@ class MgmtDevelopmentListView(APIView):
         from .career import prerequisite_status
 
         rows = []
-        for d in devs:
-            e = d.employee
-            topics = d.data.get('topics', [])
-            assessments = d.data.get('assessments', {})
+        for e in employees:
+            d = devs.get(e.id)
+            data = d.data if d else {}
+            topics = data.get('topics', [])
+            assessments = data.get('assessments', {})
+            target_code = d.target_code if d else ''
             rows.append({
                 'employee_id': e.id, 'code': e.code, 'name': e.name,
                 'position': e.position, 'job_level': e.job_level,
                 'restaurant_name': e.restaurant.name if e.restaurant else '',
-                'target_code': d.target_code, 'final_status': d.final_status, 'source': d.employee_source,
-                'topics': topics, 'scores': d.data.get('scores', {}),
+                'target_code': target_code, 'final_status': d.final_status if d else '',
+                'source': d.employee_source if d else '',
+                'topics': topics, 'scores': data.get('scores', {}),
                 'assessments': assessments,
-                'prerequisites': prerequisite_status(d.target_code, topics, assessments),
+                'prerequisites': prerequisite_status(target_code, topics, assessments),
                 'courses_attended': courses_by_emp.get(e.id, 0),
                 'sessions_attended': sessions_by_emp.get(e.id, 0),
             })
@@ -512,9 +528,9 @@ class LevelUpEnrollmentListView(APIView):
         from .models import LevelUpEnrollment
         from .serializers import LevelUpEnrollmentSerializer
 
-        qs = LevelUpEnrollment.objects.filter(tenant=request.user.tenant).select_related(
-            'employee', 'employee__restaurant', 'registered_by'
-        )
+        qs = LevelUpEnrollment.objects.filter(tenant=request.user.tenant).exclude(
+            employee__employee_status=Employee.EmployeeStatus.RESIGNED
+        ).select_related('employee', 'employee__restaurant', 'registered_by')
         from employees.permissions import get_restaurant_scope
 
         scope = get_restaurant_scope(request.user)

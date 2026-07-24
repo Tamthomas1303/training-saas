@@ -31,8 +31,7 @@ export const DOMAINS = [
     children: [
       { label: 'Danh sách nhân sự nguồn', path: '/levelup', icon: '🏅', roles: ['admin', 'om'] },
       { label: 'Ban quản lý — Đào tạo & Đánh giá', path: '/mgmt-development', icon: '📋', roles: ['admin', 'om', 'bod'] },
-      { label: 'Chương trình & Đợt đào tạo', path: '/sourcing?audience=management', icon: '🎓', roles: ['admin', 'om', 'bql', 'trainer'] },
-      { label: 'Danh mục nội dung đào tạo', path: '/training-catalog', icon: '🗂️', roles: ['admin', 'om'] },
+      { label: 'Chương trình, Đợt & Nội dung', path: '/sourcing?audience=management', icon: '🎓', roles: ['admin', 'om', 'bql', 'trainer'] },
       { label: 'Lập danh sách theo khung năng lực', path: '/competency-gap', icon: '🔎', roles: ['admin', 'om', 'am', 'kcs', 'bql', 'trainer'] },
     ],
   },

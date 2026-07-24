@@ -450,6 +450,16 @@ export default function SourcingPage() {
     await api.patch(`/sourcing/cohorts/${c.id}/`, { status })
     loadCohorts()
   }
+  async function deleteCohort(c) {
+    if (!window.confirm(`Xoá đợt "${c.name}"? Xoá cả buổi học, điểm danh & học viên của đợt.`)) return
+    try { await api.delete(`/sourcing/cohorts/${c.id}/`); loadCohorts() }
+    catch (e) { alert(e.response?.data?.detail || 'Không xoá được đợt.') }
+  }
+  async function deleteProgram(p) {
+    if (!window.confirm(`Xoá chương trình "${p.name}"? Xoá cả các đợt thuộc chương trình.`)) return
+    try { await api.delete(`/sourcing/programs/${p.id}/`); loadPrograms(); loadCohorts() }
+    catch (e) { alert(e.response?.data?.detail || 'Không xoá được chương trình.') }
+  }
 
   return (
     <AppShell>
@@ -482,6 +492,7 @@ export default function SourcingPage() {
                   <td style={{ display: 'flex', gap: 6 }}>
                     <button className="btn-outline btn-sm" onClick={() => setContentProgram(p)}>Nội dung</button>
                     <button className="btn-outline btn-sm" onClick={() => setProgForm(p)}>Sửa</button>
+                    <button className="btn-outline btn-sm" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }} onClick={() => deleteProgram(p)}>Xoá</button>
                   </td>
                 </tr>
               ))}
@@ -507,7 +518,10 @@ export default function SourcingPage() {
                       </select>
                     ) : <Badge variant={COHORT_VARIANT[c.status]}>{COHORT_STATUS[c.status]}</Badge>}
                   </td>
-                  <td><button className="btn-outline btn-sm" onClick={() => setOpenCohort(c)}>Mở</button></td>
+                  <td style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn-outline btn-sm" onClick={() => setOpenCohort(c)}>Mở</button>
+                    {f.manage && <button className="btn-outline btn-sm" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }} onClick={() => deleteCohort(c)}>Xoá</button>}
+                  </td>
                 </tr>
               ))}
               {shownCohorts.length === 0 && <tr><td colSpan={6} className="muted-note">Chưa có đợt đào tạo.</td></tr>}

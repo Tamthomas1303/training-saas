@@ -73,9 +73,27 @@ def matching_checklist_items(employee, position=None):
     ]
 
 
+def _o_position(position):
+    """Vị trí thuộc cấp O (Ban quản lý)."""
+    p = normalize_key(position)
+    return any(k in p for k in ('quản lý', 'giám sát', 'bếp trưởng', 'bếp phó'))
+
+
+def derive_level_group(position, job_level):
+    """Suy nhóm level từ vị trí + Job_Level (#7). Vị trí cấp O → 'O'; còn lại theo chữ đầu
+    Job_Level (S/O/P), mặc định 'S'."""
+    if _o_position(position):
+        return 'O'
+    letter = (job_level or '').strip().upper()[:1]
+    return letter if letter in ('S', 'O', 'P') else 'S'
+
+
 def checklist_progress_percent(employee, position=None):
     """% tien do dao tao = so checklist da Hoan thanh / tong so checklist khop brand+position.
     position=None -> vi tri hien tai; truyen vi tri dich de tinh tien do vong thang tien (M1.4)."""
+    # #4: nhân sự cũ (is_legacy) mặc định ĐÃ hoàn thành đào tạo vị trí vào làm (position=None).
+    if position is None and getattr(employee, 'is_legacy', False):
+        return 100
     from checklist.models import TrainingProgress
 
     items = matching_checklist_items(employee, position)
@@ -260,6 +278,10 @@ def compute_final_result(employee):
 
     if employee.employee_status == Employee.EmployeeStatus.RESIGNED:
         return 'Đã nghỉ việc'
+
+    # #4: nhân sự cũ (vào trước 1/7) mặc định đã hoàn thành thử việc vị trí vào làm.
+    if getattr(employee, 'is_legacy', False):
+        return 'Pass thử việc'
 
     position = (employee.position or '').lower()
     unit = employee.operation_unit

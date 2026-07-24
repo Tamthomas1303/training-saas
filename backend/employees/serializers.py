@@ -58,6 +58,26 @@ class EmployeeSerializer(serializers.ModelSerializer):
             self.fields['restaurant'].queryset = Restaurant.objects.filter(tenant=tenant)
             self.fields['trainer'].queryset = User.objects.filter(tenant=tenant)
 
+    # #7: khi thêm/sửa nhân sự → tự tính lại nhóm level theo vị trí/Job_Level (đổi vị trí sang
+    # cấp O → tự sang danh sách Ban quản lý; giữ cấp S → ở lộ trình thăng tiến).
+    def _sync_level_group(self, obj):
+        from .services import derive_level_group
+
+        lg = derive_level_group(obj.position, obj.job_level)
+        if lg != (obj.level_group or ''):
+            obj.level_group = lg
+            obj.save(update_fields=['level_group'])
+
+    def create(self, validated_data):
+        obj = super().create(validated_data)
+        self._sync_level_group(obj)
+        return obj
+
+    def update(self, instance, validated_data):
+        obj = super().update(instance, validated_data)
+        self._sync_level_group(obj)
+        return obj
+
 
 class LevelUpEnrollmentSerializer(serializers.ModelSerializer):
     employee_code = serializers.CharField(source='employee.code', read_only=True, default='')
