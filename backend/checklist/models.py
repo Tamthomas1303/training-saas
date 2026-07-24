@@ -67,7 +67,8 @@ class Document(models.Model):
     category = models.CharField(max_length=100, blank=True)
     code = models.CharField(max_length=50, blank=True)
     brand = models.CharField(max_length=100, blank=True)
-    position = models.CharField(max_length=100, blank=True)
+    # Nhiều vị trí, phân tách bằng ';' (vd "Phục vụ; Thu ngân"). Trống = dùng chung mọi vị trí.
+    position = models.CharField(max_length=255, blank=True)
     version = models.CharField(max_length=20, blank=True, default='v1.0')
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DONE)
     uploaded_at = models.DateTimeField(auto_now_add=True)

@@ -41,10 +41,21 @@ class DocumentViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
     serializer_class = DocumentSerializer
     queryset = Document.objects.all()
     pagination_class = DefaultPagination
-    filterset_fields = ['brand', 'position', 'status']
+    filterset_fields = ['brand', 'status']
     search_fields = ['name', 'code']
     ordering_fields = ['name', 'uploaded_at']
     ordering = ['name']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # Tài liệu dùng cho NHIỀU vị trí (chuỗi ';'). Lọc theo 1 vị trí = khớp thành viên; tài
+        # liệu để trống vị trí = dùng chung mọi vị trí nên luôn hiển thị.
+        position = self.request.query_params.get('position')
+        if position:
+            from django.db.models import Q
+
+            qs = qs.filter(Q(position__icontains=position) | Q(position=''))
+        return qs
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)

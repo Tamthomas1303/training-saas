@@ -11,6 +11,8 @@ class EmployeeSerializer(serializers.ModelSerializer):
     trainer_name = serializers.CharField(source='trainer.full_name', read_only=True, default='')
     progress_percent = serializers.SerializerMethodField()
     lms_marks = serializers.SerializerMethodField()
+    result_exported = serializers.SerializerMethodField()
+    result_pdf_url = serializers.CharField(source='probation_result_pdf_url', read_only=True)
 
     class Meta:
         model = Employee
@@ -19,8 +21,11 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'start_date', 'restaurant', 'restaurant_name', 'employee_status', 'probation_days',
             'skill_score', 'skill_result', 'shift_ops', 'office_result', 'final_result',
             'trainer', 'trainer_name', 'commission_status', 'retrain_deadline', 'progress_percent',
-            'lms_marks', 'is_legacy',
+            'lms_marks', 'is_legacy', 'result_exported', 'result_pdf_url',
         ]
+
+    def get_result_exported(self, obj):
+        return bool((obj.probation_result_pdf_url or '').strip())
 
     def get_progress_percent(self, obj):
         progress_map = self.context.get('progress_map')

@@ -43,6 +43,13 @@ class EmployeeViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
         if not scope['all']:
             qs = qs.filter(restaurant_id__in=scope['restaurant_ids'])
 
+        # (Port Apps Script) lọc theo đã/chưa xuất phiếu kết quả thử việc.
+        result_exported = self.request.query_params.get('result_exported')
+        if result_exported == 'yes':
+            qs = qs.exclude(probation_result_pdf_url='')
+        elif result_exported == 'no':
+            qs = qs.filter(probation_result_pdf_url='')
+
         training_status = self.request.query_params.get('training_status')
         if training_status in TRAINING_STATUS_FILTERS:
             from .services import batch_checklist_progress_percent

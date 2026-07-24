@@ -52,6 +52,7 @@ export default function EmployeesPage() {
   const [employeeStatus, setEmployeeStatus] = useState('')
   const [trainingStatus, setTrainingStatus] = useState('')
   const [staffKind, setStaffKind] = useState('new') // 'new' | 'legacy' | '' (tất cả)
+  const [resultExported, setResultExported] = useState('') // '' | 'yes' | 'no'
   const [order, setOrder] = useState('oldest')
   const [page, setPage] = useState(1)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -107,6 +108,7 @@ export default function EmployeesPage() {
     employee_status: employeeStatus || undefined,
     training_status: trainingStatus || undefined,
     is_legacy: staffKind === 'new' ? false : staffKind === 'legacy' ? true : undefined,
+    result_exported: resultExported || undefined,
     ordering: order === 'newest' ? '-start_date' : 'start_date',
     page,
     page_size: PAGE_SIZE,
@@ -310,6 +312,11 @@ export default function EmployeesPage() {
           <option value="legacy">Nhân sự cũ</option>
           <option value="">Tất cả</option>
         </select>
+        <select style={s.select} value={resultExported} onChange={onFilterChange(setResultExported)}>
+          <option value="">Phiếu KQ: tất cả</option>
+          <option value="yes">Đã xuất phiếu</option>
+          <option value="no">Chưa xuất phiếu</option>
+        </select>
         <select style={s.select} value={restaurant} onChange={onFilterChange(setRestaurant)}>
           <option value="">Tất cả nhà hàng</option>
           {restaurantOptions.results.map((r) => (
@@ -353,7 +360,12 @@ export default function EmployeesPage() {
             <tbody>
               {data.results.map((e) => (
                 <tr key={e.id}>
-                  <td>{e.name} - {e.code}</td>
+                  <td>
+                    {e.name} - {e.code}
+                    {e.result_exported && (
+                      <span title="Đã xuất phiếu kết quả thử việc" style={{ marginLeft: 6, color: 'var(--forest-dark)' }}>📄</span>
+                    )}
+                  </td>
                   <td>{e.restaurant_name}</td>
                   <td>{e.position}</td>
                   <td>{e.start_date}</td>

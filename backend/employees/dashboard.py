@@ -152,7 +152,14 @@ FULLTIME_S_EXCLUDE_KEYWORDS = ('tts', 'thực tập', 'thời vụ', 'cộng tá
 
 
 def _is_fulltime_s(employee):
-    if (employee.level_group or '').upper() != 'S':
+    # (Port Apps Script) loại khối Văn phòng / Bếp trung tâm.
+    if employee.operation_unit == Employee.OperationUnit.OFFICE:
+        return False
+    # Ưu tiên CHỮ CÁI ĐẦU của Job_Level ('S1.2'→S, 'P1.2'→P) — chuẩn hơn level_group (đôi khi
+    # mặc định 'S' cho cả part-time). Loại P (part-time) và O.
+    letter = (employee.job_level or '').strip().upper()[:1]
+    lg = letter if letter in ('S', 'O', 'P') else (employee.level_group or '').upper()
+    if lg != 'S':
         return False
     text = normalize_key((employee.position or '') + ' ' + (employee.job_level or ''))
     return not any(k in text for k in FULLTIME_S_EXCLUDE_KEYWORDS)
@@ -175,6 +182,9 @@ def probation15(user):
 
     for e in scoped_employees(user):
         if not _is_fulltime_s(e) or not e.start_date:
+            continue
+        # (Port Apps Script) chỉ tính nhân sự ĐANG LÀM VIỆC — loại nghỉ việc khỏi tử/mẫu số.
+        if e.employee_status == Employee.EmployeeStatus.RESIGNED:
             continue
         if (today - e.start_date).days < d15:
             continue  # chua den han 15 ngay - chua tinh

@@ -233,19 +233,29 @@ export default function DocumentsPage() {
               </select>
             </label>
             <label>
-              Vị trí
-              <select
-                style={{ display: 'block', width: '100%' }}
-                value={form.position}
-                onChange={(e) => setForm({ ...form, position: e.target.value })}
-              >
-                <option value="">—</option>
-                {positionOptions.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
+              Vị trí (tích nhiều — để trống = dùng chung mọi vị trí)
+              <div style={{ maxHeight: 140, overflow: 'auto', border: '1px solid var(--card-border)', borderRadius: 6, padding: 6 }}>
+                {positionOptions.map((p) => {
+                  const selected = (form.position || '').split(';').map((x) => x.trim().toLowerCase())
+                  const checked = selected.includes(p.trim().toLowerCase())
+                  return (
+                    <label key={p} style={{ display: 'block', fontSize: 14 }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          const cur = (form.position || '').split(';').map((x) => x.trim()).filter(Boolean)
+                          const next = e.target.checked
+                            ? [...cur.filter((x) => x.toLowerCase() !== p.toLowerCase()), p]
+                            : cur.filter((x) => x.toLowerCase() !== p.toLowerCase())
+                          setForm({ ...form, position: next.join('; ') })
+                        }}
+                      /> {p}
+                    </label>
+                  )
+                })}
+                {positionOptions.length === 0 && <span className="muted-note">Chưa có danh sách vị trí.</span>}
+              </div>
             </label>
             <label>
               Phiên bản
