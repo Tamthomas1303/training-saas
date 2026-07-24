@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import AppShell from '../components/AppShell'
+import BackButton from '../components/BackButton'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'
 import Table from '../components/Table'
@@ -29,6 +30,7 @@ export default function MgmtDevPage() {
 
   return (
     <AppShell>
+      <BackButton />
       <h2 style={{ marginTop: 0 }}>Ban quản lý — Đào tạo & Đánh giá</h2>
       <p className="muted-note" style={{ marginTop: -6 }}>Nội dung đã đào tạo, điểm thi theo vai, đánh giá và trạng thái sẵn sàng của nhân sự cấp O.</p>
 

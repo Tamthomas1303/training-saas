@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import AppShell from '../components/AppShell'
+import BackButton from '../components/BackButton'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'
 import Table from '../components/Table'
@@ -41,6 +42,7 @@ export default function TrainingCatalogPage() {
 
   return (
     <AppShell>
+      <BackButton />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <h2 style={{ margin: 0 }}>Danh mục nội dung đào tạo</h2>
         {canManage && <button onClick={() => setForm({ ...EMPTY, order: rows.length + 1 })}>+ Thêm nội dung</button>}

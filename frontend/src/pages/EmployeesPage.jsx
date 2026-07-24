@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import AppShell from '../components/AppShell'
+import BackButton from '../components/BackButton'
 import Badge from '../components/Badge'
 import FilterBar from '../components/FilterBar'
 import Modal from '../components/Modal'
@@ -215,8 +216,9 @@ export default function EmployeesPage() {
 
   return (
     <AppShell>
+      <BackButton />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-        <h2 style={{ margin: 0 }}>Nhân sự</h2>
+        <h2 style={{ margin: 0 }}>Danh sách nhân sự mới</h2>
         {isAdmin && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button className="btn-outline" onClick={() => setShowImport((v) => !v)}>Nhập dữ liệu ▾</button>
@@ -334,7 +336,7 @@ export default function EmployeesPage() {
 
       {!loading && !error && (
         <>
-          <Table>
+          <div className="table-sticky"><Table>
             <thead>
               <tr>
                 <th>Họ tên</th>
@@ -390,7 +392,7 @@ export default function EmployeesPage() {
                 </tr>
               )}
             </tbody>
-          </Table>
+          </Table></div>
           <Pager page={page} pageSize={PAGE_SIZE} count={data.count} onChange={setPage} />
         </>
       )}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import AppShell from '../components/AppShell'
+import BackButton from '../components/BackButton'
 import Badge from '../components/Badge'
 import FilterBar from '../components/FilterBar'
 import Pager from '../components/Pager'
@@ -100,7 +101,8 @@ export default function TrainingPage() {
 
   return (
     <AppShell>
-      <h2>Đào tạo</h2>
+      <BackButton />
+      <h2>Đào tạo tại điểm</h2>
 
       {!selectedEmployee && (
         <>

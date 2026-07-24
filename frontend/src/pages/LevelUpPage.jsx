@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import AppShell from '../components/AppShell'
+import BackButton from '../components/BackButton'
 import Badge from '../components/Badge'
 import FilterBar from '../components/FilterBar'
 import Modal from '../components/Modal'
@@ -423,6 +424,7 @@ export default function LevelUpPage() {
 
   return (
     <AppShell>
+      <BackButton />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <h2 style={{ margin: 0 }}>Lộ trình thăng tiến</h2>
         {f.canRegister && <button onClick={() => setShowRegister(true)}>+ Đăng ký thăng tiến</button>}

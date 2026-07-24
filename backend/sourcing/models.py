@@ -9,7 +9,8 @@ class Program(models.Model):
 
     class Audience(models.TextChoices):
         SOURCE = 'source', 'Nhân sự nguồn'
-        MANAGEMENT = 'management', 'Quản lý cấp trung'
+        MANAGEMENT = 'management', 'Ban quản lý (nguồn)'
+        MIDDLE = 'middle', 'Cấp trung (AM/KCS)'
         OTHER = 'other', 'Khác'
 
     class Mode(models.TextChoices):

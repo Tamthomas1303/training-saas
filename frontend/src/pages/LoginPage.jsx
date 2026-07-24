@@ -17,7 +17,7 @@ export default function LoginPage() {
     setSubmitting(true)
     try {
       await login(username, password)
-      navigate('/')
+      navigate('/dashboard')
     } catch {
       setError('Sai tên đăng nhập hoặc mật khẩu.')
     } finally {

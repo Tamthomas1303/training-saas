@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import AppShell from '../components/AppShell'
+import BackButton from '../components/BackButton'
 import FilterBar from '../components/FilterBar'
 import Table from '../components/Table'
 import api from '../api/client'
@@ -62,6 +63,7 @@ export default function CompetencyGapPage() {
 
   return (
     <AppShell>
+      <BackButton />
       <h2 style={{ marginTop: 0 }}>Lập danh sách theo khung năng lực</h2>
       <p className="muted-note" style={{ marginTop: -6 }}>Lọc nhân sự còn thiếu (chưa đào tạo/đánh giá/thi) để lập danh sách đào tạo, thi, đánh giá — rồi mời vào đợt.</p>
 

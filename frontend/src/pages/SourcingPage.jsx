@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import AppShell from '../components/AppShell'
+import BackButton from '../components/BackButton'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'
 import Table from '../components/Table'
 import api from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 
-const AUDIENCE = { source: 'Nhân sự nguồn', management: 'Quản lý cấp trung', other: 'Khác' }
+const AUDIENCE = { source: 'Nhân sự nguồn', management: 'Ban quản lý (nguồn)', middle: 'Cấp trung (AM/KCS)', other: 'Khác' }
 const MODE = { offline: 'Offline', online: 'Online' }
 const COHORT_STATUS = { open: 'Đang mở đăng ký', ongoing: 'Đang đào tạo', closed: 'Đã kết thúc' }
 const COHORT_VARIANT = { open: 'warning', ongoing: 'mint', closed: 'neutral' }
@@ -451,6 +452,7 @@ export default function SourcingPage() {
 
   return (
     <AppShell>
+      <BackButton />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
         <h2 style={{ margin: 0 }}>Đào tạo nguồn & Quản lý</h2>
       </div>
