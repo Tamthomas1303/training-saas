@@ -154,6 +154,7 @@ def export_probation_result_pdf(employee):
     tra o view, khac ban goc chi kiem client-side). Diem tong = thi*0.4 + thuc hanh*0.6.
     Xuat 1 lan, luu lai URL tren Employee.probation_result_pdf_url; goi lai se xoa phieu cu
     va thay bang URL moi (port phan hoi "Phan 1")."""
+    from django.conf import settings
     from django.utils import timezone
 
     from checklist.storage import delete_by_url, upload_pdf_bytes
@@ -187,7 +188,7 @@ def export_probation_result_pdf(employee):
         'score_exam': score_exam, 'score_practice': score_practice, 'score_final': score_final,
         'final_status': employee.final_result,
         'pass_date': employee.pass_date.strftime('%d/%m/%Y') if employee.pass_date else '',
-        'signer_name': '', 'signer_title': 'Phòng Đào tạo',
+        'signer_name': settings.RESULT_SIGNER_NAME, 'signer_title': settings.RESULT_SIGNER_TITLE,
     })
 
     if employee.probation_result_pdf_url:

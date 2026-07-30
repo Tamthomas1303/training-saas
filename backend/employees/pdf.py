@@ -254,13 +254,10 @@ def build_probation_result_pdf(ctx):
     signer_title_style = ParagraphStyle('signer_title_center', parent=styles['muted'], alignment=1)
     signer_heading_style = ParagraphStyle('signer_heading_center', parent=styles['h3'], alignment=1)
 
-    sign_w, sign_h = 60 * mm, 25 * mm
     signer_block = [
         Spacer(1, 10),
         Paragraph('Xác nhận từ Phòng Đào tạo', signer_heading_style),
-        Spacer(1, 6),
-        platypus_image(None, sign_w, sign_h),
-        Spacer(1, 6),
+        Spacer(1, 25 * mm),  # khoang trong de ky tuoi (khong ve o vien nhu truoc)
         Paragraph(ctx.get('signer_name', ''), signer_name_style),
         Paragraph(ctx.get('signer_title', ''), signer_title_style),
     ]

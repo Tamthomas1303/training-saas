@@ -247,6 +247,11 @@ COMMISSION_RESTAURANT_ALLOWLIST = [
     c.strip() for c in os.environ.get('COMMISSION_RESTAURANT_ALLOWLIST', '').split(',') if c.strip()
 ]
 
+# Nguoi ky "Xac nhan tu Phong Dao tao" o cuoi phieu ket qua thu viec (employees/pdf.py) - doi
+# duoc qua .env ma khong can sua code khi doi nguoi ky.
+RESULT_SIGNER_NAME = os.environ.get('RESULT_SIGNER_NAME', 'Nguyễn Văn Tam')
+RESULT_SIGNER_TITLE = os.environ.get('RESULT_SIGNER_TITLE', 'Phó Phòng Đào tạo')
+
 # KPI đào tạo — số buổi/tháng mục tiêu cho mỗi nhà hàng (Config.kpiTarget() bản gốc, mặc định 3)
 KPI_TARGET_PER_MONTH = int(os.environ.get('KPI_TARGET_PER_MONTH', '3'))
 
