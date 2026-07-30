@@ -11,6 +11,7 @@ Dung lai font/helper da dang ky o checklist.pdf (VNSans) de khong dang ky font 2
 from io import BytesIO
 
 from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer
@@ -99,7 +100,8 @@ def build_probation_result_pdf(ctx):
     photos:[url,url,url]}], skill_eval: {date,evaluator_name,sign_evaluator_url,
     sign_trainee_url,items:[{content,max_score,score,photo_url}]} hoac None,
     courses[{name,score,status}], exams[{name,score,passed,is_regrade}], score_exam,
-    score_practice, score_final, final_status, signer_name, signer_title.
+    score_practice, score_final, final_status, pass_date (dd/MM/YYYY, chi dung khi
+    final_status = 'Pass thử việc'), signer_name, signer_title.
     Diem thi (score_exam) la diem CAO NHAT (xem employees/services.py::best_exam_score) -
     'is_regrade' tren tung dong exam la cho de danh dau lan phuc khao (Task 2, chua co model
     that su) bang nhan "(PK)", khong anh huong cach tinh score_exam tong hop.
@@ -161,7 +163,7 @@ def build_probation_result_pdf(ctx):
         story.append(Paragraph('2. Checklist đào tạo (có xác nhận của học viên)', styles['h3']))
         rows = [[
             Paragraph('STT', styles['cell_bold']), Paragraph('Nội dung', styles['cell_bold']),
-            Paragraph('Ngày ĐT', styles['cell_bold']), Paragraph('Ảnh biên bản', styles['cell_bold']),
+            Paragraph('Ngày ĐT', styles['cell_bold']), Paragraph('Ảnh minh chứng', styles['cell_bold']),
             Paragraph('Ký Trainer', styles['cell_bold']), Paragraph('Ký HV', styles['cell_bold']),
         ]]
         for idx, item in enumerate(checklist, start=1):
@@ -228,8 +230,8 @@ def build_probation_result_pdf(ctx):
     story.append(Paragraph('4. Tổng hợp', styles['h3']))
     story.append(styled_table(
         [
-            [Paragraph('Điểm thi', styles['cell_bold']), Paragraph('Điểm thực hành', styles['cell_bold']),
-             Paragraph('Điểm tổng hợp', styles['cell_bold'])],
+            [Paragraph('Điểm thi', styles['cell_bold_center']), Paragraph('Điểm thực hành', styles['cell_bold_center']),
+             Paragraph('Điểm tổng hợp', styles['cell_bold_center'])],
             [
                 Paragraph(str(ctx.get('score_exam', '')), styles['cell_center']),
                 Paragraph(str(ctx.get('score_practice', '')), styles['cell_center']),
@@ -239,20 +241,28 @@ def build_probation_result_pdf(ctx):
         col_widths=[None, None, None],
     ))
     story.append(Spacer(1, 6))
+    final_status = ctx.get('final_status', '')
+    if final_status == 'Pass thử việc' and ctx.get('pass_date'):
+        status_text = f"Trạng thái: Pass thử việc ngày {ctx['pass_date']}"
+    else:
+        status_text = f"Trạng thái: {final_status}"
     story.append(Paragraph(
-        f"Trạng thái: <b><font color='#1e6f5c'>{ctx.get('final_status', '')}</font></b>",
-        styles['body'],
+        f"<b><font color='#1e6f5c'>{status_text}</font></b>", styles['body'],
     ))
+
+    signer_name_style = ParagraphStyle('signer_name_center', parent=styles['body_bold'], alignment=1)
+    signer_title_style = ParagraphStyle('signer_title_center', parent=styles['muted'], alignment=1)
+    signer_heading_style = ParagraphStyle('signer_heading_center', parent=styles['h3'], alignment=1)
 
     sign_w, sign_h = 60 * mm, 25 * mm
     signer_block = [
         Spacer(1, 10),
-        Paragraph('Người xác nhận', styles['h3']),
-        Paragraph(ctx.get('signer_title', ''), styles['muted']),
-        Spacer(1, 4),
+        Paragraph('Xác nhận từ Phòng Đào tạo', signer_heading_style),
+        Spacer(1, 6),
         platypus_image(None, sign_w, sign_h),
-        Spacer(1, 4),
-        Paragraph(ctx.get('signer_name', ''), styles['body_bold']),
+        Spacer(1, 6),
+        Paragraph(ctx.get('signer_name', ''), signer_name_style),
+        Paragraph(ctx.get('signer_title', ''), signer_title_style),
     ]
     story.append(KeepTogether(signer_block))
 

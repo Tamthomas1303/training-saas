@@ -148,6 +148,7 @@ def sync_exams(tenant, base_url, secret_key, start_date, probation_types, stdout
                     'score': user.get('point'),
                     'passed': bool(user.get('isPassed')),
                     'topic_id': topic.get('id'),
+                    'topic_name': topic.get('name') or '',
                 })
 
     created = updated = skipped_no_employee = 0
@@ -172,6 +173,7 @@ def sync_exams(tenant, base_url, secret_key, start_date, probation_types, stdout
                     'score': entry['score'],
                     'passed': entry['passed'],
                     'cls_id': str(entry['topic_id']) if entry['topic_id'] is not None else '',
+                    'exam_full_name': entry['topic_name'],
                 },
             )
             created += int(was_created)

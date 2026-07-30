@@ -101,6 +101,9 @@ def pdf_styles():
         'cell_center': ParagraphStyle(
             'cell_center', fontName='VNSans', fontSize=9, textColor=COLOR_TEXT, leading=12, alignment=1,
         ),
+        'cell_bold_center': ParagraphStyle(
+            'cell_bold_center', fontName='VNSans-Bold', fontSize=9, textColor=COLOR_TEXT, leading=12, alignment=1,
+        ),
         'result_pass': ParagraphStyle(
             'result_pass', fontName='VNSans-Bold', fontSize=12, textColor=COLOR_PRIMARY, leading=16,
         ),
@@ -146,6 +149,7 @@ def platypus_image(url, w, h):
         ('BOX', (0, 0), (-1, -1), 0.75, COLOR_BORDER),
         ('BACKGROUND', (0, 0), (-1, -1), colors.whitesmoke),
     ]))
+    placeholder.hAlign = 'CENTER'
     return placeholder
 
 

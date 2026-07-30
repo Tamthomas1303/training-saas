@@ -38,6 +38,9 @@ class Employee(models.Model):
     interview_result = models.CharField(max_length=50, blank=True)
     office_result = models.CharField(max_length=50, blank=True)
     final_result = models.CharField(max_length=50, blank=True)
+    # Ngay final_result chuyen thanh "Pass thu viec" (dung de tinh luong) - set 1 lan khi
+    # chuyen trang thai, xoa neu roi khoi Pass. Xem recompute_final_result.
+    pass_date = models.DateField(null=True, blank=True)
     trainer = models.ForeignKey(
         User, on_delete=models.SET_NULL, related_name='trainees', null=True, blank=True
     )

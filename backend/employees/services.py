@@ -329,8 +329,20 @@ def compute_final_result(employee):
 
 
 def recompute_final_result(employee):
+    """Tinh lai final_result; dong bo pass_date (ngay dung de tinh luong) theo do: khi
+    final_result chuyen thanh 'Pass thu viec' va pass_date dang trong thi set = hom nay (ngay
+    chuyen trang thai, khong doi lai neu da co san); khi roi khoi 'Pass thu viec' thi xoa
+    pass_date."""
     employee.final_result = compute_final_result(employee)
-    employee.save(update_fields=['final_result'])
+    update_fields = ['final_result']
+    if employee.final_result == 'Pass thử việc':
+        if not employee.pass_date:
+            employee.pass_date = datetime.date.today()
+            update_fields.append('pass_date')
+    elif employee.pass_date:
+        employee.pass_date = None
+        update_fields.append('pass_date')
+    employee.save(update_fields=update_fields)
     return employee.final_result
 
 

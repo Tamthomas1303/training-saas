@@ -63,8 +63,8 @@ def student_lms(employee):
         ],
         'exams': [
             {
-                'name': e.exam_name, 'attempt': e.attempt, 'score': e.score, 'passed': e.passed,
-                'is_regrade': False,
+                'name': e.exam_full_name or e.exam_name, 'attempt': e.attempt, 'score': e.score,
+                'passed': e.passed, 'is_regrade': False,
             }
             for e in exams
         ],
@@ -179,6 +179,7 @@ def export_probation_result_pdf(employee):
         'courses': lms['courses'], 'exams': lms['exams'],
         'score_exam': score_exam, 'score_practice': score_practice, 'score_final': score_final,
         'final_status': employee.final_result,
+        'pass_date': employee.pass_date.strftime('%d/%m/%Y') if employee.pass_date else '',
         'signer_name': '', 'signer_title': 'Phòng Đào tạo',
     })
 
