@@ -2,6 +2,10 @@
 phan hoi "Phan 1" (them cot chu ky Trainer/anh cho checklist, cot anh + 2 chu ky + ngay +
 ten nguoi danh gia cho danh gia thuc hanh).
 
+build_probation_result_pdf dung Platypus (xem checklist/pdf.py) - bang co vien/header
+nen/padding, KeepTogether cho cac khoi chu ky. build_levelup_proposal_pdf van dung canvas
+truc tiep (chua thiet ke lai dot nay).
+
 Dung lai font/helper da dang ky o checklist.pdf (VNSans) de khong dang ky font 2 lan.
 """
 from io import BytesIO
@@ -9,8 +13,12 @@ from io import BytesIO
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
+from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer
 
-from checklist.pdf import _fetch_image, _placeholder_box, ensure_space
+from checklist.pdf import (
+    PAGE_MARGIN, _fetch_image, _placeholder_box, ensure_space, pdf_header_block, pdf_styles,
+    platypus_image, styled_table,
+)
 
 
 def build_levelup_proposal_pdf(ctx):
@@ -86,167 +94,172 @@ def build_levelup_proposal_pdf(ctx):
 
 
 def build_probation_result_pdf(ctx):
-    """ctx keys: record_no, tenant_name, employee_code, employee{name,position,restaurant,
-    start_date}, checklist:[{name,date,sign_trainer_url,photos:[url,url,url]}],
-    skill_eval: {date,evaluator_name,sign_evaluator_url,sign_trainee_url,
-    items:[{content,max_score,score,photo_url}]} hoac None, courses[{name,status}],
-    exams[{name,score}], score_exam, score_practice, score_final, final_status,
-    signer_name, signer_title."""
-    buf = BytesIO()
-    c = canvas.Canvas(buf, pagesize=A4)
-    width, height = A4
-    margin = 15 * mm
-    y = height - margin
+    """ctx keys: record_no, tenant_name, date, employee_code, employee{name,position,
+    restaurant,start_date}, checklist:[{name,date,sign_trainer_url,sign_trainee_url,
+    photos:[url,url,url]}], skill_eval: {date,evaluator_name,sign_evaluator_url,
+    sign_trainee_url,items:[{content,max_score,score,photo_url}]} hoac None,
+    courses[{name,score,status}], exams[{name,score,passed,is_regrade}], score_exam,
+    score_practice, score_final, final_status, signer_name, signer_title.
+    Diem thi (score_exam) la diem CAO NHAT (xem employees/services.py::best_exam_score) -
+    'is_regrade' tren tung dong exam la cho de danh dau lan phuc khao (Task 2, chua co model
+    that su) bang nhan "(PK)", khong anh huong cach tinh score_exam tong hop.
+    Dung Platypus - bang co vien/header nen, KeepTogether cho 2 khoi chu ky."""
+    styles = pdf_styles()
+    story = []
+    emp = ctx.get('employee', {})
 
-    def line(text, size=11, dy=16, bold=False):
-        nonlocal y
-        c.setFont('VNSans-Bold' if bold else 'VNSans', size)
-        c.drawString(margin, y, text)
-        y -= dy
+    story.append(pdf_header_block(
+        'PHIẾU KẾT QUẢ THỬ VIỆC', ctx.get('tenant_name', ''),
+        [f"Số: {ctx['record_no']}", f"Ngày: {ctx.get('date', '')}"], styles,
+    ))
+    story.append(Spacer(1, 10))
 
-    # Ham noi bo cung ten "ensure_space" nhung chu ky khac (dung nonlocal y, khong tra ve) -
-    # che khuat ham dung chung cung ten import o dau file CHI trong pham vi ham nay; cac
-    # ham khac trong module (vd build_levelup_proposal_pdf) van dung ham dung chung.
-    def ensure_space(needed):
-        nonlocal y
-        if y - needed < 20 * mm:
-            c.showPage()
-            y = height - margin
+    story.append(styled_table(
+        [
+            [Paragraph('Họ tên', styles['cell_bold']),
+             Paragraph(f"{emp.get('name', '')} - {ctx.get('employee_code', '')}", styles['cell']),
+             Paragraph('Vị trí', styles['cell_bold']), Paragraph(emp.get('position', ''), styles['cell'])],
+            [Paragraph('Nhà hàng', styles['cell_bold']), Paragraph(emp.get('restaurant', ''), styles['cell']),
+             Paragraph('Ngày vào làm', styles['cell_bold']), Paragraph(emp.get('start_date', ''), styles['cell'])],
+        ],
+        col_widths=[28 * mm, 62 * mm, 28 * mm, 56 * mm], header=False,
+    ))
 
-    c.setFont('VNSans-Bold', 15)
-    c.drawCentredString(width / 2, y, 'PHIẾU KẾT QUẢ THỬ VIỆC')
-    y -= 20
-    c.setFont('VNSans', 9)
-    c.drawCentredString(width / 2, y, ctx.get('tenant_name', ''))
-    y -= 22
+    # 1. Ket qua hoc & thi (LMS)
+    story.append(Paragraph('1. Kết quả học &amp; thi (LMS)', styles['h3']))
+    courses = ctx.get('courses') or []
+    if courses:
+        rows = [[Paragraph('Tên khóa học', styles['cell_bold']), Paragraph('Điểm', styles['cell_bold']),
+                  Paragraph('Kết quả', styles['cell_bold'])]]
+        for course in courses:
+            rows.append([
+                Paragraph(course.get('name', ''), styles['cell']),
+                Paragraph(str(course.get('score', '')), styles['cell_center']),
+                Paragraph(course.get('status', ''), styles['cell_center']),
+            ])
+        story.append(styled_table(rows, col_widths=[None, 28 * mm, 28 * mm]))
+        story.append(Spacer(1, 6))
 
-    line(f"Số phiếu: {ctx['record_no']}", size=10)
-    y -= 4
+    exams = ctx.get('exams') or []
+    if exams:
+        rows = [[Paragraph('Tên bài thi', styles['cell_bold']), Paragraph('Điểm', styles['cell_bold']),
+                  Paragraph('Kết quả', styles['cell_bold'])]]
+        for exam in exams:
+            score_text = str(exam.get('score', ''))
+            if exam.get('is_regrade'):
+                score_text += ' (PK)'
+            rows.append([
+                Paragraph(exam.get('name', ''), styles['cell']),
+                Paragraph(score_text, styles['cell_center']),
+                Paragraph('Đạt' if exam.get('passed') else 'Không đạt', styles['cell_center']),
+            ])
+        story.append(styled_table(rows, col_widths=[None, 28 * mm, 28 * mm]))
 
-    line('THÔNG TIN NHÂN SỰ', bold=True, size=12)
-    line(f"Họ tên: {ctx['employee'].get('name', '')} - {ctx.get('employee_code', '')}")
-    line(f"Vị trí: {ctx['employee'].get('position', '')}")
-    line(f"Nhà hàng: {ctx['employee'].get('restaurant', '')}")
-    line(f"Ngày vào làm: {ctx['employee'].get('start_date', '')}")
-    y -= 4
-
-    # Checklist dao tao (co xac nhan cua hoc vien): dau viec | ngay | chu ky Trainer | anh
+    # 2. Checklist dao tao (co xac nhan cua hoc vien)
     checklist = ctx.get('checklist') or []
     if checklist:
-        ensure_space(30)
-        line('CHECKLIST ĐÀO TẠO (CÓ XÁC NHẬN CỦA HỌC VIÊN)', bold=True, size=12)
-        row_h = 32
-        c.setFont('VNSans-Bold', 8)
-        c.drawString(margin, y, 'Đầu việc')
-        c.drawString(margin + 190, y, 'Ngày')
-        c.drawString(margin + 240, y, 'Ký Trainer')
-        c.drawString(margin + 310, y, 'Ảnh minh chứng')
-        y -= 12
-        for item in checklist:
-            ensure_space(row_h + 4)
-            c.setFont('VNSans', 8)
-            c.drawString(margin, y, (item.get('name') or '')[:38])
-            c.drawString(margin + 190, y, item.get('date') or '')
-            sign_x = margin + 240
-            img = _fetch_image(item.get('sign_trainer_url'))
-            if img:
-                c.drawImage(img, sign_x, y - 22, width=55, height=24, preserveAspectRatio=True, anchor='c')
-            else:
-                _placeholder_box(c, sign_x, y + 2, 55, 24)
-            px = margin + 310
-            for photo_url in (item.get('photos') or [])[:3]:
-                pimg = _fetch_image(photo_url)
-                if pimg:
-                    c.drawImage(pimg, px, y - 22, width=26, height=24, preserveAspectRatio=True, anchor='c')
-                else:
-                    _placeholder_box(c, px, y + 2, 26, 24)
-                px += 29
-            y -= row_h
-        y -= 6
+        story.append(Paragraph('2. Checklist đào tạo (có xác nhận của học viên)', styles['h3']))
+        rows = [[
+            Paragraph('STT', styles['cell_bold']), Paragraph('Nội dung', styles['cell_bold']),
+            Paragraph('Ngày ĐT', styles['cell_bold']), Paragraph('Ảnh biên bản', styles['cell_bold']),
+            Paragraph('Ký Trainer', styles['cell_bold']), Paragraph('Ký HV', styles['cell_bold']),
+        ]]
+        for idx, item in enumerate(checklist, start=1):
+            photo_url = next((u for u in (item.get('photos') or []) if u), None)
+            rows.append([
+                Paragraph(str(idx), styles['cell_center']),
+                Paragraph(item.get('name', ''), styles['cell']),
+                Paragraph(item.get('date', ''), styles['cell_center']),
+                platypus_image(photo_url, 26 * mm, 20 * mm),
+                platypus_image(item.get('sign_trainer_url'), 30 * mm, 20 * mm),
+                platypus_image(item.get('sign_trainee_url'), 30 * mm, 20 * mm),
+            ])
+        story.append(styled_table(
+            rows, col_widths=[10 * mm, None, 20 * mm, 30 * mm, 32 * mm, 32 * mm],
+        ))
+        story.append(Spacer(1, 6))
 
-    # Danh gia thuc hanh (ky nang): tieu chi | diem | anh, roi ngay + nguoi danh gia + 2 chu ky
+    # 3. Danh gia thuc hanh (ky nang)
     skill_eval = ctx.get('skill_eval')
     if skill_eval:
-        ensure_space(40)
-        line('ĐÁNH GIÁ THỰC HÀNH (KỸ NĂNG)', bold=True, size=12)
-        row_h = 28
-        c.setFont('VNSans-Bold', 8)
-        c.drawString(margin, y, 'Tiêu chí')
-        c.drawString(margin + 260, y, 'Điểm')
-        c.drawString(margin + 320, y, 'Ảnh minh chứng')
-        y -= 12
-        for item in skill_eval.get('items', []):
-            ensure_space(row_h + 4)
-            c.setFont('VNSans', 8)
-            c.drawString(margin, y, (item.get('content') or '')[:44])
-            c.drawString(margin + 260, y, f"{item.get('score', 0)}/{item.get('max_score', 0)}")
-            px = margin + 320
-            pimg = _fetch_image(item.get('photo_url'))
-            if pimg:
-                c.drawImage(pimg, px, y - 20, width=40, height=22, preserveAspectRatio=True, anchor='c')
-            else:
-                _placeholder_box(c, px, y + 2, 40, 22)
-            y -= row_h
-        y -= 4
-        ensure_space(16)
-        line(
-            f"Ngày đánh giá: {skill_eval.get('date', '')}    "
+        story.append(Paragraph('3. Đánh giá thực hành', styles['h3']))
+        rows = [[
+            Paragraph('STT', styles['cell_bold']), Paragraph('Tiêu chí', styles['cell_bold']),
+            Paragraph('Tối đa', styles['cell_bold']), Paragraph('Điểm', styles['cell_bold']),
+            Paragraph('Ảnh', styles['cell_bold']),
+        ]]
+        for idx, item in enumerate(skill_eval.get('items', []), start=1):
+            rows.append([
+                Paragraph(str(idx), styles['cell_center']),
+                Paragraph(item.get('content', ''), styles['cell']),
+                Paragraph(str(item.get('max_score', '')), styles['cell_center']),
+                Paragraph(str(item.get('score', '')), styles['cell_center']),
+                platypus_image(item.get('photo_url'), 26 * mm, 20 * mm),
+            ])
+        story.append(styled_table(rows, col_widths=[10 * mm, None, 20 * mm, 20 * mm, 30 * mm]))
+        story.append(Spacer(1, 4))
+        story.append(Paragraph(
+            f"Ngày đánh giá: {skill_eval.get('date', '')} &nbsp;&nbsp; "
             f"Người đánh giá: {skill_eval.get('evaluator_name', '')}",
-            size=9,
-        )
-        y -= 6
-        sign_w, sign_h = 55 * mm, 22 * mm
-        # Giu nguyen ven ca 2 o chu ky (anh + nhan) tren cung 1 trang - can du sign_h + phan
-        # nhan ben duoi (10) + du phong chieu cao chu (9), khong chi 45 nhu truoc (qua nho,
-        # de bi tach doi khi it khong gian con lai).
-        ensure_space(sign_h + 19)
-        for i, (label, url) in enumerate([
-            ('Người đánh giá', skill_eval.get('sign_evaluator_url')),
-            ('Học viên', skill_eval.get('sign_trainee_url')),
-        ]):
-            x = margin + i * (sign_w + 10 * mm)
-            img = _fetch_image(url)
-            if img:
-                c.drawImage(img, x, y - sign_h, width=sign_w, height=sign_h, preserveAspectRatio=True, anchor='c')
-            else:
-                _placeholder_box(c, x, y, sign_w, sign_h)
-            c.setFont('VNSans', 9)
-            c.drawCentredString(x + sign_w / 2, y - sign_h - 10, label)
-        y -= sign_h + 24
+            styles['muted'],
+        ))
 
-    ensure_space(70)
-    line('KẾT QUẢ HỌC & THI LMS', bold=True, size=12)
-    for course in ctx.get('courses', []):
-        ensure_space(16)
-        line(f"- {course.get('name', '')}: {course.get('status', '')}", size=10)
-    for exam in ctx.get('exams', []):
-        ensure_space(16)
-        line(f"- {exam.get('name', '')}: {exam.get('score', '')} điểm", size=10)
-    y -= 4
+        sign_w, sign_h = 200, 90
+        sign_block = [
+            Spacer(1, 6),
+            styled_table(
+                [
+                    [Paragraph('Người đánh giá', styles['cell_bold']), Paragraph('Học viên', styles['cell_bold'])],
+                    [
+                        platypus_image(skill_eval.get('sign_evaluator_url'), sign_w, sign_h),
+                        platypus_image(skill_eval.get('sign_trainee_url'), sign_w, sign_h),
+                    ],
+                    [
+                        Paragraph(skill_eval.get('evaluator_name', ''), styles['caption']),
+                        Paragraph(emp.get('name', ''), styles['caption']),
+                    ],
+                ],
+                col_widths=[None, None], header=False,
+            ),
+        ]
+        story.append(KeepTogether(sign_block))
 
-    ensure_space(90)
-    line('ĐIỂM TỔNG HỢP', bold=True, size=12)
-    line(f"Điểm thi lý thuyết: {ctx.get('score_exam', '')}")
-    line(f"Điểm thực hành/kỹ năng: {ctx.get('score_practice', '')}")
-    line(f"Điểm tổng kết (40% thi + 60% thực hành): {ctx.get('score_final', '')}", bold=True)
-    y -= 4
-    c.setFillColorRGB(0.18, 0.44, 0.25)
-    line(f"Kết quả: {ctx.get('final_status', '')}", bold=True, size=13)
-    c.setFillColorRGB(0, 0, 0)
-    y -= 16
+    # 4. Tong hop
+    story.append(Paragraph('4. Tổng hợp', styles['h3']))
+    story.append(styled_table(
+        [
+            [Paragraph('Điểm thi', styles['cell_bold']), Paragraph('Điểm thực hành', styles['cell_bold']),
+             Paragraph('Điểm tổng hợp', styles['cell_bold'])],
+            [
+                Paragraph(str(ctx.get('score_exam', '')), styles['cell_center']),
+                Paragraph(str(ctx.get('score_practice', '')), styles['cell_center']),
+                Paragraph(str(ctx.get('score_final', '')), styles['cell_center']),
+            ],
+        ],
+        col_widths=[None, None, None],
+    ))
+    story.append(Spacer(1, 6))
+    story.append(Paragraph(
+        f"Trạng thái: <b><font color='#1e6f5c'>{ctx.get('final_status', '')}</font></b>",
+        styles['body'],
+    ))
 
     sign_w, sign_h = 60 * mm, 25 * mm
-    # Giu nguyen ven dong tieu de nguoi ky + o chu ky + ten ben duoi tren cung 1 trang - can
-    # du 12 (dong tieu de) + sign_h + 12 (ten duoi o, thay vi de de len canh duoi o nhu truoc)
-    # + du phong (9), khong chi 45 nhu truoc (qua nho).
-    ensure_space(12 + sign_h + 12 + 9)
-    x = margin
-    c.setFont('VNSans', 9)
-    c.drawString(x, y, ctx.get('signer_title', ''))
-    y -= 12
-    _placeholder_box(c, x, y, sign_w, sign_h)
-    c.drawString(x, y - sign_h - 12, ctx.get('signer_name', ''))
+    signer_block = [
+        Spacer(1, 10),
+        Paragraph('Người xác nhận', styles['h3']),
+        Paragraph(ctx.get('signer_title', ''), styles['muted']),
+        Spacer(1, 4),
+        platypus_image(None, sign_w, sign_h),
+        Spacer(1, 4),
+        Paragraph(ctx.get('signer_name', ''), styles['body_bold']),
+    ]
+    story.append(KeepTogether(signer_block))
 
-    c.showPage()
-    c.save()
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4, leftMargin=PAGE_MARGIN, rightMargin=PAGE_MARGIN,
+        topMargin=PAGE_MARGIN, bottomMargin=PAGE_MARGIN,
+    )
+    doc.build(story)
     return buf.getvalue()

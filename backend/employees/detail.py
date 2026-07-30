@@ -62,7 +62,11 @@ def student_lms(employee):
             {'name': c.course_name, 'score': c.score, 'status': c.status} for c in courses
         ],
         'exams': [
-            {'name': e.exam_name, 'attempt': e.attempt, 'score': e.score, 'passed': e.passed} for e in exams
+            {
+                'name': e.exam_name, 'attempt': e.attempt, 'score': e.score, 'passed': e.passed,
+                'is_regrade': False,
+            }
+            for e in exams
         ],
     }
 
@@ -132,6 +136,7 @@ def _pdf_checklist_rows(employee):
             'name': c.task_name,
             'date': p.completed_at.strftime('%d/%m/%Y') if p.completed_at else '',
             'sign_trainer_url': p.sign_trainer,
+            'sign_trainee_url': p.sign_trainee,
             'photos': [p.img_tailieu, p.img_lythuyet, p.img_thuchanh],
         })
     return rows
@@ -162,6 +167,7 @@ def export_probation_result_pdf(employee):
     pdf_bytes = build_probation_result_pdf({
         'record_no': f'{employee.id}/{timezone.now().year}',
         'tenant_name': employee.tenant.name,
+        'date': timezone.now().strftime('%d/%m/%Y'),
         'employee_code': employee.code,
         'employee': {
             'name': employee.name, 'position': employee.position,

@@ -3,18 +3,16 @@ Sinh phieu danh gia ky nang (PDF) cho 1 Evaluation da hoan thanh.
 
 Port bo cuc tu PDFService.gs::buildEvaluation (AppsScript Ver 2.0): header + thong tin
 nhan su + bang tieu chi (noi dung/diem toi da/diem dat/anh) + dong tong+ket qua + ghi chu +
-2 chu ky (nguoi danh gia/nhan vien). Dung chung font tieng Viet (DejaVu Sans) da dang ky
-trong checklist/pdf.py.
+2 chu ky (nguoi danh gia/nhan vien). Dung Platypus (SimpleDocTemplate + Table/Paragraph,
+xem checklist/pdf.py) - bang co vien/header nen/padding chuan, KeepTogether cho khoi chu ky.
 """
-import textwrap
 from io import BytesIO
 
-from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
-from reportlab.pdfgen import canvas
+from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer
 
-from checklist.pdf import _fetch_image, _placeholder_box, ensure_space
+from checklist.pdf import PAGE_MARGIN, pdf_header_block, pdf_styles, platypus_image, styled_table
 
 
 def build_evaluation_pdf(ctx):
@@ -23,119 +21,81 @@ def build_evaluation_pdf(ctx):
     sign_evaluator_url, sign_trainee_url.
     Tra ve PDF bytes.
     """
-    buf = BytesIO()
-    c = canvas.Canvas(buf, pagesize=A4)
-    width, height = A4
-    margin = 20 * mm
-    y = height - margin
+    styles = pdf_styles()
+    story = []
+    emp = ctx.get('employee', {})
 
-    def line(text, size=11, dy=16, bold=False):
-        nonlocal y
-        c.setFont('VNSans-Bold' if bold else 'VNSans', size)
-        c.drawString(margin, y, text)
-        y -= dy
+    story.append(pdf_header_block(
+        'PHIẾU ĐÁNH GIÁ KỸ NĂNG', f"{ctx.get('tenant_name', '')} · {ctx.get('eval_type_label', '')}",
+        [f"Số: {ctx['record_no']}", f"Ngày: {ctx.get('date', '')}"], styles,
+    ))
+    story.append(Spacer(1, 10))
 
-    c.setFont('VNSans-Bold', 16)
-    c.drawCentredString(width / 2, y, 'PHIẾU ĐÁNH GIÁ KỸ NĂNG')
-    y -= 22
-    c.setFont('VNSans', 10)
-    c.drawCentredString(width / 2, y, f"{ctx.get('tenant_name', '')} · {ctx.get('eval_type_label', '')}")
-    y -= 26
+    story.append(styled_table(
+        [
+            [Paragraph('Họ tên', styles['cell_bold']), Paragraph(emp.get('name', ''), styles['cell']),
+             Paragraph('Vị trí', styles['cell_bold']), Paragraph(emp.get('position', ''), styles['cell'])],
+            [Paragraph('Nhà hàng', styles['cell_bold']), Paragraph(emp.get('restaurant', ''), styles['cell']),
+             Paragraph('Ngày vào làm', styles['cell_bold']), Paragraph(emp.get('start_date', ''), styles['cell'])],
+        ],
+        col_widths=[28 * mm, 62 * mm, 28 * mm, 56 * mm], header=False,
+    ))
 
-    line(f"Số phiếu: {ctx['record_no']}", size=10)
-    line(f"Ngày đánh giá: {ctx.get('date', '')}", size=10)
-    y -= 6
-
-    line('THÔNG TIN NHÂN SỰ', bold=True, size=12)
-    line(f"Họ tên: {ctx['employee'].get('name', '')}")
-    line(f"Vị trí: {ctx['employee'].get('position', '')}")
-    line(f"Nhà hàng: {ctx['employee'].get('restaurant', '')}")
-    line(f"Ngày vào làm: {ctx['employee'].get('start_date', '')}")
-    y -= 10
-
-    line('TIÊU CHÍ ĐÁNH GIÁ', bold=True, size=12)
-
-    col_content_x = margin
-    col_max_x = margin + 300
-    col_score_x = margin + 370
-    col_photo_x = margin + 440
-    row_h = 18
-
-    c.setFont('VNSans-Bold', 9)
-    c.drawString(col_content_x, y, 'Nội dung')
-    c.drawCentredString(col_max_x, y, 'Điểm tối đa')
-    c.drawCentredString(col_score_x, y, 'Điểm đạt')
-    c.drawCentredString(col_photo_x, y, 'Ảnh')
-    y -= 4
-    c.line(margin, y, width - margin, y)
-    y -= row_h
-
+    story.append(Paragraph('TIÊU CHÍ ĐÁNH GIÁ', styles['h3']))
+    header_row = [
+        Paragraph('Nội dung', styles['cell_bold']), Paragraph('Điểm tối đa', styles['cell_bold']),
+        Paragraph('Điểm đạt', styles['cell_bold']), Paragraph('Ảnh', styles['cell_bold']),
+    ]
+    body_rows = []
     for idx, row in enumerate(ctx['rows'], start=1):
-        if y < 60 * mm:
-            c.showPage()
-            y = height - margin
-        c.setFont('VNSans', 9)
-        content = f"{idx}. {row.get('content', '')}"
-        wrapped = textwrap.wrap(content, 60) or ['']
-        c.drawString(col_content_x, y, wrapped[0])
-        c.drawCentredString(col_max_x, y, str(row.get('max_score', '')))
-        c.drawCentredString(col_score_x, y, str(row.get('score', '')))
+        body_rows.append([
+            Paragraph(f"{idx}. {row.get('content', '')}", styles['cell']),
+            Paragraph(str(row.get('max_score', '')), styles['cell_center']),
+            Paragraph(str(row.get('score', '')), styles['cell_center']),
+            platypus_image(row.get('photo_url'), 50, 40),
+        ])
+    story.append(styled_table([header_row] + body_rows, col_widths=[None, 22 * mm, 22 * mm, 22 * mm]))
 
-        photo_url = row.get('photo_url')
-        if photo_url:
-            img = _fetch_image(photo_url)
-            if img:
-                c.drawImage(
-                    img, col_photo_x - 15, y - 10, width=30, height=22,
-                    preserveAspectRatio=True, anchor='c',
-                )
-        rows_used = 1
-        for extra in wrapped[1:]:
-            y -= row_h
-            c.drawString(col_content_x, y, extra)
-            rows_used += 1
-        y -= row_h
-
-    c.line(margin, y + 10, width - margin, y + 10)
-    y -= 6
-    c.setFont('VNSans-Bold', 10)
-    c.drawString(col_content_x, y, 'Tổng / Kết quả')
-    c.drawCentredString(col_max_x, y, str(ctx.get('max', '')))
-    c.drawCentredString(col_score_x, y, f"{ctx.get('total', '')} ({ctx.get('percent', 0)}%)")
     result_text = ctx.get('result', '')
-    c.setFillColor(colors.HexColor('#1e7a55') if result_text == 'Đạt' else colors.HexColor('#c0392b'))
-    c.drawCentredString(col_photo_x, y, result_text)
-    c.setFillColor(colors.black)
-    y -= 20
+    result_style = styles['result_pass'] if result_text == 'Đạt' else styles['result_fail']
+    story.append(styled_table(
+        [[
+            Paragraph('Tổng / Kết quả', styles['cell_bold']),
+            Paragraph(str(ctx.get('max', '')), styles['cell_center']),
+            Paragraph(f"{ctx.get('total', '')} ({ctx.get('percent', 0)}%)", styles['cell_center']),
+            Paragraph(result_text, result_style),
+        ]],
+        col_widths=[None, 22 * mm, 22 * mm, 22 * mm], header=False,
+    ))
 
     if ctx.get('note'):
-        for wrapped_note in textwrap.wrap(f"Ghi chú: {ctx['note']}", 95):
-            line(wrapped_note, size=10)
-    y -= 10
+        story.append(Spacer(1, 6))
+        story.append(Paragraph(f"Ghi chú: {ctx['note']}", styles['body']))
 
-    sign_w, sign_h = 60 * mm, 25 * mm
-    gap = 8 * mm
-    # Giu nguyen ven tieu de + ca 2 o chu ky tren cung 1 trang (khong bi tach doi qua trang).
-    y = ensure_space(c, y, height, margin, 16 + sign_h + 24 + 10)
-    line('XÁC NHẬN', bold=True, size=12)
-    sign_top = y
-    for i, (label, url, name) in enumerate([
-        ('Người đánh giá', ctx.get('sign_evaluator_url'), ctx.get('evaluator_name', '')),
-        ('Nhân viên', ctx.get('sign_trainee_url'), ctx['employee'].get('name', '')),
-    ]):
-        x = margin + i * (sign_w + gap)
-        img = _fetch_image(url)
-        if img:
-            c.drawImage(
-                img, x, sign_top - sign_h, width=sign_w, height=sign_h,
-                preserveAspectRatio=True, anchor='c',
-            )
-        else:
-            _placeholder_box(c, x, sign_top, sign_w, sign_h)
-        c.setFont('VNSans', 9)
-        c.drawCentredString(x + sign_w / 2, sign_top - sign_h - 12, label)
-        c.drawCentredString(x + sign_w / 2, sign_top - sign_h - 24, name)
+    sign_w, sign_h = 200, 90
+    sign_block = [
+        Paragraph('XÁC NHẬN', styles['h3']),
+        styled_table(
+            [
+                [Paragraph('Người đánh giá', styles['cell_bold']), Paragraph('Nhân viên', styles['cell_bold'])],
+                [
+                    platypus_image(ctx.get('sign_evaluator_url'), sign_w, sign_h),
+                    platypus_image(ctx.get('sign_trainee_url'), sign_w, sign_h),
+                ],
+                [
+                    Paragraph(ctx.get('evaluator_name', ''), styles['caption']),
+                    Paragraph(emp.get('name', ''), styles['caption']),
+                ],
+            ],
+            col_widths=[None, None], header=False,
+        ),
+    ]
+    story.append(KeepTogether(sign_block))
 
-    c.showPage()
-    c.save()
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4, leftMargin=PAGE_MARGIN, rightMargin=PAGE_MARGIN,
+        topMargin=PAGE_MARGIN, bottomMargin=PAGE_MARGIN,
+    )
+    doc.build(story)
     return buf.getvalue()
