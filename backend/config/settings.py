@@ -219,7 +219,17 @@ RESTAURANTS_SOURCE_CSV_URL = os.environ.get('RESTAURANTS_SOURCE_CSV_URL', '')
 CHECKLIST_SOURCE_CSV_URL = os.environ.get('CHECKLIST_SOURCE_CSV_URL', '')
 DOCUMENTS_SOURCE_CSV_URL = os.environ.get('DOCUMENTS_SOURCE_CSV_URL', '')
 
-# Supabase Storage — lưu ảnh minh chứng đào tạo + biên bản PDF (xem checklist/storage.py)
+# Kho lưu file minh chứng/PDF — chọn backend qua STORAGE_BACKEND: 'r2' (mặc định) | 'supabase'.
+STORAGE_BACKEND = os.environ.get('STORAGE_BACKEND', 'r2')
+
+# Cloudflare R2 (chuẩn S3) — mặc định. Xem checklist/storage.py.
+R2_ACCOUNT_ID = os.environ.get('R2_ACCOUNT_ID', '')
+R2_ACCESS_KEY_ID = os.environ.get('R2_ACCESS_KEY_ID', '')
+R2_SECRET_ACCESS_KEY = os.environ.get('R2_SECRET_ACCESS_KEY', '')
+R2_BUCKET = os.environ.get('R2_BUCKET', '')
+R2_PUBLIC_BASE_URL = os.environ.get('R2_PUBLIC_BASE_URL', '')  # vd https://pub-xxxx.r2.dev
+
+# Supabase Storage — giữ để dự phòng/rollback (đặt STORAGE_BACKEND=supabase để dùng lại).
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
 SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY', '')
 SUPABASE_STORAGE_BUCKET = os.environ.get('SUPABASE_STORAGE_BUCKET', 'training-evidence')
