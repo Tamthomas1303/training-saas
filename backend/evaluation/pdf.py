@@ -14,7 +14,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 
-from checklist.pdf import _fetch_image, _placeholder_box  # noqa: F401 (dung chung + dang ky font VNSans)
+from checklist.pdf import _fetch_image, _placeholder_box, ensure_space
 
 
 def build_evaluation_pdf(ctx):
@@ -113,9 +113,11 @@ def build_evaluation_pdf(ctx):
             line(wrapped_note, size=10)
     y -= 10
 
-    line('XÁC NHẬN', bold=True, size=12)
     sign_w, sign_h = 60 * mm, 25 * mm
     gap = 8 * mm
+    # Giu nguyen ven tieu de + ca 2 o chu ky tren cung 1 trang (khong bi tach doi qua trang).
+    y = ensure_space(c, y, height, margin, 16 + sign_h + 24 + 10)
+    line('XÁC NHẬN', bold=True, size=12)
     sign_top = y
     for i, (label, url, name) in enumerate([
         ('Người đánh giá', ctx.get('sign_evaluator_url'), ctx.get('evaluator_name', '')),

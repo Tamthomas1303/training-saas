@@ -10,7 +10,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 
-from checklist.pdf import _fetch_image, _placeholder_box
+from checklist.pdf import _fetch_image, _placeholder_box, ensure_space
 
 
 def build_levelup_proposal_pdf(ctx):
@@ -66,7 +66,8 @@ def build_levelup_proposal_pdf(ctx):
          "theo quy chế (mỗi lần tăng 1 level).", size=10)
     y -= 30
 
-    # 3 ô chữ ký
+    # 3 o chu ky - giu nguyen ven ca 3 nhan + dong "(Ky, ghi ro ho ten)" tren cung 1 trang.
+    y = ensure_space(c, y, height, margin, 42 + 14)
     col_w = (width - 2 * margin) / 3
     labels = ['Người lập (Phòng Đào tạo)', 'Quản lý nhà hàng', 'Phê duyệt (BGĐ/HCNS)']
     c.setFont('VNSans', 10)
@@ -103,6 +104,9 @@ def build_probation_result_pdf(ctx):
         c.drawString(margin, y, text)
         y -= dy
 
+    # Ham noi bo cung ten "ensure_space" nhung chu ky khac (dung nonlocal y, khong tra ve) -
+    # che khuat ham dung chung cung ten import o dau file CHI trong pham vi ham nay; cac
+    # ham khac trong module (vd build_levelup_proposal_pdf) van dung ham dung chung.
     def ensure_space(needed):
         nonlocal y
         if y - needed < 20 * mm:
@@ -191,8 +195,11 @@ def build_probation_result_pdf(ctx):
             size=9,
         )
         y -= 6
-        ensure_space(45)
         sign_w, sign_h = 55 * mm, 22 * mm
+        # Giu nguyen ven ca 2 o chu ky (anh + nhan) tren cung 1 trang - can du sign_h + phan
+        # nhan ben duoi (10) + du phong chieu cao chu (9), khong chi 45 nhu truoc (qua nho,
+        # de bi tach doi khi it khong gian con lai).
+        ensure_space(sign_h + 19)
         for i, (label, url) in enumerate([
             ('Người đánh giá', skill_eval.get('sign_evaluator_url')),
             ('Học viên', skill_eval.get('sign_trainee_url')),
@@ -228,14 +235,17 @@ def build_probation_result_pdf(ctx):
     c.setFillColorRGB(0, 0, 0)
     y -= 16
 
-    ensure_space(45)
     sign_w, sign_h = 60 * mm, 25 * mm
+    # Giu nguyen ven dong tieu de nguoi ky + o chu ky + ten ben duoi tren cung 1 trang - can
+    # du 12 (dong tieu de) + sign_h + 12 (ten duoi o, thay vi de de len canh duoi o nhu truoc)
+    # + du phong (9), khong chi 45 nhu truoc (qua nho).
+    ensure_space(12 + sign_h + 12 + 9)
     x = margin
     c.setFont('VNSans', 9)
     c.drawString(x, y, ctx.get('signer_title', ''))
     y -= 12
-    c.drawString(x, y - sign_h, ctx.get('signer_name', ''))
     _placeholder_box(c, x, y, sign_w, sign_h)
+    c.drawString(x, y - sign_h - 12, ctx.get('signer_name', ''))
 
     c.showPage()
     c.save()

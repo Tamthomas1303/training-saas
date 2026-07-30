@@ -41,6 +41,18 @@ def _placeholder_box(c, x, y_top, w, h):
     c.setFillColor(colors.black)
 
 
+def ensure_space(c, y, page_height, margin, needed):
+    """Neu khong du 'needed' diem truc-y con lai tren trang hien tai thi sang trang moi
+    TRUOC KHI ve, roi tra ve y moi (= page_height - margin). Goi truoc khi bat dau ve 1 khoi
+    can giu nguyen ven (vd bang/section chua o chu ky) voi 'needed' la tong chieu cao that su
+    cua khoi do - tuong duong KeepTogether cua ReportLab Platypus nhung dung duoc voi
+    canvas.Canvas (ve truc tiep, khong flowable) nhu cac file pdf.py trong repo nay."""
+    if y - needed < margin:
+        c.showPage()
+        return page_height - margin
+    return y
+
+
 def build_training_record_pdf(ctx):
     """ctx keys: record_no, tenant_name, employee{name,position,restaurant,start_date},
     item{name,category,train_date}, trainer_name, note,
@@ -109,8 +121,10 @@ def build_training_record_pdf(ctx):
         x += photo_w + gap
     y = photo_top - photo_h - 26
 
-    line('XÁC NHẬN', bold=True, size=12)
     sign_w, sign_h = 60 * mm, 25 * mm
+    # Giu nguyen ven tieu de + ca 2 o chu ky tren cung 1 trang (khong bi tach doi qua trang).
+    y = ensure_space(c, y, height, margin, 16 + sign_h + 24 + 10)
+    line('XÁC NHẬN', bold=True, size=12)
     sign_top = y
     for i, (label, url, name) in enumerate([
         ('Người đào tạo (Trainer)', ctx.get('sign_trainer_url'), ctx.get('trainer_name', '')),

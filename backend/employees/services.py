@@ -259,6 +259,12 @@ def trainer_of(employee):
 
 
 def best_exam_score(employee):
+    """Diem thi dung cho muc 'Diem thi ly thuyet' trong phieu ket qua thu viec
+    (build_probation_result_pdf) - lay DIEM CAO NHAT trong tat ca cac luot thi (order_by
+    '-score', .first()). Neu sau nay co tinh nang phuc khao (Task 2 - cho phep phuc khao/
+    cham lai 1 luot thi), diem phuc khao can duoc uu tien hon diem cu cua cung luot do; noi
+    duy nhat can sua khi do la ham nay (moi noi khac - PDF, employees/career.py - deu doc
+    diem thi qua ham nay nen se tu dong nhan diem phuc khao, khong can sua noi khac)."""
     from cls_sync.models import ExamResult
 
     best = (

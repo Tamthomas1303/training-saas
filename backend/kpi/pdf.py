@@ -11,7 +11,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 
-from checklist.pdf import _fetch_image, _placeholder_box  # noqa: F401 (dang ky font VNSans)
+from checklist.pdf import _fetch_image, _placeholder_box, ensure_space
 
 
 def build_kpi_session_pdf(ctx):
@@ -72,13 +72,16 @@ def build_kpi_session_pdf(ctx):
         x += photo_w + gap
     y = photo_top - photo_h - 26
 
-    line('DANH SÁCH THAM GIA & CHỮ KÝ', bold=True, size=12)
     col_no_x = margin
     col_name_x = margin + 30
     col_pos_x = margin + 230
     col_sign_x = margin + 380
     row_h = 46
 
+    # Giu nguyen ven tieu de + dong tieu de cot + it nhat 1 dong chu ky dau tien tren cung 1
+    # trang (khong de tieu de "Chu ky" bi mo coi khong con dong nao ben duoi khi sang trang).
+    y = ensure_space(c, y, height, margin, 16 + 4 + row_h + 10)
+    line('DANH SÁCH THAM GIA & CHỮ KÝ', bold=True, size=12)
     c.setFont('VNSans-Bold', 9)
     c.drawString(col_no_x, y, 'STT')
     c.drawString(col_name_x, y, 'Họ tên')
@@ -167,6 +170,8 @@ def build_kpi_report_pdf(ctx):
         f"đạt kỹ năng lần đầu ({totals.get('skill_rate', 0)}%)",
     )
     y -= 26
+    # Giu nguyen ven ghi chu muc tieu + dong nguoi lap (xac nhan) tren cung 1 trang.
+    y = ensure_space(c, y, height, margin, 8 + 30 + 9)
     c.setFont('VNSans', 8)
     c.drawString(margin, y, 'Mục tiêu: ≥90% đúng lộ trình, ≥85% đạt kỹ năng lần đầu.')
     y -= 30
@@ -224,6 +229,8 @@ def build_allowance_pdf(ctx):
     y -= 26
     c.setFont('VNSans', 8)
     c.drawString(margin, y, 'Phụ cấp 300.000đ/nhân sự khi đủ 5 điều kiện onboarding.')
+    # Giu nguyen ven ca dong 4 o xac nhan chu ky tren cung 1 trang (khong bi tach doi).
+    y = ensure_space(c, y, height, margin, 40 + 14)
     y -= 40
 
     sign_labels = ['Phòng Đào tạo', 'Ban Giám đốc', 'TP.HCNS', 'TP.Vận hành']
