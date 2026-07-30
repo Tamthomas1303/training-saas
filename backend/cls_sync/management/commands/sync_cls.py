@@ -144,11 +144,13 @@ def sync_exams(tenant, base_url, secret_key, start_date, probation_types, stdout
                 code = str(user.get('userCode') or user.get('code') or '').strip()
                 if not code:
                     continue
+                exam_date = _parse_exam_date(exam)
                 raw[(code, candidate_type)].append({
                     'score': user.get('point'),
                     'passed': bool(user.get('isPassed')),
                     'topic_id': topic.get('id'),
                     'topic_name': topic.get('name') or '',
+                    'exam_date': exam_date.date() if exam_date else None,
                 })
 
     created = updated = skipped_no_employee = 0
@@ -177,6 +179,7 @@ def sync_exams(tenant, base_url, secret_key, start_date, probation_types, stdout
                     'passed': entry['passed'],
                     'cls_id': str(entry['topic_id']) if entry['topic_id'] is not None else '',
                     'exam_full_name': entry['topic_name'],
+                    'exam_date': entry['exam_date'],
                 },
             )
             created += int(was_created)

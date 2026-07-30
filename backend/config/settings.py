@@ -66,6 +66,7 @@ INSTALLED_APPS = [
     'kpi',
     'cls_sync',
     'sourcing',
+    'reports',
 ]
 
 MIDDLEWARE = [
@@ -277,3 +278,17 @@ EMAIL_BACKEND = (
     'django.core.mail.backends.smtp.EmailBackend' if EMAIL_HOST
     else 'django.core.mail.backends.console.EmailBackend'
 )
+
+# ---- Báo cáo đào tạo tuần/tháng (reports app) ----
+REPORT_TO = [e.strip() for e in os.environ.get('REPORT_TO', '').split(',') if e.strip()]
+REPORT_CC = [e.strip() for e in os.environ.get('REPORT_CC', '').split(',') if e.strip()]
+# CSV "Tổ chức đào tạo" (Publish to web > CSV) - cột: Training_Date, Employee_ID, Employee_Name,
+# Cousera_Code, Cousera_Name, Class_Code, Learner_Group, Assignment_Status, Participation_Status,
+# Training_Month (mỗi dòng = 1 lượt gán/tham gia của 1 NV vào 1 lớp).
+TRAINING_DATA_CSV_URL = os.environ.get('TRAINING_DATA_CSV_URL', '')
+# CSV "Chấm dịch vụ nhà hàng" - cột theo vị trí (thư mục nguồn không có header chuẩn hoá tên):
+# D=ngày chấm, F=tên nhà hàng, I=Score_Criteria, J=Criteria, N=Result_Score, O=Department_Name.
+SERVICE_AUDIT_CSV_URL = os.environ.get('SERVICE_AUDIT_CSV_URL', '')
+# Phân tích GPT (chỉ khối chấm dịch vụ) - để trống OPENAI_API_KEY = bỏ qua phần phân tích.
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+OPENAI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-4o-mini')

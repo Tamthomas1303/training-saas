@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Báo cáo đào tạo</title>
+<style>
+  body { font-family: Arial, 'DejaVu Sans', sans-serif; color: #222; font-size: 14px; margin: 0; padding: 0; background: #f5f7f6; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 24px; background: #ffffff; }
+  h1 { color: #1e6f5c; font-size: 20px; margin: 0 0 4px; }
+  h2 { color: #1e6f5c; font-size: 16px; border-bottom: 2px solid #1e6f5c; padding-bottom: 6px; margin: 28px 0 12px; }
+  .muted { color: #666; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  td, th { border: 1px solid #cfd6d3; padding: 6px 8px; font-size: 13px; text-align: left; }
+  th { background: #eef3f1; }
+  .stat-grid { display: table; width: 100%; margin-top: 8px; }
+  .stat-cell { display: table-cell; width: 25%; padding: 10px; text-align: center; border: 1px solid #cfd6d3; }
+  .stat-num { font-size: 20px; font-weight: bold; color: #1e6f5c; }
+  .stat-label { font-size: 11px; color: #666; }
+  .warn { color: #c0392b; font-weight: bold; }
+  .empty-note { color: #666; font-style: italic; font-size: 13px; }
+  .analysis-box { background: #eef3f1; border-left: 4px solid #1e6f5c; padding: 10px 14px; margin-top: 12px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Báo cáo đào tạo {{ kind_label }}</h1>
+  <div class="muted">{{ tenant_name }} · Kỳ: {{ period_label }} · Ngày lập: {{ generated_at }}</div>
+
+  <h2>1. Đào tạo nhân sự mới</h2>
+  <div class="stat-grid">
+    <div class="stat-cell">
+      <div class="stat-num">{{ block1.total_new_hires }}</div>
+      <div class="stat-label">NV mới (đang làm) trong kỳ</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-num">{{ block1.resigned_count }}</div>
+      <div class="stat-label">Nghỉ việc trong kỳ</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-num">{{ block1.passed_count }}</div>
+      <div class="stat-label">Pass thử việc trong kỳ</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-num">{% if block1.s_level_rate is not None %}{{ block1.s_level_rate }}%{% else %}—{% endif %}</div>
+      <div class="stat-label">Hoàn thành cấp S (từ đầu tháng, {{ block1.s_level_passed }}/{{ block1.s_level_total }})</div>
+    </div>
+  </div>
+
+  {% if block1.slow_restaurants %}
+  <p style="margin-bottom: 4px;"><strong class="warn">Nhà hàng đào tạo chậm</strong> (≥2 NV thử việc, tiến độ TB &lt;50%):</p>
+  <table>
+    <thead><tr><th>Nhà hàng</th><th>Số NV thử việc</th><th>Tiến độ TB</th></tr></thead>
+    <tbody>
+      {% for r in block1.slow_restaurants %}
+      <tr><td>{{ r.restaurant }}</td><td>{{ r.count }}</td><td class="warn">{{ r.avg_percent }}%</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-note">Không có nhà hàng nào đào tạo chậm.</p>
+  {% endif %}
+
+  <h2>2. Kiểm tra kiến thức</h2>
+  {% if block2.total_attempts %}
+  <div class="stat-grid">
+    <div class="stat-cell">
+      <div class="stat-num">{{ block2.total_attempts }}</div>
+      <div class="stat-label">Lượt thi</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-num">{{ block2.distinct_people }}</div>
+      <div class="stat-label">Số người thi</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-num">{{ block2.pass_rate }}%</div>
+      <div class="stat-label">Tỷ lệ đạt (≥80)</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-num">{{ block2.avg_score }}</div>
+      <div class="stat-label">Điểm trung bình</div>
+    </div>
+  </div>
+  <table>
+    <thead><tr><th>Phân loại</th><th>Số lượt</th><th>Tỷ lệ</th></tr></thead>
+    <tbody>
+      {% for c in block2.classification %}
+      <tr><td>{{ c.label }}</td><td>{{ c.count }}</td><td>{{ c.percent }}%</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-note">Không có lượt thi nào trong kỳ.</p>
+  {% endif %}
+
+  {% if block3 is not None %}
+  <h2>3. Tổ chức đào tạo</h2>
+  <div class="stat-grid">
+    <div class="stat-cell">
+      <div class="stat-num">{{ block3.total_classes }}</div>
+      <div class="stat-label">Tổng lớp</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-num">{{ block3.total_assigned }}</div>
+      <div class="stat-label">Lượt gán</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-num">{{ block3.total_attended }}</div>
+      <div class="stat-label">Lượt tham gia</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-num">{% if block3.overall_rate is not None %}{{ block3.overall_rate }}%{% else %}—{% endif %}</div>
+      <div class="stat-label">Tỷ lệ TB</div>
+    </div>
+  </div>
+  {% if block3.classes %}
+  <table>
+    <thead><tr><th>Lớp</th><th>Lượt gán</th><th>Lượt tham gia</th><th>Tỷ lệ</th></tr></thead>
+    <tbody>
+      {% for c in block3.classes %}
+      <tr><td>{{ c.name }}</td><td>{{ c.assigned }}</td><td>{{ c.attended }}</td><td>{{ c.rate }}%</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% endif %}
+
+  {% if block4 is not None %}
+  <h2>4. Chấm dịch vụ nhà hàng</h2>
+  <p><strong>Điểm trung bình toàn hệ thống:</strong> {% if block4.overall_score is not None %}{{ block4.overall_score }}%{% else %}—{% endif %}</p>
+  {% if chart_src %}
+  <img src="{{ chart_src }}" alt="Biểu đồ điểm chấm dịch vụ theo nhà hàng" style="max-width:100%; margin-top: 8px;">
+  {% endif %}
+  <table>
+    <thead><tr><th>Nhà hàng</th><th>Điểm</th></tr></thead>
+    <tbody>
+      {% for r in block4.restaurants %}
+      <tr><td>{{ r.restaurant }}</td><td>{% if r.score is not None %}{{ r.score }}%{% else %}—{% endif %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if block4.top_problems %}
+  <p style="margin-bottom: 4px;"><strong>Top vấn đề lặp lại (tiêu chí bị điểm 0):</strong></p>
+  <table>
+    <thead><tr><th>Tiêu chí</th><th>Số lần</th></tr></thead>
+    <tbody>
+      {% for p in block4.top_problems %}
+      <tr><td>{{ p.criteria }}</td><td>{{ p.count }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if block4_analysis %}
+  <div class="analysis-box">{{ block4_analysis|linebreaksbr }}</div>
+  {% endif %}
+  {% endif %}
+
+  <p class="muted" style="margin-top: 24px;">Báo cáo được tạo tự động từ dữ liệu hệ thống.</p>
+</div>
+</body>
+</html>

@@ -362,9 +362,23 @@ def recompute_final_result(employee):
 def change_employee_status(employee, new_status):
     """Doi trang thai lam viec cua nhan su + tinh lai ket qua thu viec. Port
     EmployeeService.gs::changeStatus (khong co state-machine kiem tra chuyen trang thai,
-    giong ban goc). M4.3: khi Nghi viec -> dong cac dot dang mo de khong treo bao cao."""
+    giong ban goc). M4.3: khi Nghi viec -> dong cac dot dang mo de khong treo bao cao.
+
+    resigned_at ghi ngay chuyen sang 'resigned' (chi khi dang trong - khong doi lai neu da
+    co san), xoa neu roi khoi 'resigned' - dung de bao cao dao tao tuan/thang dem dung so
+    nghi viec TRONG KY (Employee khong co lich su trang thai, day la moc thoi gian duy nhat)."""
+    from .models import Employee
+
     employee.employee_status = new_status
-    employee.save(update_fields=['employee_status'])
+    update_fields = ['employee_status']
+    if new_status == Employee.EmployeeStatus.RESIGNED:
+        if not employee.resigned_at:
+            employee.resigned_at = datetime.date.today()
+            update_fields.append('resigned_at')
+    elif employee.resigned_at:
+        employee.resigned_at = None
+        update_fields.append('resigned_at')
+    employee.save(update_fields=update_fields)
     if new_status == 'resigned':
         _close_open_enrollments_on_resign(employee)
     return recompute_final_result(employee)

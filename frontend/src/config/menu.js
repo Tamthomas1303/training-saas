@@ -17,6 +17,7 @@ export const MENU_ITEMS = {
   criteria: { label: 'Tiêu chí', icon: '📝', path: '/criteria' },
   levelup: { label: 'Thăng tiến', icon: '🚀', path: '/levelup' },
   sourcing: { label: 'ĐT nguồn', icon: '🎯', path: '/sourcing' },
+  reports: { label: 'Báo cáo', icon: '📧', path: '/reports' },
 }
 
 // Vai tro "toan he thong" -> shell desktop (topbar); con lai -> shell mobile (bottom-nav).
@@ -26,8 +27,8 @@ const MOBILE_ROLES = new Set(['trainer', 'bql', 'am', 'kcs'])
 // trung) gom vào "Trung tâm" (hub, thẻ cha → thẻ con). Thanh nav phẳng chỉ giữ hub + các mục
 // tiện ích toàn cục (dashboard/home, KPI, phụ cấp, tài liệu, người dùng).
 const ROLE_MENU = {
-  admin: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'users'],
-  om: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents'],
+  admin: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'users', 'reports'],
+  om: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'reports'],
   bod: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents'],
   am: ['hub', 'home', 'kpi', 'documents'],
   kcs: ['hub', 'home', 'kpi', 'documents'],

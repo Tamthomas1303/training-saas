@@ -27,6 +27,9 @@ class ExamResult(models.Model):
     # Ten day du cua bai thi (topic.name tren CLS, vd "15N - Ky thuat pha che...") - exam_name
     # van giu = candidate_type ("15N") de unique_together + logic nhom lan thi khong doi.
     exam_full_name = models.CharField(max_length=255, blank=True)
+    # Ngay dien ra ky thi (exam.startDate/createdDate tren CLS - xem sync_cls.py::_parse_exam_date)
+    # - dung de loc "trong ky" cho bao cao dao tao tuan/thang (reports app), KHONG phai ngay sync.
+    exam_date = models.DateField(null=True, blank=True)
     attempt = models.IntegerField(default=1)
     score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     # Diem phuc khao (admin/Phong Dao tao sua tay, uu tien hon diem CLS goc) - score o tren

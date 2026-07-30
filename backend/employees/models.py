@@ -41,6 +41,9 @@ class Employee(models.Model):
     # Ngay final_result chuyen thanh "Pass thu viec" (dung de tinh luong) - set 1 lan khi
     # chuyen trang thai, xoa neu roi khoi Pass. Xem recompute_final_result.
     pass_date = models.DateField(null=True, blank=True)
+    # Ngay chuyen sang employee_status='resigned' - set 1 lan, xoa neu roi khoi resigned. Dung
+    # de bao cao dao tao tuan/thang dem so nghi viec TRONG KY. Xem change_employee_status.
+    resigned_at = models.DateField(null=True, blank=True)
     trainer = models.ForeignKey(
         User, on_delete=models.SET_NULL, related_name='trainees', null=True, blank=True
     )
