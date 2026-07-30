@@ -523,13 +523,16 @@ def competency_gap(tenant, gap, scope_ids=None, level_group=None, cohort_id=None
         emps = [e for e in emps if not (e.interview_result or '').strip()]
     elif gap == 'exam':
         from django.conf import settings
+        from django.db.models.functions import Coalesce
+
         from cls_sync.models import ExamResult
 
         thr = settings.COMMISSION_EXAM_THRESHOLD
         passed = set(
-            ExamResult.objects.filter(
-                employee__in=emps, passed=True, score__gte=thr
-            ).values_list('employee_id', flat=True)
+            ExamResult.objects.filter(employee__in=emps)
+            .annotate(computed_score=Coalesce('score_adjusted', 'score'))
+            .filter(computed_score__gte=thr)
+            .values_list('employee_id', flat=True)
         )
         emps = [e for e in emps if e.id not in passed]
     elif gap == 'cohort' and cohort_id:

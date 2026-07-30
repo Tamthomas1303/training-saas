@@ -167,6 +167,9 @@ def sync_exams(tenant, base_url, secret_key, start_date, probation_types, stdout
             slots.append((2, best))
 
         for attempt, entry in slots:
+            # 'defaults' KHONG duoc them 'score_adjusted' - update_or_create chi ghi de cac
+            # truong co trong defaults, nen diem phuc khao (admin sua tay) khong bao gio bi
+            # dong bo CLS ghi de, du chay sync_cls bao nhieu lan sau do.
             _, was_created = ExamResult.objects.update_or_create(
                 tenant=tenant, employee=employee, exam_name=candidate_type, attempt=attempt,
                 defaults={

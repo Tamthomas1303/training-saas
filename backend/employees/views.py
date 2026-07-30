@@ -421,6 +421,79 @@ class StudentOfficeResultView(APIView):
         return Response({'office_result': result, 'final_result': employee.final_result})
 
 
+EXAM_REGRADE_ROLES = {'admin', 'om'}
+
+
+class StudentExamResultsView(APIView):
+    """GET /api/employees/<id>/exam-results/ — danh sach tat ca luot thi (kem diem goc/diem
+    phuc khao/diem cuoi cung) de hien bang phuc khao tren panel Admin/Phong Dao tao."""
+
+    def get(self, request, pk):
+        if (request.user.role or '').lower() not in EXAM_REGRADE_ROLES:
+            return Response({'detail': 'Chỉ Admin/OM (Phòng Đào tạo) được xem/sửa điểm phúc khảo.'}, status=403)
+        employee = get_object_or_404(Employee, pk=pk, tenant=request.user.tenant)
+        from cls_sync.models import ExamResult
+
+        exams = ExamResult.objects.filter(employee=employee).order_by('exam_name', 'attempt')
+        return Response([
+            {
+                'id': e.id,
+                'exam_name': e.exam_full_name or e.exam_name,
+                'attempt': e.attempt,
+                'score': e.score,
+                'score_adjusted': e.score_adjusted,
+                'final_score': e.final_score,
+                'passed': e.passed,
+            }
+            for e in exams
+        ])
+
+
+class StudentExamRegradeView(APIView):
+    """POST /api/employees/<id>/exam-regrade/ — sua diem phuc khao 1 luot thi cu the
+    ({exam_result_id, adjusted_score, reason}). Ghi audit log (ExamScoreAdjustment) va tinh
+    lai ket qua thu viec ngay sau khi luu. Chi Admin/OM (Phong Dao tao)."""
+
+    def post(self, request, pk):
+        if (request.user.role or '').lower() not in EXAM_REGRADE_ROLES:
+            return Response({'detail': 'Chỉ Admin/OM (Phòng Đào tạo) được sửa điểm phúc khảo.'}, status=403)
+        employee = get_object_or_404(Employee, pk=pk, tenant=request.user.tenant)
+
+        from decimal import Decimal, InvalidOperation
+
+        from cls_sync.models import ExamResult, ExamScoreAdjustment
+
+        exam_result = get_object_or_404(
+            ExamResult, pk=request.data.get('exam_result_id'), employee=employee, tenant=request.user.tenant,
+        )
+        reason = (request.data.get('reason') or '').strip()
+        if not reason:
+            return Response({'detail': 'Vui lòng nhập lý do phúc khảo.'}, status=400)
+        try:
+            adjusted_score = Decimal(str(request.data.get('adjusted_score')))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response({'detail': 'Điểm phúc khảo không hợp lệ.'}, status=400)
+
+        old_score = exam_result.final_score
+        exam_result.score_adjusted = adjusted_score
+        exam_result.save(update_fields=['score_adjusted'])
+        ExamScoreAdjustment.objects.create(
+            tenant=request.user.tenant, exam_result=exam_result,
+            old_score=old_score, new_score=adjusted_score, reason=reason, adjusted_by=request.user,
+        )
+
+        from .services import recompute_final_result
+
+        recompute_final_result(employee)
+        return Response({
+            'id': exam_result.id,
+            'score': exam_result.score,
+            'score_adjusted': exam_result.score_adjusted,
+            'final_score': exam_result.final_score,
+            'final_result': employee.final_result,
+        })
+
+
 class CompetencyGapView(APIView):
     """GET /api/employees/competency-gap/?gap=&level_group=&cohort= — lọc theo khung năng lực:
     danh sách nhân sự còn thiếu (chưa đánh giá/chưa đạt thi/chưa tham gia khóa). Admin/OM/AM/KCS/BQL."""

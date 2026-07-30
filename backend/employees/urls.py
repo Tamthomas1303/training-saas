@@ -32,6 +32,8 @@ from .views import (
     RecruitmentSyncNowView,
     StudentChangeStatusView,
     StudentDetailView,
+    StudentExamRegradeView,
+    StudentExamResultsView,
     StudentExportProbationResultView,
 )
 
@@ -54,6 +56,8 @@ urlpatterns = [
     path('<int:pk>/detail/', StudentDetailView.as_view(), name='employee-detail'),
     path('<int:pk>/change-status/', StudentChangeStatusView.as_view(), name='employee-change-status'),
     path('<int:pk>/office-result/', StudentOfficeResultView.as_view(), name='employee-office-result'),
+    path('<int:pk>/exam-results/', StudentExamResultsView.as_view(), name='employee-exam-results'),
+    path('<int:pk>/exam-regrade/', StudentExamRegradeView.as_view(), name='employee-exam-regrade'),
     path('levelup-eligible/', LevelUpEligibleView.as_view(), name='employee-levelup-eligible'),
     path('competency-gap/', CompetencyGapView.as_view(), name='employee-competency-gap'),
     path('<int:pk>/levelup-options/', LevelUpOptionsView.as_view(), name='employee-levelup-options'),

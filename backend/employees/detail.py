@@ -52,10 +52,13 @@ def student_checklist(employee):
 
 
 def student_lms(employee):
+    from django.conf import settings
+
     from cls_sync.models import CourseResult, ExamResult
 
     courses = CourseResult.objects.filter(employee=employee).order_by('course_name')
     exams = ExamResult.objects.filter(employee=employee).order_by('exam_name', 'attempt')
+    threshold = settings.COMMISSION_EXAM_THRESHOLD
     return {
         'course_done': courses.filter(status='Đạt').exists(),
         'courses': [
@@ -63,8 +66,12 @@ def student_lms(employee):
         ],
         'exams': [
             {
-                'name': e.exam_full_name or e.exam_name, 'attempt': e.attempt, 'score': e.score,
-                'passed': e.passed, 'is_regrade': False,
+                'name': e.exam_full_name or e.exam_name, 'attempt': e.attempt,
+                'score': e.final_score,
+                # 'Dat' hien theo final_score (uu tien diem phuc khao) chu khong theo co
+                # 'passed' goc cua CLS - phuc khao co the lat 1 luot truot thanh dat.
+                'passed': e.final_score is not None and float(e.final_score) >= threshold,
+                'is_regrade': e.score_adjusted is not None,
             }
             for e in exams
         ],

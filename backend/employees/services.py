@@ -159,19 +159,28 @@ def lms_done(employee):
 
 
 def exam_pass(employee, threshold=None):
-    """Port ProbationService.gs::_examPass (Config.examPass(), mac dinh 80)."""
+    """Port ProbationService.gs::_examPass (Config.examPass(), mac dinh 80). Dung final_score
+    (COALESCE score_adjusted, score) de diem phuc khao (neu co) uu tien hon diem CLS goc -
+    khong con doi hoi passed=True cua CLS, vi phuc khao co the lat 1 luot truot thanh dat."""
     from django.conf import settings
+    from django.db.models.functions import Coalesce
 
     from cls_sync.models import ExamResult
 
     threshold = settings.COMMISSION_EXAM_THRESHOLD if threshold is None else threshold
-    return ExamResult.objects.filter(employee=employee, passed=True, score__gte=threshold).exists()
+    return (
+        ExamResult.objects.filter(employee=employee)
+        .annotate(computed_score=Coalesce('score_adjusted', 'score'))
+        .filter(computed_score__gte=threshold)
+        .exists()
+    )
 
 
 def batch_lms_marks(employees, threshold=None):
     """3 dau LMS/Danh gia (hoc/thi/ky nang) cho nhieu nhan su cung luc - tranh N+1 khi liet
-    ke danh sach nhan su. Dung chung dieu kien voi lms_done/exam_pass."""
+    ke danh sach nhan su. Dung chung dieu kien voi lms_done/exam_pass (final_score, xem do)."""
     from django.conf import settings
+    from django.db.models.functions import Coalesce
 
     from cls_sync.models import CourseResult, ExamResult
 
@@ -184,7 +193,9 @@ def batch_lms_marks(employees, threshold=None):
         .values_list('employee_id', flat=True)
     )
     exam_pass_ids = set(
-        ExamResult.objects.filter(employee_id__in=employee_ids, passed=True, score__gte=threshold)
+        ExamResult.objects.filter(employee_id__in=employee_ids)
+        .annotate(computed_score=Coalesce('score_adjusted', 'score'))
+        .filter(computed_score__gte=threshold)
         .values_list('employee_id', flat=True)
     )
     return {
@@ -260,19 +271,21 @@ def trainer_of(employee):
 
 def best_exam_score(employee):
     """Diem thi dung cho muc 'Diem thi ly thuyet' trong phieu ket qua thu viec
-    (build_probation_result_pdf) - lay DIEM CAO NHAT trong tat ca cac luot thi (order_by
-    '-score', .first()). Neu sau nay co tinh nang phuc khao (Task 2 - cho phep phuc khao/
-    cham lai 1 luot thi), diem phuc khao can duoc uu tien hon diem cu cua cung luot do; noi
-    duy nhat can sua khi do la ham nay (moi noi khac - PDF, employees/career.py - deu doc
-    diem thi qua ham nay nen se tu dong nhan diem phuc khao, khong can sua noi khac)."""
+    (build_probation_result_pdf) - lay DIEM CAO NHAT trong tat ca cac luot thi, dung
+    final_score (COALESCE score_adjusted, score - xem ExamResult.final_score) nen diem phuc
+    khao (Task 2, da co model that su - ExamResult.score_adjusted) tu dong duoc uu tien."""
+    from django.db.models.functions import Coalesce
+
     from cls_sync.models import ExamResult
 
     best = (
-        ExamResult.objects.filter(employee=employee, score__isnull=False)
-        .order_by('-score')
+        ExamResult.objects.filter(employee=employee)
+        .annotate(computed_score=Coalesce('score_adjusted', 'score'))
+        .filter(computed_score__isnull=False)
+        .order_by('-computed_score')
         .first()
     )
-    return float(best.score) if best else 0
+    return float(best.computed_score) if best else 0
 
 
 def compute_final_result(employee):

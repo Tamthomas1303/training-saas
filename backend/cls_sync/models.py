@@ -1,6 +1,6 @@
 from django.db import models
 
-from accounts.models import Tenant
+from accounts.models import Tenant, User
 from employees.models import Employee
 
 
@@ -29,6 +29,9 @@ class ExamResult(models.Model):
     exam_full_name = models.CharField(max_length=255, blank=True)
     attempt = models.IntegerField(default=1)
     score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    # Diem phuc khao (admin/Phong Dao tao sua tay, uu tien hon diem CLS goc) - score o tren
+    # LUON la diem goc tu CLS, sync_cls khong bao gio dong den cot nay. Xem final_score.
+    score_adjusted = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     passed = models.BooleanField(default=False)
     cls_id = models.CharField(max_length=100, blank=True)
     synced_at = models.DateTimeField(auto_now=True)
@@ -38,3 +41,25 @@ class ExamResult(models.Model):
 
     def __str__(self):
         return f'{self.employee_id} - {self.exam_name} lần {self.attempt}'
+
+    @property
+    def final_score(self):
+        """Diem dung de tinh pass/hien thi o moi noi - uu tien diem phuc khao neu co."""
+        return self.score_adjusted if self.score_adjusted is not None else self.score
+
+
+class ExamScoreAdjustment(models.Model):
+    """Audit log cho tung lan phuc khao diem thi (Task 2) - luu lai de doi chieu, khong sua/xoa."""
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='exam_score_adjustments')
+    exam_result = models.ForeignKey(ExamResult, on_delete=models.CASCADE, related_name='adjustments')
+    old_score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    new_score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    reason = models.TextField(blank=True)
+    adjusted_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, related_name='exam_score_adjustments', null=True, blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'ExamScoreAdjustment({self.exam_result_id}, {self.old_score} -> {self.new_score})'

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import AppShell from '../components/AppShell'
 import Badge from '../components/Badge'
+import Modal from '../components/Modal'
 import ProgressBar from '../components/ProgressBar'
 import Table from '../components/Table'
 import { useAuth } from '../auth/AuthContext'
@@ -10,6 +11,8 @@ import api from '../api/client'
 // Panel "Quản trị nhân sự" (đổi trạng thái, xuất phiếu...) chỉ dành cho Admin/OM.
 // Trainer/BQL/AM/KCS chỉ xem chi tiết + checklist, không hiện phần quản trị nhiều thông tin.
 const ADMIN_ROLES = new Set(['admin', 'om'])
+// Phúc khảo điểm thi: cùng phạm vi quyền với office-result/exam-regrade ở backend (Admin/OM).
+const EXAM_REGRADE_ROLES = ADMIN_ROLES
 // Đổi trạng thái làm việc: Admin/OM (panel đầy đủ) và cả BQL/Trainer (chỉ control gọn).
 const STATUS_UPDATE_ROLES = new Set(['admin', 'om', 'bql', 'trainer'])
 const COUNCIL_FINALIZE_ROLES = new Set(['admin', 'om', 'am', 'kcs'])
@@ -39,11 +42,21 @@ export default function StudentDetailPage() {
   const [statusValue, setStatusValue] = useState('')
   const [saving, setSaving] = useState(false)
 
+  const [examModalOpen, setExamModalOpen] = useState(false)
+  const [examRows, setExamRows] = useState([])
+  const [examError, setExamError] = useState('')
+  const [selectedExamId, setSelectedExamId] = useState('')
+  const [adjustedScore, setAdjustedScore] = useState('')
+  const [regradeReason, setRegradeReason] = useState('')
+  const [examSaving, setExamSaving] = useState(false)
+  const [examMessage, setExamMessage] = useState('')
+
   const role = (user.role || '').toLowerCase()
   const isBod = role === 'bod'
   const isAdminPanel = ADMIN_ROLES.has(role)
   const canUpdateStatus = STATUS_UPDATE_ROLES.has(role)
   const canFinalizeCouncil = COUNCIL_FINALIZE_ROLES.has(role)
+  const canRegradeExam = EXAM_REGRADE_ROLES.has(role)
 
   function load() {
     api
@@ -82,6 +95,45 @@ export default function StudentDetailPage() {
       setMessage(err.response?.data?.detail || 'Không ghi được kết quả.')
     } finally {
       setSaving(false)
+    }
+  }
+
+  function openExamRegradeModal() {
+    setExamError('')
+    setExamMessage('')
+    setSelectedExamId('')
+    setAdjustedScore('')
+    setRegradeReason('')
+    setExamModalOpen(true)
+    api
+      .get(`/employees/${id}/exam-results/`)
+      .then(({ data }) => setExamRows(data))
+      .catch(() => setExamError('Không tải được danh sách lượt thi.'))
+  }
+
+  async function saveExamRegrade() {
+    if (!selectedExamId) {
+      setExamMessage('Vui lòng chọn 1 lượt thi.')
+      return
+    }
+    setExamSaving(true)
+    setExamMessage('')
+    try {
+      await api.post(`/employees/${id}/exam-regrade/`, {
+        exam_result_id: selectedExamId,
+        adjusted_score: adjustedScore,
+        reason: regradeReason,
+      })
+      setExamMessage('Đã lưu điểm phúc khảo.')
+      setAdjustedScore('')
+      setRegradeReason('')
+      const { data } = await api.get(`/employees/${id}/exam-results/`)
+      setExamRows(data)
+      load()
+    } catch (err) {
+      setExamMessage(err.response?.data?.detail || 'Không lưu được điểm phúc khảo.')
+    } finally {
+      setExamSaving(false)
     }
   }
 
@@ -282,8 +334,15 @@ export default function StudentDetailPage() {
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0 }}>Kết quả học & thi LMS</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+          <h3 style={{ margin: 0 }}>Kết quả học & thi LMS</h3>
+          {canRegradeExam && (
+            <button className="btn-outline btn-sm" onClick={openExamRegradeModal}>
+              Phúc khảo điểm thi
+            </button>
+          )}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 8 }}>
           <div>
             <div className="stat-label">Khóa học</div>
             {lms.courses.length === 0 && <p className="muted-note">Chưa có dữ liệu.</p>}
@@ -300,7 +359,7 @@ export default function StudentDetailPage() {
             {lms.exams.map((e, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0' }}>
                 <span>
-                  {e.name} (lần {e.attempt})
+                  {e.name} (lần {e.attempt}) {e.is_regrade && <Badge variant="mint">PK</Badge>}
                 </span>
                 <Badge variant={e.passed ? 'success' : 'danger'}>{e.score ?? '—'} điểm</Badge>
               </div>
@@ -308,6 +367,94 @@ export default function StudentDetailPage() {
           </div>
         </div>
       </div>
+
+      <Modal
+        open={examModalOpen}
+        title="Phúc khảo điểm thi"
+        onClose={() => setExamModalOpen(false)}
+        footer={
+          <>
+            <button className="btn-outline" onClick={() => setExamModalOpen(false)}>
+              Đóng
+            </button>
+            <button onClick={saveExamRegrade} disabled={examSaving}>
+              Lưu
+            </button>
+          </>
+        }
+      >
+        {examError && <p style={{ color: 'var(--danger)' }}>{examError}</p>}
+        {!examError && (
+          <>
+            <Table>
+              <thead>
+                <tr>
+                  <th>Bài thi</th>
+                  <th>Lần</th>
+                  <th>Điểm gốc</th>
+                  <th>Điểm phúc khảo</th>
+                  <th>Điểm cuối</th>
+                </tr>
+              </thead>
+              <tbody>
+                {examRows.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="muted-note">
+                      Chưa có lượt thi nào.
+                    </td>
+                  </tr>
+                )}
+                {examRows.map((e) => (
+                  <tr key={e.id}>
+                    <td>{e.exam_name}</td>
+                    <td>{e.attempt}</td>
+                    <td>{e.score ?? '—'}</td>
+                    <td>{e.score_adjusted ?? '—'}</td>
+                    <td>{e.final_score ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+            <div style={{ marginTop: 16, display: 'grid', gap: 8 }}>
+              <label>
+                Chọn lượt thi
+                <select
+                  value={selectedExamId}
+                  onChange={(e) => setSelectedExamId(e.target.value)}
+                  style={{ width: '100%' }}
+                >
+                  <option value="">— Chọn lượt thi —</option>
+                  {examRows.map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {e.exam_name} - lần {e.attempt} (điểm hiện tại: {e.final_score ?? '—'})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Điểm phúc khảo mới
+                <input
+                  type="number"
+                  step="0.01"
+                  value={adjustedScore}
+                  onChange={(e) => setAdjustedScore(e.target.value)}
+                  style={{ width: '100%' }}
+                />
+              </label>
+              <label>
+                Lý do phúc khảo
+                <textarea
+                  value={regradeReason}
+                  onChange={(e) => setRegradeReason(e.target.value)}
+                  rows={3}
+                  style={{ width: '100%' }}
+                />
+              </label>
+              {examMessage && <p>{examMessage}</p>}
+            </div>
+          </>
+        )}
+      </Modal>
 
       <div className="card" style={{ marginBottom: 16 }}>
         <h3 style={{ marginTop: 0 }}>Các bài đánh giá</h3>
