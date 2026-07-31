@@ -136,6 +136,27 @@ class TrainingOrgCsvTests(TestCase):
     def test_returns_none_when_no_url(self):
         self.assertIsNone(training_org_block('', datetime.date(2026, 7, 1), datetime.date(2026, 7, 31)))
 
+    @patch('reports.metrics_csv.requests.get')
+    def test_finds_header_row_past_leading_blank_and_title_rows(self, mock_get):
+        """Sheet nguon co dong trong + dong tieu de truoc dong header that - phai tim dung
+        dong header (chua Training_Date + Employee_ID) thay vi coi dong dau la header.
+        Bao cao Tuan 27/07-02/08/2026 phai thay 2 lop (ngay 30, 31)."""
+        csv_text = (
+            '\n'
+            'BAO CAO TO CHUC DAO TAO - THANG 7/2026\n'
+            '\n'
+            'Training_Date,Employee_ID,Employee_Name,Cousera_Code,Cousera_Name,Class_Code,'
+            'Learner_Group,Assignment_Status,Participation_Status,Training_Month\n'
+            '30/07/2026,NV1,A,C1,Lop Pha che,C1,G1,Đã gán,Đã tham gia,07/2026\n'
+            '31/07/2026,NV2,B,C2,Lop An toan thuc pham,C2,G1,Đã gán,Đã tham gia,07/2026\n'
+        )
+        mock_get.return_value = FakeResponse(csv_text)
+        result = training_org_block('http://fake-url', datetime.date(2026, 7, 27), datetime.date(2026, 8, 2))
+        self.assertEqual(result['total_classes'], 2)
+        self.assertEqual(result['total_assigned'], 2)
+        self.assertEqual(result['total_attended'], 2)
+        self.assertEqual({c['name'] for c in result['classes']}, {'Lop Pha che', 'Lop An toan thuc pham'})
+
 
 class ServiceAuditCsvTests(TestCase):
     @patch('reports.metrics_csv.requests.get')

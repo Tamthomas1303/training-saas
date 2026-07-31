@@ -75,12 +75,32 @@ def _is_attended_status(text):
     return any(k in t for k in POSITIVE_STATUS_KEYWORDS)
 
 
-def _fetch_csv_dict_rows(csv_url):
-    """Doc CSV co dong tieu de ten cot (csv.DictReader) - dung cho sheet 'To chuc dao tao'."""
+def _fetch_csv_dict_rows(csv_url, required_headers=()):
+    """Doc CSV co dong tieu de ten cot - dung cho sheet 'To chuc dao tao'. KHONG coi dong DAU
+    TIEN la header (csv.DictReader mac dinh) vi sheet nguon co the co vai dong trong/tieu de
+    lon truoc dong header that. Thay vao do, TIM dong dau tien chua DU cac ten cot trong
+    required_headers roi dung dong do lam fieldnames, du lieu tinh tu dong ke tiep."""
     resp = requests.get(csv_url, timeout=30)
     resp.raise_for_status()
     resp.encoding = 'utf-8'
-    return list(csv.DictReader(io.StringIO(resp.text)))
+    rows = list(csv.reader(io.StringIO(resp.text)))
+
+    header_idx = None
+    for i, row in enumerate(rows):
+        cells = {(cell or '').strip() for cell in row}
+        if all(h in cells for h in required_headers):
+            header_idx = i
+            break
+    if header_idx is None:
+        return []
+
+    fieldnames = [(cell or '').strip() for cell in rows[header_idx]]
+    data_rows = []
+    for row in rows[header_idx + 1:]:
+        if not any((cell or '').strip() for cell in row):
+            continue  # bo dong trong xen giua
+        data_rows.append(dict(zip(fieldnames, row)))
+    return data_rows
 
 
 def _fetch_csv_raw_rows(csv_url):
@@ -96,7 +116,7 @@ def training_org_block(csv_url, start, end):
     """Tra ve None neu chua cau hinh TRAINING_DATA_CSV_URL (khoi bi an tren bao cao)."""
     if not csv_url:
         return None
-    rows = _fetch_csv_dict_rows(csv_url)
+    rows = _fetch_csv_dict_rows(csv_url, required_headers=('Training_Date', 'Employee_ID'))
 
     by_class = defaultdict(lambda: {'name': '', 'assigned': 0, 'attended': 0})
     total_assigned = total_attended = 0

@@ -1,3 +1,4 @@
+import datetime
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -5,6 +6,7 @@ from django.core.management import call_command
 from django.test import TestCase, override_settings
 
 from accounts.models import Tenant
+from cls_sync.management.commands.sync_cls import sync_exams
 from cls_sync.models import CourseResult, ExamResult
 from cls_sync.services import onboarding_eligible
 from employees.models import Employee
@@ -110,3 +112,56 @@ class SyncClsRecomputeTests(TestCase):
         course = CourseResult.objects.get(employee=self.employee, course_name='Hội nhập Test')
         self.assertEqual(course.progress, 100)
         mock_recompute.assert_called_once_with(self.employee)
+
+
+class SyncExamsResultExamsEndpointTests(TestCase):
+    """sync_exams phai lay ngay/ten/diem tu /user/result-exams (completeDate that su), khong
+    phai tu exam.startDate cua /exam/get-learner-result; bo qua lan point=0."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.employee = Employee.objects.create(tenant=self.tenant, code='NV1', name='Nguyen Van A')
+
+    @patch('cls_sync.management.commands.sync_cls._get_json')
+    def test_uses_complete_date_thematic_name_score_and_skips_zero_point(self, mock_get_json):
+        def side_effect(base_url, path, params, stdout, style):
+            if path == '/exam/get-list':
+                return [{'id': 1, 'startDate': '2026-07-01T00:00:00'}]
+            if path == '/exam/get-learner-result':
+                # Roster: NV1 xuat hien trong 1 topic khop tien to "15N" -> can goi
+                # /user/result-exams cho NV1.
+                return [{'id': 10, 'name': '15N_Ky thuat pha che', 'users': [{'userCode': 'NV1'}]}]
+            if path == '/user/result-exams' and params.get('Code') == 'NV1':
+                if params.get('PageNumber') == 1:
+                    return {'data': {'pageLists': [
+                        {
+                            'completeDate': '2026-07-10T09:30:00', 'thematicName': '15N_Ky thuat pha che',
+                            'examName': 'Thi ly thuyet', 'point': 85,
+                        },
+                        {
+                            # point=0 -> phai bi bo qua (thi sinh chua kip thi ma API tra ve)
+                            'completeDate': '2026-07-12T09:30:00', 'thematicName': '15N_Ky thuat pha che',
+                            'examName': 'Thi ly thuyet', 'point': 0,
+                        },
+                        {
+                            # tien to khong nam trong CLS_PROBATION_EXAM_TYPES -> phai bi loai
+                            'completeDate': '2026-07-14T09:30:00', 'thematicName': 'ZZZ_Khac',
+                            'examName': 'X', 'point': 70,
+                        },
+                    ]}}
+                return {'data': {'pageLists': []}}
+            return []
+
+        mock_get_json.side_effect = side_effect
+
+        sync_exams(
+            self.tenant, 'http://fake-base', 'secret', datetime.datetime(2026, 1, 1),
+            ['NV', '10N', '15N', '30N'], None, None,
+        )
+
+        exam = ExamResult.objects.get(employee=self.employee, exam_name='15N', attempt=1)
+        self.assertEqual(exam.score, 85)
+        self.assertEqual(exam.exam_full_name, '15N_Ky thuat pha che')
+        self.assertEqual(exam.exam_date, datetime.date(2026, 7, 10))
+        self.assertTrue(exam.passed)
+        self.assertEqual(ExamResult.objects.filter(employee=self.employee).count(), 1)  # bo point=0 + ZZZ

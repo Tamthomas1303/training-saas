@@ -351,17 +351,26 @@ def compute_final_result(employee):
 
 
 def recompute_final_result(employee):
-    """Tinh lai final_result; dong bo pass_date (ngay dung de tinh luong) theo do: khi
-    final_result chuyen thanh 'Pass thu viec' va pass_date dang trong thi set = hom nay (ngay
-    chuyen trang thai, khong doi lai neu da co san); khi roi khoi 'Pass thu viec' thi xoa
-    pass_date."""
+    """Tinh lai final_result; dong bo pass_date (ngay dung de tinh luong) theo do: CHI set
+    pass_date = hom nay khi final_result THAT SU CHUYEN sang 'Pass thu viec' (final_result CU
+    khac 'Pass thu viec', xem truoc khi ghi de) - KHONG backfill hom nay cho nguoi da Pass tu
+    truoc (vd goi lai recompute nhieu lan sau khi da Pass khong duoc doi pass_date). Khi roi
+    khoi 'Pass thu viec' thi xoa pass_date.
+
+    Luu y: ham nay duoc goi rat nhieu noi (checklist/evaluation hoan thanh, sync_cls, API
+    recompute-final...) - neu chi kiem tra "pass_date dang trong" nhu truoc day se backfill
+    SAI ngay Pass moi lan goi cho nguoi da Pass tu lau nhung pass_date bi trong (vd du lieu cu
+    truoc khi co truong nay). Xem management command clear_backfilled_pass_date de don du
+    lieu da bi ghi sai boi loi cu."""
+    previous_result = employee.final_result
     employee.final_result = compute_final_result(employee)
     update_fields = ['final_result']
-    if employee.final_result == 'Pass thử việc':
-        if not employee.pass_date:
-            employee.pass_date = datetime.date.today()
-            update_fields.append('pass_date')
-    elif employee.pass_date:
+    became_pass = employee.final_result == 'Pass thử việc' and previous_result != 'Pass thử việc'
+    left_pass = employee.final_result != 'Pass thử việc' and employee.pass_date
+    if became_pass:
+        employee.pass_date = datetime.date.today()
+        update_fields.append('pass_date')
+    elif left_pass:
         employee.pass_date = None
         update_fields.append('pass_date')
     employee.save(update_fields=update_fields)
@@ -373,18 +382,24 @@ def change_employee_status(employee, new_status):
     EmployeeService.gs::changeStatus (khong co state-machine kiem tra chuyen trang thai,
     giong ban goc). M4.3: khi Nghi viec -> dong cac dot dang mo de khong treo bao cao.
 
-    resigned_at ghi ngay chuyen sang 'resigned' (chi khi dang trong - khong doi lai neu da
-    co san), xoa neu roi khoi 'resigned' - dung de bao cao dao tao tuan/thang dem dung so
-    nghi viec TRONG KY (Employee khong co lich su trang thai, day la moc thoi gian duy nhat)."""
+    resigned_at ghi ngay chuyen sang 'resigned' (CHI khi employee_status CU khac 'resigned' -
+    khong backfill neu goi lai cho nguoi da 'resigned' tu truoc ma resigned_at dang trong),
+    xoa neu roi khoi 'resigned' - dung de bao cao dao tao tuan/thang dem dung so nghi viec
+    TRONG KY (Employee khong co lich su trang thai, day la moc thoi gian duy nhat)."""
     from .models import Employee
 
+    previous_status = employee.employee_status
     employee.employee_status = new_status
     update_fields = ['employee_status']
-    if new_status == Employee.EmployeeStatus.RESIGNED:
-        if not employee.resigned_at:
-            employee.resigned_at = datetime.date.today()
-            update_fields.append('resigned_at')
-    elif employee.resigned_at:
+    became_resigned = (
+        new_status == Employee.EmployeeStatus.RESIGNED
+        and previous_status != Employee.EmployeeStatus.RESIGNED
+    )
+    left_resigned = new_status != Employee.EmployeeStatus.RESIGNED and employee.resigned_at
+    if became_resigned:
+        employee.resigned_at = datetime.date.today()
+        update_fields.append('resigned_at')
+    elif left_resigned:
         employee.resigned_at = None
         update_fields.append('resigned_at')
     employee.save(update_fields=update_fields)

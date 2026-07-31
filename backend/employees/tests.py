@@ -13,7 +13,7 @@ from checklist.models import Checklist, TrainingProgress
 from cls_sync.models import ExamResult, ExamScoreAdjustment
 from employees.dashboard import _month_end, _s_pass_rate_this_month
 from employees.models import Employee
-from employees.services import best_exam_score, emp_type, exam_pass
+from employees.services import best_exam_score, change_employee_status, emp_type, exam_pass, recompute_final_result
 from restaurants.models import Restaurant
 from sourcing.models import Notification
 
@@ -357,3 +357,100 @@ class DashboardStatsApiTests(TestCase):
         self.assertEqual(stats['eval_next'], expected_eval_next)
         self.assertEqual(stats['den'], expected_den)
         self.assertEqual(stats['pass_rate'], expected_rate)
+
+
+class RecomputeFinalResultNoBackfillTests(TestCase):
+    """pass_date CHI duoc set khi final_result THAT SU chuyen sang Pass, khong backfill cho
+    nguoi da Pass tu truoc (loi cu: chi kiem tra pass_date dang trong, khong kiem final_result
+    CU)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+
+    def test_stamps_pass_date_on_genuine_transition(self):
+        e = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='A',
+            operation_unit=Employee.OperationUnit.PRODUCTION, final_result='',
+        )
+        recompute_final_result(e)
+        self.assertEqual(e.final_result, 'Pass thử việc')
+        self.assertEqual(e.pass_date, datetime.date.today())
+
+    def test_does_not_backfill_pass_date_for_already_pass_employee(self):
+        e = Employee.objects.create(
+            tenant=self.tenant, code='NV2', name='B',
+            operation_unit=Employee.OperationUnit.PRODUCTION, final_result='Pass thử việc',
+            pass_date=None,
+        )
+        recompute_final_result(e)
+        self.assertEqual(e.final_result, 'Pass thử việc')
+        self.assertIsNone(e.pass_date)  # KHONG backfill hom nay
+
+    def test_clears_pass_date_when_leaving_pass(self):
+        e = Employee.objects.create(
+            tenant=self.tenant, code='NV3', name='C',
+            final_result='Pass thử việc', pass_date=datetime.date(2026, 1, 1),
+        )
+        recompute_final_result(e)  # operation_unit rong -> roi vao nhanh "Tiep tuc thu viec"
+        self.assertNotEqual(e.final_result, 'Pass thử việc')
+        self.assertIsNone(e.pass_date)
+
+
+class ChangeEmployeeStatusResignedAtTests(TestCase):
+    """resigned_at CHI duoc set khi employee_status THAT SU chuyen sang resigned - cung 1 loi
+    (va cach sua) nhu pass_date."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+
+    def test_stamps_resigned_at_on_transition(self):
+        e = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='A', employee_status=Employee.EmployeeStatus.PROBATION,
+        )
+        change_employee_status(e, 'resigned')
+        self.assertEqual(e.resigned_at, datetime.date.today())
+
+    def test_does_not_backfill_resigned_at_when_already_resigned(self):
+        e = Employee.objects.create(
+            tenant=self.tenant, code='NV2', name='B',
+            employee_status=Employee.EmployeeStatus.RESIGNED, resigned_at=None,
+        )
+        change_employee_status(e, 'resigned')
+        self.assertIsNone(e.resigned_at)
+
+    def test_clears_resigned_at_when_leaving_resigned(self):
+        e = Employee.objects.create(
+            tenant=self.tenant, code='NV3', name='C',
+            employee_status=Employee.EmployeeStatus.RESIGNED, resigned_at=datetime.date(2026, 1, 1),
+        )
+        change_employee_status(e, 'active')
+        self.assertIsNone(e.resigned_at)
+
+
+class ClearBackfilledPassDateCommandTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+
+    def test_clears_pass_date_for_currently_pass_employees_only(self):
+        passed_with_date = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='A', final_result='Pass thử việc',
+            pass_date=datetime.date(2026, 1, 1),
+        )
+        not_passed = Employee.objects.create(
+            tenant=self.tenant, code='NV2', name='B', final_result='Tiếp tục thử việc',
+            pass_date=datetime.date(2026, 1, 1),
+        )
+        call_command('clear_backfilled_pass_date', tenant='Demo Tenant')
+
+        passed_with_date.refresh_from_db()
+        not_passed.refresh_from_db()
+        self.assertIsNone(passed_with_date.pass_date)
+        self.assertEqual(not_passed.pass_date, datetime.date(2026, 1, 1))  # khong dung -> khong dong
+
+    def test_idempotent_second_run_does_nothing(self):
+        Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='A', final_result='Pass thử việc',
+            pass_date=datetime.date(2026, 1, 1),
+        )
+        call_command('clear_backfilled_pass_date', tenant='Demo Tenant')
+        call_command('clear_backfilled_pass_date', tenant='Demo Tenant')  # khong loi

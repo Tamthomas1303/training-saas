@@ -59,6 +59,40 @@ def _parse_exam_date(exam):
         return None
 
 
+def _parse_complete_date(record):
+    raw = record.get('completeDate')
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(str(raw).replace('Z', ''))
+    except ValueError:
+        return None
+
+
+def _fetch_user_result_exams(base_url, secret_key, user_code, stdout, style):
+    """Lay TOAN BO lich su thi (moi chuyen de, khong chi loai thu viec) cua 1 userCode qua
+    endpoint phan trang /user/result-exams - day la nguon co NGAY-GIO THI THAT (completeDate),
+    khac voi /exam/get-learner-result chi co ngay mo ky thi (exam.startDate, thuong la mung 1).
+    Tra ve list cac ban ghi {completeDate, thematicName, examName, point}."""
+    page_size = 100
+    page_number = 1
+    records = []
+    while True:
+        payload = _get_json(
+            base_url, '/user/result-exams',
+            {'secretKey': secret_key, 'Code': user_code, 'PageNumber': page_number, 'PageSize': page_size},
+            stdout, style,
+        )
+        page_lists = ((payload or {}).get('data') or {}).get('pageLists') or []
+        if not page_lists:
+            break
+        records.extend(page_lists)
+        if len(page_lists) < page_size:
+            break
+        page_number += 1
+    return records
+
+
 def sync_courses(tenant, base_url, secret_key, stdout, style):
     employees_by_code = {e.code: e for e in Employee.objects.filter(tenant=tenant)}
 
@@ -124,16 +158,24 @@ def sync_courses(tenant, base_url, secret_key, stdout, style):
 
 
 def sync_exams(tenant, base_url, secret_key, start_date, probation_types, stdout, style):
+    """Ngay thi/ten chuyen de/diem lay tu /user/result-exams (co NGAY-GIO THI THAT qua
+    completeDate) - port ban sua vi /exam/get-learner-result chi tra ngay MO ky thi
+    (exam.startDate, thuong la mung 1 thang, khong phai ngay hoc vien thuc su thi).
+
+    Buoc 1 (roster): van dung /exam/get-list + /exam/get-learner-result nhu truoc, nhung CHI
+    de xac dinh danh sach userCode nao co lien quan toi thi thu viec (xuat hien trong topic co
+    tien to khop probation_types) - KHONG con lay diem/ngay/ten tu day.
+
+    Buoc 2: voi tung userCode trong roster, goi /user/result-exams (phan trang) lay TOAN BO
+    lich su thi cua nguoi do, loc lai theo candidate_type (tien to trong thematicName) + bo
+    qua lan point=0 (thi sinh chua kip thi ma API da tra ve)."""
     employees_by_code = {e.code: e for e in Employee.objects.filter(tenant=tenant)}
 
     exam_list = _get_json(base_url, '/exam/get-list', {'secretKey': secret_key, 'pageSize': 500}, stdout, style)
     exams = _as_list(exam_list)
     exams = [e for e in exams if (_parse_exam_date(e) or start_date) >= start_date]
-    exams.sort(key=lambda e: _parse_exam_date(e) or start_date)
 
-    # raw[(employee_code, candidate_type)] = danh sach lan thi theo dung thu tu thoi gian
-    raw = defaultdict(list)
-
+    roster_codes = set()
     for exam in exams:
         result = _get_json(
             base_url, '/exam/get-learner-result',
@@ -146,16 +188,30 @@ def sync_exams(tenant, base_url, secret_key, start_date, probation_types, stdout
                 continue
             for user in topic.get('users') or []:
                 code = str(user.get('userCode') or user.get('code') or '').strip()
-                if not code:
-                    continue
-                exam_date = _parse_exam_date(exam)
-                raw[(code, candidate_type)].append({
-                    'score': user.get('point'),
-                    'passed': bool(user.get('isPassed')),
-                    'topic_id': topic.get('id'),
-                    'topic_name': topic.get('name') or '',
-                    'exam_date': exam_date.date() if exam_date else None,
-                })
+                if code:
+                    roster_codes.add(code)
+
+    # raw[(employee_code, candidate_type)] = danh sach lan thi (chua sap xep - sap theo
+    # completeDate that su truoc khi tach lan 1/2)
+    raw = defaultdict(list)
+
+    for code in roster_codes:
+        for record in _fetch_user_result_exams(base_url, secret_key, code, stdout, style):
+            point = record.get('point')
+            if not point:
+                continue  # bo lan point=0/None - thi sinh chua kip thi ma API da goi ve
+            thematic_name = str(record.get('thematicName') or '')
+            match = TOPIC_PREFIX_RE.match(thematic_name)
+            candidate_type = match.group(1).upper() if match else None
+            if not candidate_type or candidate_type not in probation_types:
+                continue
+            complete_date = _parse_complete_date(record)
+            raw[(code, candidate_type)].append({
+                'score': point,
+                'exam_full_name': thematic_name,
+                'exam_date': complete_date.date() if complete_date else None,
+                'sort_key': complete_date or datetime.min,
+            })
 
     created = updated = skipped_no_employee = 0
     affected_employee_ids = set()
@@ -166,6 +222,7 @@ def sync_exams(tenant, base_url, secret_key, start_date, probation_types, stdout
             skipped_no_employee += 1
             continue
 
+        entries.sort(key=lambda r: r['sort_key'])
         # lan 1: giu nguyen nhu lan dau tien gap; lan 2-3: chi giu diem CAO NHAT trong 2 lan do
         slots = [(1, entries[0])]
         retries = entries[1:3]
@@ -181,9 +238,12 @@ def sync_exams(tenant, base_url, secret_key, start_date, probation_types, stdout
                 tenant=tenant, employee=employee, exam_name=candidate_type, attempt=attempt,
                 defaults={
                     'score': entry['score'],
-                    'passed': entry['passed'],
-                    'cls_id': str(entry['topic_id']) if entry['topic_id'] is not None else '',
-                    'exam_full_name': entry['topic_name'],
+                    # /user/result-exams khong tra co isPassed - suy tu diem so voi nguong
+                    # thi thu viec chuan (COMMISSION_EXAM_THRESHOLD); truong nay chi de hien
+                    # thi/tuong thich nguoc, logic pass thuc te dung final_score (xem
+                    # employees/services.py::exam_pass), khong doc truong nay.
+                    'passed': entry['score'] >= settings.COMMISSION_EXAM_THRESHOLD,
+                    'exam_full_name': entry['exam_full_name'],
                     'exam_date': entry['exam_date'],
                 },
             )
@@ -192,7 +252,7 @@ def sync_exams(tenant, base_url, secret_key, start_date, probation_types, stdout
             affected_employee_ids.add(employee.id)
 
     return {
-        'scanned': len(exams),
+        'scanned': len(roster_codes),
         'affected_employee_ids': affected_employee_ids,
         'created': created,
         'updated': updated,
