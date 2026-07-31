@@ -17,10 +17,13 @@ jobs:
       DJANGO_DEBUG: 'False'
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       EMAIL_HOST: ${{ secrets.EMAIL_HOST }}
-      EMAIL_PORT: ${{ secrets.EMAIL_PORT }}
+      # secrets khong ton tai se thanh chuoi rong (khong phai bien vang mat) - '' se de len
+      # gia tri mac dinh cua settings.py (vd int(os.environ.get('EMAIL_PORT', '587')) se
+      # crash voi int('')), nen phai co fallback || ngay o day cho 2 bien co gia tri mac dinh.
+      EMAIL_PORT: ${{ secrets.EMAIL_PORT || '587' }}
       EMAIL_HOST_USER: ${{ secrets.EMAIL_HOST_USER }}
       EMAIL_HOST_PASSWORD: ${{ secrets.EMAIL_HOST_PASSWORD }}
-      DEFAULT_FROM_EMAIL: ${{ secrets.DEFAULT_FROM_EMAIL }}
+      DEFAULT_FROM_EMAIL: ${{ secrets.DEFAULT_FROM_EMAIL || secrets.EMAIL_HOST_USER || 'no-reply@training.local' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
