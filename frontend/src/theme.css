@@ -218,6 +218,16 @@ textarea:focus {
   color: var(--amber);
 }
 
+/* Canh bao den han/qua han danh gia thu viec (danh sach Nhan su) - nhap nhay de thu hut y. */
+@keyframes badge-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.badge-blink {
+  animation: badge-blink 1s ease-in-out infinite;
+  margin-left: 6px;
+}
+
 /* ---- Table ---- */
 /* Khung cuộn ngang cho bảng để không đẩy tràn cả trang trên mobile (A1/A3) */
 .table-scroll {

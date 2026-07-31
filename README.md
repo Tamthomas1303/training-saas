@@ -72,13 +72,35 @@ python manage.py sync_recruitment --tenant "Demo Tenant"
 
 Nguồn dữ liệu: CSV export của Google Sheet tuyển dụng (`File > Share > Publish to web > CSV`), cấu hình qua `.env`: `RECRUITMENT_SOURCE_CSV_URL` (hoặc `--csv-url <path>` để trỏ tới 1 file CSV cục bộ khi test). Cột CSV bắt buộc: `Employee_ID, Employee_Name, Restaurant_Name, Restaurant_ID (tùy chọn), Job_Position, Operation_Unit, Job_Level, Start_Date, Employee_Status`. Nhà hàng được suy ra từ `Restaurant_Name` khi `Restaurant_ID` trống (khớp tên chính xác trước, sau đó bỏ tiền tố thương hiệu — port từ `SnapshotService.gs::_restIdResolver`).
 
+### alert_no_training — cảnh báo nhân sự chưa được đào tạo
+
+```powershell
+python manage.py alert_no_training --tenant "Demo Tenant"
+```
+
+Quét nhân sự đang làm, vào làm được 5–30 ngày mà tiến độ đào tạo (checklist) vẫn 0% → tạo
+Notification in-app (chuông thông báo, model `sourcing.Notification` dùng chung với M2.5) +
+gửi email cho Trainer/BQL của nhà hàng đó (`sourcing/services.py::notify_users`, đọc
+`email`/`google_email`). Mỗi nhân sự chỉ cảnh báo 1 lần (dedup theo `Notification.link` trỏ
+tới nhân sự đó, category `no_training`). Không cần cấu hình `.env` riêng — dùng lại SMTP đã
+khai báo ở mục Email (`EMAIL_HOST`/`EMAIL_HOST_USER`/`EMAIL_HOST_PASSWORD`); chưa cấu hình SMTP
+thì Notification in-app vẫn được tạo bình thường, chỉ phần email bị bỏ qua (`fail_silently`).
+
 ### Đặt lịch chạy tự động
 
-- **Production (0đ)**: `.github/workflows/sync_cls.yml` — GitHub Actions chạy mỗi 6 giờ. Cần khai báo Repository secrets: `DJANGO_SECRET_KEY`, `DATABASE_URL`, `CLS_SECRET_KEY`, `RECRUITMENT_SOURCE_CSV_URL`.
+- **Production (0đ)**: GitHub Actions — `.github/workflows/sync_cls.yml` (mỗi 6 giờ) và
+  `.github/workflows/alert_no_training.yml` (mỗi ngày, 8h sáng giờ VN). Cần khai báo Repository
+  secrets: `DJANGO_SECRET_KEY`, `DATABASE_URL`, `CLS_SECRET_KEY`, `RECRUITMENT_SOURCE_CSV_URL`
+  (cho `sync_cls.yml`); `DJANGO_SECRET_KEY`, `DATABASE_URL`, `EMAIL_HOST`, `EMAIL_PORT`,
+  `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `DEFAULT_FROM_EMAIL` (cho `alert_no_training.yml`,
+  bỏ trống nhóm `EMAIL_*` nếu chỉ cần cảnh báo in-app, không cần gửi email thật).
+  Dự án hiện chưa dùng Celery — nếu sau này có Celery/Celery Beat thì thay job này bằng 1 task
+  định kỳ gọi `call_command('alert_no_training')` thay vì GitHub Actions.
 - **Local/dev (Windows)**: tạo Task Scheduler trỏ tới lệnh sau (chạy định kỳ, ví dụ mỗi 6 tiếng):
   ```powershell
   schtasks /create /tn "SyncCLS" /sc hourly /mo 6 /tr "'F:\...\backend\.venv\Scripts\python.exe' 'F:\...\backend\manage.py' sync_cls --tenant \"Demo Tenant\"" /st 00:00
   ```
-  (thay đường dẫn thực tế; `sync_recruitment` tạo task tương tự).
+  (thay đường dẫn thực tế; `sync_recruitment` và `alert_no_training` tạo task tương tự, ví dụ
+  `/sc daily /st 08:00` cho `alert_no_training`).
 
 Xem chi tiết lộ trình sprint tiếp theo ở `01_BAN_THIET_KE_KY_THUAT.md`.

@@ -18,6 +18,7 @@ STUDENT_ADMIN_ROLES = {'admin', 'om', 'bql', 'trainer'}
 
 
 TRAINING_STATUS_FILTERS = {'in_progress', 'not_started', 'done'}
+QUICK_FILTERS = {'no_training', 's_deadline_soon', 's_overdue'}
 
 
 class EmployeeViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
@@ -61,6 +62,33 @@ class EmployeeViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
                 or (training_status == 'not_started' and percent == 0)
                 or (training_status == 'done' and percent == 100)
             ]
+            qs = qs.filter(id__in=matching_ids)
+
+        # quick_filter: bo loc nhanh tren man Danh sach nhan su - "Chua dao tao" (tien do 0%),
+        # "Cap S sap den han" (0<=days_left<=5), "Cap S qua han chua pass" (days_left<0, chua
+        # pass). Danh gia bang Python (nhu training_status o tren) vi days_left/emp_type khong
+        # phai field DB.
+        quick_filter = self.request.query_params.get('quick_filter')
+        if quick_filter in QUICK_FILTERS:
+            from .dashboard import _deadline_days_left, _is_pass
+            from .services import batch_checklist_progress_percent, emp_type
+
+            employees = list(qs)
+            matching_ids = []
+            if quick_filter == 'no_training':
+                progress_map = batch_checklist_progress_percent(employees)
+                matching_ids = [e.id for e in employees if progress_map.get(e.id, 0) == 0]
+            else:
+                for e in employees:
+                    if emp_type(e) != 'S' or e.employee_status != Employee.EmployeeStatus.PROBATION:
+                        continue
+                    days_left = _deadline_days_left(e)
+                    if days_left is None:
+                        continue
+                    if quick_filter == 's_deadline_soon' and 0 <= days_left <= 5:
+                        matching_ids.append(e.id)
+                    elif quick_filter == 's_overdue' and days_left < 0 and not _is_pass(e):
+                        matching_ids.append(e.id)
             qs = qs.filter(id__in=matching_ids)
         return qs
 

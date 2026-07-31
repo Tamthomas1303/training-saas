@@ -30,6 +30,30 @@ const TRAINING_STATUS_OPTIONS = [
   { value: 'done', label: 'Hoàn thành' },
 ]
 
+const QUICK_FILTER_OPTIONS = [
+  { value: '', label: 'Cảnh báo: tất cả' },
+  { value: 'no_training', label: 'Chưa đào tạo (tiến độ=0%)' },
+  { value: 's_deadline_soon', label: 'Cấp S sắp đến hạn (15 ngày)' },
+  { value: 's_overdue', label: 'Cấp S quá hạn (chưa pass)' },
+]
+
+function isPassResult(finalResult) {
+  const r = (finalResult || '').toLowerCase()
+  return r.includes('pass') || (r.includes('đạt') && !r.includes('không đạt'))
+}
+
+function ProbationDeadlineBadge({ employee }) {
+  if (employee.emp_type !== 'S' || employee.employee_status !== 'probation') return null
+  if (employee.days_left == null || isPassResult(employee.final_result)) return null
+  if (employee.days_left < 0) {
+    return <span className="badge badge-danger badge-blink">Quá hạn đánh giá TV</span>
+  }
+  if (employee.days_left <= 2) {
+    return <span className="badge badge-danger badge-blink">Đến hạn đánh giá TV ({employee.days_left}n)</span>
+  }
+  return null
+}
+
 const EMPTY_EMP = {
   code: '', name: '', position: '', restaurant: '', operation_unit: 'restaurant',
   start_date: '', employee_status: 'probation',
@@ -51,6 +75,7 @@ export default function EmployeesPage() {
   const [restaurant, setRestaurant] = useState('')
   const [employeeStatus, setEmployeeStatus] = useState('')
   const [trainingStatus, setTrainingStatus] = useState('')
+  const [quickFilter, setQuickFilter] = useState('')
   const [staffKind, setStaffKind] = useState('new') // 'new' | 'legacy' | '' (tất cả)
   const [resultExported, setResultExported] = useState('') // '' | 'yes' | 'no'
   const [order, setOrder] = useState('oldest')
@@ -107,6 +132,7 @@ export default function EmployeesPage() {
     restaurant: restaurant || undefined,
     employee_status: employeeStatus || undefined,
     training_status: trainingStatus || undefined,
+    quick_filter: quickFilter || undefined,
     is_legacy: staffKind === 'new' ? false : staffKind === 'legacy' ? true : undefined,
     result_exported: resultExported || undefined,
     ordering: order === 'newest' ? '-start_date' : 'start_date',
@@ -334,6 +360,11 @@ export default function EmployeesPage() {
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
+        <select style={s.select} value={quickFilter} onChange={onFilterChange(setQuickFilter)}>
+          {QUICK_FILTER_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
         <button className={`btn-sm ${order === 'oldest' ? '' : 'btn-outline'}`} onClick={() => { setOrder('oldest'); setPage(1) }}>Cũ nhất</button>
         <button className={`btn-sm ${order === 'newest' ? '' : 'btn-outline'}`} onClick={() => { setOrder('newest'); setPage(1) }}>Mới nhất</button>
       </FilterBar>
@@ -365,9 +396,10 @@ export default function EmployeesPage() {
                     {e.result_exported && (
                       <span title="Đã xuất phiếu kết quả thử việc" style={{ marginLeft: 6, color: 'var(--forest-dark)' }}>📄</span>
                     )}
+                    <ProbationDeadlineBadge employee={e} />
                   </td>
                   <td>{e.restaurant_name}</td>
-                  <td>{e.position}</td>
+                  <td>{e.position}{e.emp_type && ` (${e.emp_type})`}</td>
                   <td>{e.start_date}</td>
                   <td>
                     <Badge variant={STATUS_VARIANTS[e.employee_status] || 'neutral'}>

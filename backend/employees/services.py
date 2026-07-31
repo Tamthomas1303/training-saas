@@ -88,6 +88,15 @@ def derive_level_group(position, job_level):
     return letter if letter in ('S', 'O', 'P') else 'S'
 
 
+def emp_type(employee):
+    """Nhan cap (S/P/O) suy TRUC TIEP tu chu dau job_level - CHI dung de hien thi nhan (S)/(P)/(O)
+    canh vi tri o danh sach nhan su, KHAC voi level_group (uu tien vi tri cap O, dung cho logic
+    nghiep vu thang tien/Ban quan ly - xem derive_level_group). Tra ve '' neu job_level rong/
+    khong xac dinh (khong mac dinh ve 'S' nhu level_group, vi day la nhan hien thi)."""
+    letter = (employee.job_level or '').strip().upper()[:1]
+    return letter if letter in ('S', 'O', 'P') else ''
+
+
 def checklist_progress_percent(employee, position=None):
     """% tien do dao tao = so checklist da Hoan thanh / tong so checklist khop brand+position.
     position=None -> vi tri hien tai; truyen vi tri dich de tinh tien do vong thang tien (M1.4)."""

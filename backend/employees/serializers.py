@@ -13,6 +13,8 @@ class EmployeeSerializer(serializers.ModelSerializer):
     lms_marks = serializers.SerializerMethodField()
     result_exported = serializers.SerializerMethodField()
     result_pdf_url = serializers.CharField(source='probation_result_pdf_url', read_only=True)
+    emp_type = serializers.SerializerMethodField()
+    days_left = serializers.SerializerMethodField()
 
     class Meta:
         model = Employee
@@ -21,7 +23,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'start_date', 'restaurant', 'restaurant_name', 'employee_status', 'probation_days',
             'skill_score', 'skill_result', 'shift_ops', 'office_result', 'final_result',
             'trainer', 'trainer_name', 'commission_status', 'retrain_deadline', 'progress_percent',
-            'lms_marks', 'is_legacy', 'result_exported', 'result_pdf_url',
+            'lms_marks', 'is_legacy', 'result_exported', 'result_pdf_url', 'emp_type', 'days_left',
         ]
 
     def get_result_exported(self, obj):
@@ -49,6 +51,18 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'exam': exam_pass(obj),
             'skill': obj.skill_result == 'Đạt',
         }
+
+    def get_emp_type(self, obj):
+        from .services import emp_type
+
+        return emp_type(obj)
+
+    def get_days_left(self, obj):
+        """So ngay con toi han thu viec (start_date + probation_days - hom nay). Xem
+        employees/dashboard.py::_deadline_days_left (dung chung logic voi Dashboard/Home)."""
+        from .dashboard import _deadline_days_left
+
+        return _deadline_days_left(obj)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
