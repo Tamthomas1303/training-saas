@@ -69,6 +69,7 @@ def sync_courses(tenant, base_url, secret_key, stdout, style):
     ]
 
     created = updated = skipped_no_employee = skipped_incomplete = 0
+    affected_employee_ids = set()
 
     for course in courses:
         course_id = course.get('id')
@@ -104,11 +105,13 @@ def sync_courses(tenant, base_url, secret_key, stdout, style):
                 defaults={
                     'score': row.get('point') or 0,
                     'status': status_text,
+                    'progress': progress,
                     'cls_id': str(course_id),
                 },
             )
             created += int(was_created)
             updated += int(not was_created)
+            affected_employee_ids.add(employee.id)
 
     return {
         'scanned': len(courses),
@@ -116,6 +119,7 @@ def sync_courses(tenant, base_url, secret_key, stdout, style):
         'updated': updated,
         'skipped_no_employee': skipped_no_employee,
         'skipped_incomplete': skipped_incomplete,
+        'affected_employee_ids': affected_employee_ids,
     }
 
 
@@ -154,6 +158,7 @@ def sync_exams(tenant, base_url, secret_key, start_date, probation_types, stdout
                 })
 
     created = updated = skipped_no_employee = 0
+    affected_employee_ids = set()
 
     for (code, candidate_type), entries in raw.items():
         employee = employees_by_code.get(code)
@@ -184,9 +189,11 @@ def sync_exams(tenant, base_url, secret_key, start_date, probation_types, stdout
             )
             created += int(was_created)
             updated += int(not was_created)
+            affected_employee_ids.add(employee.id)
 
     return {
         'scanned': len(exams),
+        'affected_employee_ids': affected_employee_ids,
         'created': created,
         'updated': updated,
         'skipped_no_employee': skipped_no_employee,
@@ -227,6 +234,18 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             'Ky thi: quet {scanned}, tao moi {created}, cap nhat {updated}, '
             'bo qua (khong khop nhan su) {skipped_no_employee}'.format(**exams)
+        ))
+
+        # Diem thi/khoa hoc vua dong bo co the lam thay doi dieu kien Pass thu viec - tinh lai
+        # ngay cho tung nhan su bi anh huong (khong tinh lai ca tenant de tranh du thua).
+        from employees.models import Employee
+        from employees.services import recompute_final_result
+
+        affected_ids = courses['affected_employee_ids'] | exams['affected_employee_ids']
+        for employee in Employee.objects.filter(tenant=tenant, id__in=affected_ids):
+            recompute_final_result(employee)
+        self.stdout.write(self.style.SUCCESS(
+            f'Da tinh lai ket qua thu viec cho {len(affected_ids)} nhan su bi anh huong.'
         ))
 
         eligible = sum(

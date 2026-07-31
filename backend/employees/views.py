@@ -449,6 +449,21 @@ class StudentOfficeResultView(APIView):
         return Response({'office_result': result, 'final_result': employee.final_result})
 
 
+class StudentRecomputeFinalResultView(APIView):
+    """POST /api/employees/<id>/recompute-final/ — tinh lai ket qua thu viec ngay cho 1 nhan
+    su (vd sau khi sua diem/dong bo tay, hoac muon chac chan truoc khi xuat phieu). Chi
+    Admin/OM (Phong Dao tao)."""
+
+    def post(self, request, pk):
+        if (request.user.role or '').lower() not in {'admin', 'om'}:
+            return Response({'detail': 'Chỉ Admin/OM (Phòng Đào tạo) được tính lại kết quả thử việc.'}, status=403)
+        employee = get_object_or_404(Employee, pk=pk, tenant=request.user.tenant)
+        from .services import recompute_final_result
+
+        recompute_final_result(employee)
+        return Response(EmployeeSerializer(employee, context={'request': request}).data)
+
+
 EXAM_REGRADE_ROLES = {'admin', 'om'}
 
 

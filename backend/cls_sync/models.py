@@ -10,6 +10,9 @@ class CourseResult(models.Model):
     course_name = models.CharField(max_length=255)
     score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     status = models.CharField(max_length=50, blank=True)
+    # % tien do hoc tren CLS luc dong bo (user.progress) - dung lam fallback dieu kien du dieu
+    # kien thi khi cot diem/status chua dong bo dung (xem cls_sync/services.py::onboarding_eligible).
+    progress = models.IntegerField(null=True, blank=True)
     cls_id = models.CharField(max_length=100, blank=True)
     synced_at = models.DateTimeField(auto_now=True)
 

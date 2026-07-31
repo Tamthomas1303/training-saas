@@ -248,3 +248,31 @@ class AlertNoTrainingCommandTests(TestCase):
         call_command('alert_no_training', tenant='Demo Tenant')
         self.assertEqual(Notification.objects.filter(category='no_training').count(), 1)
         self.assertEqual(len(mail.outbox), 1)
+
+
+class RecomputeFinalResultApiTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.employee = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='A',
+            operation_unit=Employee.OperationUnit.PRODUCTION,  # luon Pass thu viec - de kiem tra don gian
+            final_result='',
+        )
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.trainer = User.objects.create_user(username='trainer1', password='x', tenant=self.tenant, role='trainer')
+        self.client = APIClient()
+
+    def test_requires_admin_or_om_role(self):
+        self.client.force_authenticate(self.trainer)
+        url = reverse('employee-recompute-final', args=[self.employee.id])
+        resp = self.client.post(url)
+        self.assertEqual(resp.status_code, 403)
+
+    def test_recomputes_and_returns_updated_employee(self):
+        self.client.force_authenticate(self.admin)
+        url = reverse('employee-recompute-final', args=[self.employee.id])
+        resp = self.client.post(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['final_result'], 'Pass thử việc')
+        self.employee.refresh_from_db()
+        self.assertEqual(self.employee.final_result, 'Pass thử việc')

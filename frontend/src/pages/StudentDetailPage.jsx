@@ -137,6 +137,20 @@ export default function StudentDetailPage() {
     }
   }
 
+  async function recomputeFinalResult() {
+    setSaving(true)
+    setMessage('')
+    try {
+      const { data } = await api.post(`/employees/${id}/recompute-final/`)
+      setMessage(`Đã tính lại: ${data.final_result || 'Chưa đủ điều kiện Pass'}.`)
+      load()
+    } catch (err) {
+      setMessage(err.response?.data?.detail || 'Không tính lại được kết quả thử việc.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function exportProbationResult() {
     setSaving(true)
     setMessage('')
@@ -234,6 +248,9 @@ export default function StudentDetailPage() {
             </select>
             <button onClick={saveStatus} disabled={saving}>
               Cập nhật trạng thái
+            </button>
+            <button className="btn-outline" onClick={recomputeFinalResult} disabled={saving}>
+              Tính lại kết quả thử việc
             </button>
             {(info.probation_result || '').startsWith('Pass') && (
               <button className="btn-outline" onClick={exportProbationResult} disabled={saving}>
