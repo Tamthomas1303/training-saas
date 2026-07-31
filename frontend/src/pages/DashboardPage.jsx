@@ -66,8 +66,11 @@ export default function DashboardPage() {
             </StatCard>
             <StatCard icon="⏳" label="Đang thử việc" value={data.stats.probation} />
             <StatCard icon="✅" label="Hoàn thành thử việc" value={data.stats.completed} />
-            <StatCard icon="🎯" label="Tỷ lệ đạt thử việc" value={`${data.stats.pass_rate}%`}>
+            <StatCard icon="🎯" label="Tỷ lệ đạt thử việc level S trong tháng" value={`${data.stats.pass_rate}%`}>
               <ProgressBar percent={data.stats.pass_rate} />
+              <div className="muted-note" style={{ marginTop: 4 }}>
+                {data.stats.num}/{data.stats.den} · vào tháng {data.stats.joined}, nghỉ {data.stats.resigned}, đánh giá tháng sau {data.stats.eval_next}
+              </div>
             </StatCard>
             <StatCard icon="💰" amber label="Chi phí phụ cấp trainer" value={fmtMoney(data.allowance_cost)} />
           </div>

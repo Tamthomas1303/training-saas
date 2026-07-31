@@ -46,6 +46,45 @@ def _deadline_days_left(employee):
     return (deadline - timezone.now().date()).days
 
 
+def _month_end(d):
+    if d.month == 12:
+        return d.replace(day=31)
+    return d.replace(month=d.month + 1, day=1) - datetime.timedelta(days=1)
+
+
+def _s_pass_rate_this_month(employees, today):
+    """Ty le dat thu viec CAP S trong thang (thay cong thuc cu passed/not_resigned toan bo -
+    chot lai theo yeu cau moi nhat): chi nhan su cap S (chu dau job_level=='S', loai Van
+    phong/Bep trung tam/cap O/P), pham vi nhan su vao lam TRONG THANG hien tai.
+
+    Mau so = so vao thang - nghi viec - danh gia roi sang thang sau (start_date + so ngay
+    thu viec > ngay cuoi thang hien tai, vd roi vao mung 1 thang sau; neu roi dung ngay cuoi
+    thang thi VAN tinh thang nay). Tu so = trong nhom vao thang do, so da Pass thu viec (tinh
+    tren CA nhom, khong tru nghi viec/danh gia thang sau khoi tu so, chi tru khoi mau so)."""
+    from .services import emp_type
+
+    month_end = _month_end(today)
+    cohort = [
+        e for e in employees
+        if e.start_date and e.start_date.month == today.month and e.start_date.year == today.year
+        and emp_type(e) == 'S'
+    ]
+    joined = len(cohort)
+    resigned = sum(1 for e in cohort if e.employee_status == Employee.EmployeeStatus.RESIGNED)
+    eval_next = sum(
+        1 for e in cohort
+        if e.employee_status != Employee.EmployeeStatus.RESIGNED
+        and e.start_date + datetime.timedelta(days=_probation_days(e)) > month_end
+    )
+    num = sum(1 for e in cohort if _is_pass(e))
+    den = joined - resigned - eval_next
+    rate = round(num / den * 100) if den > 0 else 0
+    return {
+        'rate': rate, 'num': num, 'den': den,
+        'joined': joined, 'resigned': resigned, 'eval_next': eval_next,
+    }
+
+
 def dashboard_stats(user):
     employees = list(scoped_employees(user))
     today = timezone.now().date()
@@ -60,12 +99,9 @@ def dashboard_stats(user):
         round((len(new_this) - len(new_prev)) / len(new_prev) * 100) if len(new_prev) else None
     )
 
-    # Ty le dat thu viec = so dat / tong nhan su dien thu viec (tru da nghi) x100 - cong thuc
-    # chot lai o sprint UI Dot 3, thay cho cach tinh passed/(passed+failed) truoc do.
-    passed = [e for e in employees if _is_pass(e)]
-    not_resigned = [e for e in employees if e.employee_status != Employee.EmployeeStatus.RESIGNED]
-    pass_rate = round(len(passed) / len(not_resigned) * 100) if not_resigned else 0
+    s_pass_rate = _s_pass_rate_this_month(employees, today)
 
+    passed = [e for e in employees if _is_pass(e)]
     probation_now = [e for e in employees if e.employee_status == Employee.EmployeeStatus.PROBATION]
 
     return {
@@ -73,7 +109,12 @@ def dashboard_stats(user):
         'total_new_delta': total_new_delta,
         'probation': len(probation_now),
         'completed': len(passed),
-        'pass_rate': pass_rate,
+        'pass_rate': s_pass_rate['rate'],
+        'num': s_pass_rate['num'],
+        'den': s_pass_rate['den'],
+        'joined': s_pass_rate['joined'],
+        'resigned': s_pass_rate['resigned'],
+        'eval_next': s_pass_rate['eval_next'],
         'generated_at': timezone.now().isoformat(),
     }
 

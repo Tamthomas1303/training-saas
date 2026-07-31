@@ -5,11 +5,13 @@ from django.core import mail
 from django.core.management import call_command
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from accounts.models import Tenant, User
 from checklist.models import Checklist, TrainingProgress
 from cls_sync.models import ExamResult, ExamScoreAdjustment
+from employees.dashboard import _month_end, _s_pass_rate_this_month
 from employees.models import Employee
 from employees.services import best_exam_score, emp_type, exam_pass
 from restaurants.models import Restaurant
@@ -276,3 +278,82 @@ class RecomputeFinalResultApiTests(TestCase):
         self.assertEqual(resp.data['final_result'], 'Pass thử việc')
         self.employee.refresh_from_db()
         self.assertEqual(self.employee.final_result, 'Pass thử việc')
+
+
+class SPassRateThisMonthTests(TestCase):
+    """Ty le dat thu viec cap S trong thang (employees/dashboard.py::_s_pass_rate_this_month)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.today = datetime.date(2026, 7, 31)  # thang 31 ngay, de test dung bien "roi mung 1"
+
+    def _emp(self, code, job_level, start_date, status=Employee.EmployeeStatus.PROBATION, final_result=''):
+        return Employee.objects.create(
+            tenant=self.tenant, code=code, name=f'NV {code}', job_level=job_level,
+            start_date=start_date, employee_status=status, final_result=final_result,
+        )
+
+    def test_full_breakdown(self):
+        passed = self._emp('S1', 'S1', datetime.date(2026, 7, 5), final_result='Pass thử việc')
+        self._emp('P1', 'P1', datetime.date(2026, 7, 5))  # khong phai cap S -> loai
+        self._emp('S2', 'S2', datetime.date(2026, 7, 20), status=Employee.EmployeeStatus.RESIGNED)
+        self._emp('S3', 'S3', datetime.date(2026, 7, 20))  # han danh gia roi thang sau (8/4)
+        self._emp('S4', 'S4', datetime.date(2026, 7, 16), final_result='Tiếp tục thử việc')  # han 7/31 - van tinh thang nay
+        self._emp('S5', 'S5', datetime.date(2026, 6, 25))  # vao thang truoc -> loai
+
+        employees = list(Employee.objects.filter(tenant=self.tenant))
+        result = _s_pass_rate_this_month(employees, self.today)
+
+        self.assertEqual(result['joined'], 4)     # S1, S2, S3, S4
+        self.assertEqual(result['resigned'], 1)   # S2
+        self.assertEqual(result['eval_next'], 1)  # S3 (han 8/4 > 7/31)
+        self.assertEqual(result['num'], 1)         # chi S1 da Pass
+        self.assertEqual(result['den'], 2)         # 4 - 1 - 1
+        self.assertEqual(result['rate'], 50)
+        self.assertTrue(Employee.objects.filter(pk=passed.pk, final_result='Pass thử việc').exists())
+
+    def test_deadline_falling_exactly_on_month_end_still_counts_this_month(self):
+        self._emp('S1', 'S1', datetime.date(2026, 7, 16))  # 16 + 15 = 31 (<=cuoi thang)
+        employees = list(Employee.objects.filter(tenant=self.tenant))
+        result = _s_pass_rate_this_month(employees, self.today)
+        self.assertEqual(result['eval_next'], 0)
+        self.assertEqual(result['den'], 1)
+
+    def test_rate_zero_when_denominator_not_positive(self):
+        self._emp('S1', 'S1', datetime.date(2026, 7, 20), status=Employee.EmployeeStatus.RESIGNED)
+        employees = list(Employee.objects.filter(tenant=self.tenant))
+        result = _s_pass_rate_this_month(employees, self.today)
+        self.assertEqual(result['den'], 0)
+        self.assertEqual(result['rate'], 0)
+
+
+class DashboardStatsApiTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.client = APIClient()
+        self.client.force_authenticate(self.admin)
+
+    def test_dashboard_includes_s_pass_rate_breakdown(self):
+        # Khong gia dinh vi tri "an toan" trong thang (vd start_date=hom nay co the roi han
+        # danh gia sang thang sau neu chay vao cuoi thang) - tinh ky vong bang dung logic
+        # _month_end de test on dinh bat ke chay ngay nao trong thang.
+        today = timezone.now().date()
+        deadline = today + datetime.timedelta(days=15)
+        expected_eval_next = 1 if deadline > _month_end(today) else 0
+        expected_den = 1 - expected_eval_next
+        expected_rate = round(1 / expected_den * 100) if expected_den > 0 else 0
+
+        Employee.objects.create(
+            tenant=self.tenant, code='S1', name='A', job_level='S1', start_date=today,
+            final_result='Pass thử việc',
+        )
+        resp = self.client.get('/api/employees/dashboard/')
+        self.assertEqual(resp.status_code, 200)
+        stats = resp.data['stats']
+        self.assertEqual(stats['num'], 1)
+        self.assertEqual(stats['joined'], 1)
+        self.assertEqual(stats['resigned'], 0)
+        self.assertEqual(stats['eval_next'], expected_eval_next)
+        self.assertEqual(stats['den'], expected_den)
+        self.assertEqual(stats['pass_rate'], expected_rate)
