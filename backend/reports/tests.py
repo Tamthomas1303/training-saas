@@ -14,7 +14,7 @@ from employees.models import Employee
 from restaurants.models import Restaurant
 
 from .chart import render_service_score_chart
-from .gpt import build_block_analysis
+from .gpt import _strip_code_fences, build_block_analysis
 from .metrics_csv import _is_assigned_status, _is_attended_status, service_audit_block, training_org_block
 from .metrics_training import exam_block, new_hires_block
 from .period import compute_period, previous_period
@@ -393,6 +393,33 @@ class BuildBlockAnalysisTests(TestCase):
         self.assertIn('Kiểm tra kiến thức', sent_prompt)
         self.assertIn('so lieu hien tai X', sent_prompt)
         self.assertIn('so lieu ky truoc Y', sent_prompt)
+
+    @override_settings(OPENAI_API_KEY='test-key')
+    @patch('reports.gpt.requests.post')
+    def test_strips_code_fence_wrapping_gpt_output(self, mock_post):
+        """GPT doi khi tra ve boc trong rao ```html ... ``` du prompt yeu cau CHI tra HTML -
+        phai cat bo, khong de hien nguyen rao tren bao cao."""
+        mock_post.return_value.raise_for_status = lambda: None
+        mock_post.return_value.json = lambda: {
+            'choices': [{'message': {'content': '```html\n<ul><li>ok</li></ul>\n```'}}],
+        }
+        result = build_block_analysis('Tổ chức đào tạo', 'Tuần 1', 'so lieu hien tai', 'so lieu ky truoc')
+        self.assertEqual(result, '<ul><li>ok</li></ul>')
+
+
+class StripCodeFencesTests(TestCase):
+    def test_strips_html_fence(self):
+        self.assertEqual(_strip_code_fences('```html\n<ul><li>a</li></ul>\n```'), '<ul><li>a</li></ul>')
+
+    def test_strips_bare_fence(self):
+        self.assertEqual(_strip_code_fences('```\n<b>x</b>\n```'), '<b>x</b>')
+
+    def test_no_fence_unchanged(self):
+        self.assertEqual(_strip_code_fences('<ul><li>a</li></ul>'), '<ul><li>a</li></ul>')
+
+    def test_none_and_empty(self):
+        self.assertIsNone(_strip_code_fences(None))
+        self.assertEqual(_strip_code_fences(''), '')
 
 
 class ServiceChartLayoutTests(TestCase):

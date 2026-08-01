@@ -1,6 +1,9 @@
 """Khoi 3 (To chuc dao tao) + Khoi 4 (Cham dich vu nha hang) cua bao cao dao tao tuan/thang -
-doc truc tiep tu Google Sheet (Publish to web > CSV), KHONG qua AI/GPT de tinh so lieu (chi
-dung code/csv o day; GPT o services.py CHI viet loi phan tich tu so lieu da tinh san).
+doc truc tiep tu Google Sheet CSV (nen dung endpoint export?format=csv "live", xem
+backend/.env.example - link "Publish to web" bi cache CDN tre; du sao van luon them
+cache-buster + header no-cache khi goi, xem _fetch_csv_dict_rows/_fetch_csv_raw_rows), KHONG
+qua AI/GPT de tinh so lieu (chi dung code/csv o day; GPT o services.py CHI viet loi phan tich
+tu so lieu da tinh san).
 
 Khoi 3 - "To chuc dao tao" (TRAINING_DATA_CSV_URL): moi dong la 1 luot GAN 1 nhan su vao 1
 lop, cot: Training_Date, Employee_ID, Employee_Name, Cousera_Code, Cousera_Name, Class_Code,
@@ -21,6 +24,7 @@ import csv
 import datetime
 import io
 import logging
+import time
 import unicodedata
 from collections import Counter, defaultdict
 
@@ -105,7 +109,14 @@ def _fetch_csv_dict_rows(csv_url, required_headers=()):
     TIEN la header (csv.DictReader mac dinh) vi sheet nguon co the co vai dong trong/tieu de
     lon truoc dong header that. Thay vao do, TIM dong dau tien chua DU cac ten cot trong
     required_headers roi dung dong do lam fieldnames, du lieu tinh tu dong ke tiep."""
-    resp = requests.get(csv_url, timeout=30)
+    # Chong cache CDN cua Google "Publish to web" (co the tre vai phut/gio) bang cache-buster
+    # theo thoi gian + header no-cache.
+    sep = '&' if '?' in csv_url else '?'
+    resp = requests.get(
+        csv_url + sep + '_cb=' + str(int(time.time())),
+        headers={'Cache-Control': 'no-cache', 'Pragma': 'no-cache'},
+        timeout=30,
+    )
     resp.raise_for_status()
     resp.encoding = 'utf-8'
     rows = list(csv.reader(io.StringIO(resp.text)))
@@ -131,7 +142,12 @@ def _fetch_csv_dict_rows(csv_url, required_headers=()):
 def _fetch_csv_raw_rows(csv_url):
     """Doc TOAN BO dong CSV (khong bo dong nao) - dung cho sheet 'Cham dich vu'. Dong header co
     the o vi tri bat ky, xem _find_service_audit_columns."""
-    resp = requests.get(csv_url, timeout=30)
+    sep = '&' if '?' in csv_url else '?'
+    resp = requests.get(
+        csv_url + sep + '_cb=' + str(int(time.time())),
+        headers={'Cache-Control': 'no-cache', 'Pragma': 'no-cache'},
+        timeout=30,
+    )
     resp.raise_for_status()
     resp.encoding = 'utf-8'
     return list(csv.reader(io.StringIO(resp.text)))

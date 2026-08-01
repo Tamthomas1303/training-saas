@@ -3,6 +3,7 @@ con so nao, chi duoc viet nhan xet tu cac so lieu da tinh san bang code (xem met
 Khong cai them SDK 'openai' - goi thang REST API bang requests (da co san trong requirements)
 de tranh them dependency khong can thiet. Khong co OPENAI_API_KEY -> tra ve None (bo qua)."""
 import logging
+import re
 
 import requests
 
@@ -10,6 +11,17 @@ logger = logging.getLogger(__name__)
 
 OPENAI_CHAT_URL = 'https://api.openai.com/v1/chat/completions'
 REQUEST_TIMEOUT = 30
+
+
+def _strip_code_fences(text):
+    """GPT doi khi boc ket qua trong rao code-fence (```html ... ```) du prompt da yeu cau
+    CHI tra HTML - cat bo neu co de khong hien nguyen rao tren bao cao."""
+    if not text:
+        return text
+    t = text.strip()
+    t = re.sub(r'^```[a-zA-Z]*\s*', '', t)
+    t = re.sub(r'\s*```$', '', t)
+    return t.strip()
 
 
 def build_service_audit_analysis(period_label, current, previous):
@@ -99,7 +111,7 @@ def _call_openai(user_prompt):
             timeout=REQUEST_TIMEOUT,
         )
         resp.raise_for_status()
-        return resp.json()['choices'][0]['message']['content'].strip()
+        return _strip_code_fences(resp.json()['choices'][0]['message']['content'])
     except (requests.RequestException, KeyError, IndexError) as exc:
         logger.warning('Goi OpenAI that bai, bo qua phan phan tich: %s', exc)
         return None
