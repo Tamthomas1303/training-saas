@@ -9,7 +9,7 @@ from django.conf import settings
 from django.template.loader import render_to_string
 
 from .chart import render_service_score_chart
-from .gpt import build_service_audit_analysis
+from .gpt import build_block_analysis, build_service_audit_analysis
 from .metrics_csv import service_audit_block, training_org_block
 from .metrics_training import exam_block, new_hires_block
 from .period import compute_period, previous_period
@@ -17,6 +17,7 @@ from .period import compute_period, previous_period
 
 def build_report_context(tenant, kind, ref_date):
     start, end, label = compute_period(kind, ref_date)
+    prev_start, prev_end = previous_period(kind, start)
 
     context = {
         'tenant_name': tenant.name,
@@ -28,10 +29,41 @@ def build_report_context(tenant, kind, ref_date):
         'block2': exam_block(tenant, start, end),
         'block3': training_org_block(settings.TRAINING_DATA_CSV_URL, start, end),
         'block4': service_audit_block(settings.SERVICE_AUDIT_CSV_URL, start, end, kind),
+        'block1_analysis': None, 'block2_analysis': None, 'block3_analysis': None,
     }
+    b1, b2, b3 = context['block1'], context['block2'], context['block3']
+
+    # Nhan dinh GPT ngan cho khoi 1/2/3 (so ky truoc) - chi tinh so lieu ky truoc (them truy
+    # van DB/CSV) khi co OPENAI_API_KEY de tranh ton cong; build_block_analysis tu tra None
+    # neu khong co key nen van an toan du sau nay bo dieu kien nay.
+    if settings.OPENAI_API_KEY:
+        b1_prev = new_hires_block(tenant, prev_start, prev_end, prev_end)
+        b2_prev = exam_block(tenant, prev_start, prev_end)
+        b3_prev = training_org_block(settings.TRAINING_DATA_CSV_URL, prev_start, prev_end)
+        context['block1_analysis'] = build_block_analysis(
+            'Đào tạo nhân sự mới', label,
+            f"NV mới {b1['total_new_hires']}, nghỉ việc {b1['resigned_count']}, Pass thử việc {b1['passed_count']}, "
+            f"tỷ lệ cấp S {b1['s_level_rate']}% ({b1['s_level_passed']}/{b1['s_level_total']}), "
+            f"tỷ lệ toàn công ty {b1['company_rate']}% ({b1['company_passed']}/{b1['company_total']})",
+            f"NV mới {b1_prev['total_new_hires']}, nghỉ việc {b1_prev['resigned_count']}, Pass {b1_prev['passed_count']}",
+        )
+        context['block2_analysis'] = build_block_analysis(
+            'Kiểm tra kiến thức', label,
+            f"số lượt thi {b2['total_attempts']}, người thi {b2['distinct_people']}, tỷ lệ đạt {b2['pass_rate']}%, điểm TB {b2['avg_score']}",
+            f"số lượt thi {b2_prev['total_attempts']}, tỷ lệ đạt {b2_prev['pass_rate']}%, điểm TB {b2_prev['avg_score']}",
+        )
+        if b3 is not None:
+            context['block3_analysis'] = build_block_analysis(
+                'Tổ chức đào tạo', label,
+                f"{b3['total_classes']} lớp, gán {b3['total_assigned']}, tham gia {b3['total_attended']}, tỷ lệ {b3['overall_rate']}%",
+                (
+                    f"{b3_prev['total_classes']} lớp, gán {b3_prev['total_assigned']}, "
+                    f"tham gia {b3_prev['total_attended']}, tỷ lệ {b3_prev['overall_rate']}%"
+                    if b3_prev else '(không có dữ liệu)'
+                ),
+            )
 
     if context['block4'] is not None:
-        prev_start, prev_end = previous_period(kind, start)
         previous_block4 = service_audit_block(settings.SERVICE_AUDIT_CSV_URL, prev_start, prev_end, kind)
         context['block4_analysis'] = build_service_audit_analysis(label, context['block4'], previous_block4)
         context['chart_png'] = render_service_score_chart(context['block4']['restaurants'])

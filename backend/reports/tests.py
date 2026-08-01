@@ -11,7 +11,10 @@ from rest_framework.test import APIClient
 from accounts.models import Tenant, User
 from cls_sync.models import ExamResult
 from employees.models import Employee
+from restaurants.models import Restaurant
 
+from .chart import render_service_score_chart
+from .gpt import build_block_analysis
 from .metrics_csv import _is_assigned_status, _is_attended_status, service_audit_block, training_org_block
 from .metrics_training import exam_block, new_hires_block
 from .period import compute_period, previous_period
@@ -272,3 +275,155 @@ class SendTrainingReportCommandTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn('ops@example.com', mail.outbox[0].to)
         self.assertIn('Tuần', mail.outbox[0].subject)
+
+
+class ServiceAuditByColumnNameTests(TestCase):
+    """MUC 1: sheet that co dong header ten cot (khong phai vi tri co dinh) - phai anh xa
+    theo TEN + dung Result_Text='KHÔNG' de xac dinh "van de" (khong con result_score==0)."""
+
+    HEADER = [
+        'Assessment_ID', 'Timestamp', 'Assessor', 'Assess_Date', 'Restaurant_ID',
+        'Restaurant_Name', 'Brand_Name', 'Ques_Num', 'Score_Criteria', 'Criteria',
+        'Category', 'Main_Category', 'Result_Text', 'Result_Score', 'Department_Name', 'Note',
+    ]
+
+    def _row(self, date_, restaurant, score_criteria, criteria, result_text, result_score, dept):
+        cells = ['x'] * len(self.HEADER)
+        cells[3] = date_
+        cells[5] = restaurant
+        cells[8] = str(score_criteria)
+        cells[9] = criteria
+        cells[12] = result_text
+        cells[13] = str(result_score)
+        cells[14] = dept
+        return cells
+
+    @patch('reports.metrics_csv.requests.get')
+    def test_maps_by_column_name_and_uses_result_text(self, mock_get):
+        csv_text = '\n'.join([
+            ','.join(self.HEADER),
+            ','.join(self._row('05/07/2026', 'NH A', 10, 'Ve sinh', 'ĐẠT', 10, 'Phòng Đào tạo')),
+            # Result_Text=KHONG nhung diem >0 - van phai tinh la "van de" (uu tien Result_Text
+            # hon result_score==0, dung yeu cau moi thay vi logic result_score==0 cu).
+            ','.join(self._row('06/07/2026', 'NH A', 10, 'Thai do', 'KHÔNG', 3, 'Phòng Đào tạo')),
+            ','.join(self._row('07/07/2026', 'NH A', 10, 'Ve sinh', 'ĐẠT', 10, 'Phòng QA-QC')),
+        ])
+        mock_get.return_value = FakeResponse(csv_text)
+        result = service_audit_block('http://fake-url', datetime.date(2026, 7, 1), datetime.date(2026, 7, 31), 'week')
+        self.assertEqual(result['restaurants'], [{'restaurant': 'NH A', 'score': 65.0}])
+        self.assertEqual(result['top_problems'], [{'criteria': 'Thai do', 'count': 1}])
+
+    @patch('reports.metrics_csv.requests.get')
+    def test_month_top5_no_longer_requires_count_gte_2(self, mock_get):
+        rows = [','.join(self.HEADER)]
+        for i in range(3):
+            rows.append(','.join(self._row(
+                f'0{i+1}/07/2026', 'NH A', 1, f'Tieu chi {i}', 'KHÔNG', 0, 'Phòng Đào tạo',
+            )))
+        mock_get.return_value = FakeResponse('\n'.join(rows))
+        result = service_audit_block('http://fake-url', datetime.date(2026, 7, 1), datetime.date(2026, 7, 31), 'month')
+        # Truoc day: loc count>=2 -> 0 ket qua. Gio: khong loc nguong, moi tieu chi chi xuat
+        # hien 1 lan van duoc liet ke (toi da 5).
+        self.assertEqual(len(result['top_problems']), 3)
+
+
+class SLevelAndCompanyRateTests(TestCase):
+    """MUC 4 + MUC 5: loai khoi OFFICE khoi cac chi so cap S/slow_restaurants, chuan hoa cong
+    thuc cap S (loai danh gia roi thang sau) + them chi so company_rate (toan cong ty)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+
+    def _emp(self, code, level_group, operation_unit, start_date, final_result='',
+             status=Employee.EmployeeStatus.PROBATION):
+        return Employee.objects.create(
+            tenant=self.tenant, code=code, name=f'NV {code}', level_group=level_group,
+            operation_unit=operation_unit, start_date=start_date, final_result=final_result,
+            employee_status=status,
+        )
+
+    def test_s_level_excludes_office_and_eval_next(self):
+        self._emp('S1', 'S', Employee.OperationUnit.RESTAURANT, datetime.date(2026, 7, 5), final_result='Pass thử việc')
+        self._emp('S2', 'S', Employee.OperationUnit.OFFICE, datetime.date(2026, 7, 5), final_result='Pass thử việc')
+        self._emp('S3', 'S', Employee.OperationUnit.RESTAURANT, datetime.date(2026, 7, 20))  # han 8/4 > 7/31
+        self._emp('P1', 'P', Employee.OperationUnit.RESTAURANT, datetime.date(2026, 7, 5), final_result='Pass thử việc')
+
+        result = new_hires_block(self.tenant, datetime.date(2026, 7, 1), datetime.date(2026, 7, 31), datetime.date(2026, 7, 31))
+        self.assertEqual(result['s_level_total'], 1)
+        self.assertEqual(result['s_level_passed'], 1)
+        self.assertEqual(result['s_level_rate'], 100.0)
+
+    def test_slow_restaurants_excludes_office(self):
+        restaurant = Restaurant.objects.create(tenant=self.tenant, code='NH1', name='NH Demo')
+        for i in range(2):
+            Employee.objects.create(
+                tenant=self.tenant, code=f'OF{i}', name=f'NV OF{i}', restaurant=restaurant,
+                operation_unit=Employee.OperationUnit.OFFICE, employee_status=Employee.EmployeeStatus.PROBATION,
+            )
+        result = new_hires_block(self.tenant, datetime.date(2026, 7, 1), datetime.date(2026, 7, 31), datetime.date(2026, 7, 31))
+        self.assertEqual(result['slow_restaurants'], [])  # 2 NV nhung deu OFFICE -> loai het
+
+    def test_company_rate_includes_all_levels_by_eval_date(self):
+        self._emp('S1', 'S', Employee.OperationUnit.RESTAURANT, datetime.date(2026, 7, 5), final_result='Pass thử việc')
+        self._emp('O1', 'O', Employee.OperationUnit.OFFICE, datetime.date(2026, 6, 1))  # eval_date = 6/1+60 = 7/31
+        self._emp('S2', 'S', Employee.OperationUnit.RESTAURANT, datetime.date(2026, 7, 25))  # eval_date 8/9 - ngoai thang
+
+        result = new_hires_block(self.tenant, datetime.date(2026, 7, 1), datetime.date(2026, 7, 31), datetime.date(2026, 7, 31))
+        self.assertEqual(result['company_total'], 2)
+        self.assertEqual(result['company_passed'], 1)
+        self.assertEqual(result['company_rate'], 50.0)
+
+
+class BuildBlockAnalysisTests(TestCase):
+    """MUC 3: nhan dinh GPT ngan cho khoi 1/2/3."""
+
+    def test_returns_none_without_api_key(self):
+        with override_settings(OPENAI_API_KEY=''):
+            result = build_block_analysis('Đào tạo nhân sự mới', 'Tuần 1', 'so lieu hien tai', 'so lieu ky truoc')
+        self.assertIsNone(result)
+
+    @override_settings(OPENAI_API_KEY='test-key')
+    @patch('reports.gpt.requests.post')
+    def test_calls_openai_with_topic_and_summaries(self, mock_post):
+        mock_post.return_value.raise_for_status = lambda: None
+        mock_post.return_value.json = lambda: {'choices': [{'message': {'content': '<ul><li>ok</li></ul>'}}]}
+        result = build_block_analysis('Kiểm tra kiến thức', 'Tuần 1', 'so lieu hien tai X', 'so lieu ky truoc Y')
+        self.assertEqual(result, '<ul><li>ok</li></ul>')
+        sent_prompt = mock_post.call_args.kwargs['json']['messages'][1]['content']
+        self.assertIn('Kiểm tra kiến thức', sent_prompt)
+        self.assertIn('so lieu hien tai X', sent_prompt)
+        self.assertIn('so lieu ky truoc Y', sent_prompt)
+
+
+class ServiceChartLayoutTests(TestCase):
+    """MUC 6: bieu do rong/cao hon de nhan ten nha hang khong bi cat/chong nhau."""
+
+    def test_wider_taller_layout(self):
+        from io import BytesIO
+
+        from PIL import Image
+
+        png = render_service_score_chart([
+            {'restaurant': 'NH A', 'score': 80}, {'restaurant': 'NH B', 'score': 50},
+        ])
+        img = Image.open(BytesIO(png))
+        self.assertEqual(img.height, 420)
+        self.assertGreaterEqual(img.width, 560)
+
+
+class TrainingOrgEmptyPeriodLogTests(TestCase):
+    """MUC 7.2: phan biet "sai cau hinh" (0 dong doc duoc) voi "khong co du lieu trong ky"
+    (doc duoc N dong nhung khong dong nao roi vao ky) bang 1 dong log - KHONG doi logic doc."""
+
+    @patch('reports.metrics_csv.requests.get')
+    def test_logs_info_when_rows_exist_but_none_in_period(self, mock_get):
+        csv_text = (
+            'Training_Date,Employee_ID,Employee_Name,Cousera_Code,Cousera_Name,Class_Code,'
+            'Learner_Group,Assignment_Status,Participation_Status,Training_Month\n'
+            '05/11/2025,NV1,A,C1,Lop Cu,C1,G1,Đã gán,Đã tham gia,11/2025\n'
+        )
+        mock_get.return_value = FakeResponse(csv_text)
+        with self.assertLogs('reports.metrics_csv', level='INFO') as captured:
+            result = training_org_block('http://fake-url', datetime.date(2026, 7, 27), datetime.date(2026, 8, 2))
+        self.assertEqual(result['total_classes'], 0)
+        self.assertTrue(any('0 dong trong' in msg for msg in captured.output))

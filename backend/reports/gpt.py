@@ -14,8 +14,9 @@ REQUEST_TIMEOUT = 30
 
 def build_service_audit_analysis(period_label, current, previous):
     """current/previous: ket qua service_audit_block() cua ky nay/ky truoc (co the None neu
-    ky truoc chua co du lieu). Tra ve doan van ban phan tich (str) hoac None neu khong co
-    OPENAI_API_KEY / loi goi API (khong lam hong ca bao cao)."""
+    ky truoc chua co du lieu). Tra ve HTML <ul><li> (str, render bang |safe trong template -
+    KHONG dung |linebreaksbr nua) hoac None neu khong co OPENAI_API_KEY / loi goi API (khong
+    lam hong ca bao cao)."""
     from django.conf import settings
 
     if not settings.OPENAI_API_KEY:
@@ -43,11 +44,45 @@ def build_service_audit_analysis(period_label, current, previous):
             prompt_lines.append(f"- {p['criteria']} (xuất hiện {p['count']} lần)")
 
     prompt_lines.append(
-        'Hãy viết 1 đoạn phân tích ngắn (tối đa 120 từ) bằng tiếng Việt cho Ban Giám đốc, nêu '
-        'xu hướng so với kỳ trước và gợi ý hành động cho 3 nhà hàng điểm thấp nhất. CHỈ dùng '
-        'đúng các số liệu đã cho ở trên, KHÔNG tự bịa thêm số liệu nào khác.'
+        'Hãy viết nhận định cho Ban Giám đốc, chia 3 phần theo đúng thứ tự sau, mỗi phần có '
+        'tiêu đề in đậm <b>...</b> rồi một <ul> gồm các <li> gạch đầu dòng NGẮN (không viết '
+        'đoạn văn liền):\n'
+        '<b>1. So tỷ lệ điểm</b>: so điểm trung bình kỳ này với kỳ trước (tăng/giảm bao nhiêu %).\n'
+        '<b>2. So các vấn đề</b>: so các tiêu chí không đạt kỳ này với kỳ trước.\n'
+        '<b>3. 3 nhà hàng thấp điểm nhất</b>: nêu 3 nhà hàng đó yếu khâu nào (dựa trên các tiêu '
+        'chí không đạt đã liệt kê ở trên) và hướng khắc phục cụ thể cho từng nhà hàng.\n'
+        'CHỈ dùng đúng các số liệu đã cho ở trên, KHÔNG tự bịa thêm số liệu nào khác. Chỉ trả '
+        'về HTML dùng <b> và <ul><li>, không chào hỏi, không đoạn văn liền.'
     )
     prompt = '\n'.join(prompt_lines)
+    return _call_openai(prompt)
+
+
+def build_block_analysis(topic, period_label, current_summary, previous_summary):
+    """current_summary/previous_summary: chuoi mo ta so lieu DA TINH SAN boi code (KHONG de
+    GPT tu tinh) cho khoi 1 (Dao tao nhan su moi) / 2 (Kiem tra kien thuc) / 3 (To chuc dao
+    tao). Tra ve HTML <ul><li> 2-4 gach dau dong ngan, hoac None neu khong co OPENAI_API_KEY /
+    loi goi API (khong lam hong ca bao cao)."""
+    from django.conf import settings
+
+    if not settings.OPENAI_API_KEY:
+        return None
+
+    prompt = (
+        f"Bạn là Trưởng phòng Đào tạo. CHỈ dùng số liệu cho sẵn, không bịa, mỗi ý kèm dẫn "
+        f"chứng số. Viết nhận định ngắn về '{topic}', so sánh kỳ này với kỳ trước (tăng/giảm) "
+        f"và nêu điểm cần cải thiện. Trả về HTML là MỘT <ul> gồm 2-4 <li> gạch đầu dòng ngắn, "
+        f"không đoạn văn, không chào hỏi.\n"
+        f"KỲ NÀY ({period_label}): {current_summary}\n"
+        f"KỲ TRƯỚC: {previous_summary}"
+    )
+    return _call_openai(prompt)
+
+
+def _call_openai(user_prompt):
+    """Goi OpenAI Chat Completions, tra ve noi dung tra loi (str) hoac None neu loi (khong lam
+    hong ca bao cao) - dung chung cho moi ham build_*_analysis trong file nay."""
+    from django.conf import settings
 
     try:
         resp = requests.post(
@@ -57,7 +92,7 @@ def build_service_audit_analysis(period_label, current, previous):
                 'model': settings.OPENAI_MODEL,
                 'messages': [
                     {'role': 'system', 'content': 'Bạn là chuyên viên phân tích vận hành nhà hàng, viết ngắn gọn, đi thẳng vào số liệu.'},
-                    {'role': 'user', 'content': prompt},
+                    {'role': 'user', 'content': user_prompt},
                 ],
                 'temperature': 0.3,
             },

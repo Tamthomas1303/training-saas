@@ -7,28 +7,53 @@ lop, cot: Training_Date, Employee_ID, Employee_Name, Cousera_Code, Cousera_Name,
 Learner_Group, Assignment_Status, Participation_Status, Training_Month. Tam thoi dung CSV,
 sau nay se noi truc tiep vao du lieu he thong (theo trao doi - da co san phan setup).
 
-Khoi 4 - "Cham dich vu nha hang" (SERVICE_AUDIT_CSV_URL): sheet KHONG co ten cot chuan hoa
-nen doc theo VI TRI COT (0-index, A=0): D(3)=ngay cham, F(5)=ten nha hang, I(8)=Score_Criteria,
-J(9)=Criteria, N(13)=Result_Score, O(14)=Department_Name. Chi lay dong Department_Name chua
-"dao tao" (so khop bo dau). Giu nguon Sheet cho giai doan hien tai - ban thuong mai hoa sau se
-bo (theo yeu cau khi lam tinh nang nay).
+Khoi 4 - "Cham dich vu nha hang" (SERVICE_AUDIT_CSV_URL): sheet CO dong tieu de ten cot (da
+xac nhan qua sheet that ngay 01/08/2026: Assessment_ID, Timestamp, Assessor, Assess_Date,
+Restaurant_ID, Restaurant_Name, Brand_Name, Ques_Num, Score_Criteria, Criteria, Category,
+Main_Category, Result_Text, Result_Score, Department_Name, Note). Doc theo TEN cot (khong
+phan biet hoa/thuong, bo dau) - vi tri cu (D=3,F=5,I=8,J=9,N=13,O=14) chi con la FALLBACK khi
+khong tim duoc ten cot tuong ung (sheet cu/khac dinh dang). Chi lay dong Department_Name chua
+"dao tao" (so khop bo dau, vd "Phòng Đào tạo"). "Van de" = dong co Result_Text='KHÔNG' (fallback
+Result_Score=0 neu sheet khong co cot Result_Text). Giu nguon Sheet cho giai doan hien tai -
+ban thuong mai hoa sau se bo (theo yeu cau khi lam tinh nang nay).
 """
 import csv
 import datetime
 import io
+import logging
 import unicodedata
 from collections import Counter, defaultdict
 
 import requests
 
+logger = logging.getLogger(__name__)
+
 DATE_FORMATS = ('%Y-%m-%d', '%d/%m/%Y', '%Y/%m/%d')
 
+# Vi tri cot cu (0-index, A=0) - CHI con dung lam FALLBACK khi khong tim duoc ten cot tren
+# dong header (xem _find_service_audit_columns). result_text KHONG co vi tri fallback vi la
+# cot moi (truoc day khong doc).
 COL_DATE = 3         # D
 COL_RESTAURANT = 5   # F
 COL_SCORE_CRITERIA = 8   # I
 COL_CRITERIA = 9         # J
 COL_RESULT_SCORE = 13    # N
 COL_DEPARTMENT = 14      # O
+
+SERVICE_AUDIT_HEADER_CANDIDATES = {
+    'date': ('assess_date', 'ngay_cham', 'date'),
+    'restaurant_name': ('restaurant_name',),
+    'score_criteria': ('score_criteria',),
+    'criteria': ('criteria',),
+    'result_text': ('result_text',),
+    'result_score': ('result_score',),
+    'department_name': ('department_name',),
+}
+SERVICE_AUDIT_FALLBACK_COL = {
+    'date': COL_DATE, 'restaurant_name': COL_RESTAURANT, 'score_criteria': COL_SCORE_CRITERIA,
+    'criteria': COL_CRITERIA, 'result_score': COL_RESULT_SCORE, 'department_name': COL_DEPARTMENT,
+    'result_text': None,
+}
 
 POSITIVE_STATUS_KEYWORDS = ('tham gia', 'dat', 'hoan thanh', 'complete', 'attend', 'present', 'done')
 NEGATIVE_STATUS_KEYWORDS = ('khong', 'chua', 'huy', 'xoa', 'cancel', 'remove', 'vang', 'absent', 'miss')
@@ -104,12 +129,42 @@ def _fetch_csv_dict_rows(csv_url, required_headers=()):
 
 
 def _fetch_csv_raw_rows(csv_url):
-    """Doc CSV theo vi tri cot (bo dong tieu de dau tien) - dung cho sheet 'Cham dich vu'."""
+    """Doc TOAN BO dong CSV (khong bo dong nao) - dung cho sheet 'Cham dich vu'. Dong header co
+    the o vi tri bat ky, xem _find_service_audit_columns."""
     resp = requests.get(csv_url, timeout=30)
     resp.raise_for_status()
     resp.encoding = 'utf-8'
-    rows = list(csv.reader(io.StringIO(resp.text)))
-    return rows[1:] if rows else []
+    return list(csv.reader(io.StringIO(resp.text)))
+
+
+def _find_service_audit_columns(rows):
+    """Tim dong header (dong dau tien chua 'Result_Score' hoac 'Department_Name', so khop
+    khong phan biet hoa/thuong + bo dau) roi lap map ten cot logic -> vi tri (0-index). Ten
+    cot nao khong tim thay tren dong header thi fallback ve vi tri cu
+    (SERVICE_AUDIT_FALLBACK_COL) - rieng 'result_text' khong co fallback (None), goi dung
+    logic cu (Result_Score=0) khi sheet chua co cot nay.
+
+    Tra ve (header_idx, col_map). header_idx=None neu khong tim duoc dong header nao (ap dung
+    toan bo fallback vi tri, giu dung hanh vi truoc khi co ten cot chuan hoa)."""
+    header_idx = None
+    header_cells_norm = []
+    for i, row in enumerate(rows):
+        cells_norm = [_no_accent(c) for c in row]
+        if 'result_score' in cells_norm or 'department_name' in cells_norm:
+            header_idx = i
+            header_cells_norm = cells_norm
+            break
+
+    col_map = {}
+    for logical_name, candidates in SERVICE_AUDIT_HEADER_CANDIDATES.items():
+        found = None
+        if header_idx is not None:
+            for candidate in candidates:
+                if candidate in header_cells_norm:
+                    found = header_cells_norm.index(candidate)
+                    break
+        col_map[logical_name] = found if found is not None else SERVICE_AUDIT_FALLBACK_COL[logical_name]
+    return header_idx, col_map
 
 
 def training_org_block(csv_url, start, end):
@@ -121,11 +176,13 @@ def training_org_block(csv_url, start, end):
     by_class = defaultdict(lambda: {'name': '', 'assigned': 0, 'attended': 0})
     total_assigned = total_attended = 0
     classes_in_period = set()
+    rows_in_period = 0
 
     for row in rows:
         d = _parse_date(row.get('Training_Date'))
         if not d or not (start <= d <= end):
             continue
+        rows_in_period += 1
         class_code = (row.get('Class_Code') or '').strip()
         if not class_code:
             continue
@@ -138,6 +195,11 @@ def training_org_block(csv_url, start, end):
         if _is_attended_status(row.get('Participation_Status')):
             by_class[class_code]['attended'] += 1
             total_attended += 1
+
+    if rows and rows_in_period == 0:
+        # Phan biet "sai cau hinh" (URL/header sai -> rows rong) voi "khong co du lieu trong
+        # ky" (rows co du lieu nhung khong dong nao roi vao [start..end]) - KHONG doi logic doc.
+        logger.info('training_org: doc %s dong, 0 dong trong [%s..%s]', len(rows), start, end)
 
     classes = []
     for code, data in by_class.items():
@@ -161,37 +223,56 @@ def training_org_block(csv_url, start, end):
 
 def service_audit_block(csv_url, start, end, kind):
     """Tra ve None neu chua cau hinh SERVICE_AUDIT_CSV_URL. Diem moi nha hang = sum(Result_Score)
-    / sum(Score_Criteria) *100 tren cac dong Department_Name chua 'dao tao' + ngay (cot D)
-    trong ky. Top van de = Criteria co Result_Score=0, dem tan suat (thang: lap>=2, lay top 5;
-    tuan: liet ke het, khong loc nguong)."""
+    / sum(Score_Criteria) *100 tren cac dong Department_Name chua 'dao tao' + ngay cham trong
+    ky. "Van de" = dong Result_Text='KHÔNG' (fallback Result_Score=0 neu sheet chua co cot
+    Result_Text). Top van de: thang - top 5 theo tan suat (KHONG loc nguong >=2 nua); tuan -
+    liet ke het."""
     if not csv_url:
         return None
     rows = _fetch_csv_raw_rows(csv_url)
+    if not rows:
+        return {'overall_score': None, 'restaurants': [], 'top_problems': []}
+
+    header_idx, col = _find_service_audit_columns(rows)
+    data_rows = rows[header_idx + 1:] if header_idx is not None else rows[1:]
 
     by_restaurant = defaultdict(lambda: {'result': 0.0, 'criteria': 0.0})
-    zero_score_criteria = Counter()
+    failed_criteria = Counter()
 
-    for r in rows:
-        if len(r) <= COL_DEPARTMENT:
+    def _cell(row, col_name):
+        idx = col[col_name]
+        if idx is None or len(row) <= idx:
+            return None
+        return row[idx]
+
+    for r in data_rows:
+        department_name = _cell(r, 'department_name')
+        if department_name is None or 'dao tao' not in _no_accent(department_name):
             continue
-        if 'dao tao' not in _no_accent(r[COL_DEPARTMENT]):
-            continue
-        d = _parse_date(r[COL_DATE])
+        date_raw = _cell(r, 'date')
+        d = _parse_date(date_raw) if date_raw is not None else None
         if not d or not (start <= d <= end):
             continue
-        restaurant = (r[COL_RESTAURANT] or '').strip()
+        restaurant = (_cell(r, 'restaurant_name') or '').strip()
         if not restaurant:
             continue
-        score_criteria = _parse_float(r[COL_SCORE_CRITERIA])
-        result_score = _parse_float(r[COL_RESULT_SCORE])
+        score_criteria_raw = _cell(r, 'score_criteria')
+        result_score_raw = _cell(r, 'result_score')
+        if score_criteria_raw is None or result_score_raw is None:
+            continue  # dong qua ngan / thieu cot that su - khac voi o trong (0)
+        score_criteria = _parse_float(score_criteria_raw)
+        result_score = _parse_float(result_score_raw)
         if score_criteria is None or result_score is None:
             continue
         by_restaurant[restaurant]['result'] += result_score
         by_restaurant[restaurant]['criteria'] += score_criteria
-        if result_score == 0:
-            criteria_name = (r[COL_CRITERIA] or '').strip()
+
+        result_text = (_cell(r, 'result_text') or '').strip()
+        failed = (result_text.upper() == 'KHÔNG') if result_text else (result_score == 0)
+        if failed:
+            criteria_name = (_cell(r, 'criteria') or '').strip()
             if criteria_name:
-                zero_score_criteria[criteria_name] += 1
+                failed_criteria[criteria_name] += 1
 
     restaurants = []
     for name, agg in by_restaurant.items():
@@ -203,9 +284,9 @@ def service_audit_block(csv_url, start, end, kind):
     total_criteria = sum(agg['criteria'] for agg in by_restaurant.values())
     overall_score = round(total_result / total_criteria * 100, 1) if total_criteria else None
 
-    problems = sorted(zero_score_criteria.items(), key=lambda kv: -kv[1])
+    problems = sorted(failed_criteria.items(), key=lambda kv: -kv[1])
     if kind == 'month':
-        problems = [(name, count) for name, count in problems if count >= 2][:5]
+        problems = problems[:5]
     top_problems = [{'criteria': name, 'count': count} for name, count in problems]
 
     return {

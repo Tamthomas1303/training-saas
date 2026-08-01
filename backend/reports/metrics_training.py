@@ -1,6 +1,77 @@
 """Khoi 1 (dao tao nhan su moi) + Khoi 2 (kiem tra kien thuc) cua bao cao dao tao tuan/thang -
 tinh toan thang tu DB hien co (Employee/ExamResult), khong qua CSV ngoai."""
+import datetime
 from collections import defaultdict
+
+
+def _s_level_stats(tenant, month_start, month_end):
+    """Cong thuc probationSMonth (port Apps Script): cap S (level_group='S') co start_date
+    TRONG THANG (month_start..month_end, KHONG chan o ref_date de "trong thang" nhat quan du
+    chay giua thang), loai nghi viec, loai khoi van phong/bep trung tam (operation_unit=OFFICE
+    - 2 nhan hien thi nay gop chung vao 1 enum OFFICE, xem employees/recruitment.py::
+    _map_operation_unit), va loai "danh gia roi sang thang sau" (start_date + so ngay thu viec
+    > cuoi thang - se tinh vao thang ke tiep). Tu so/mau so deu tinh tren CUNG tap da loc nay."""
+    from employees.dashboard import _probation_days
+    from employees.models import Employee
+
+    cohort = (
+        Employee.objects.filter(tenant=tenant, level_group__iexact='S', start_date__range=(month_start, month_end))
+        .exclude(employee_status=Employee.EmployeeStatus.RESIGNED)
+        .exclude(operation_unit=Employee.OperationUnit.OFFICE)
+    )
+    total = passed = 0
+    for e in cohort:
+        deadline = e.start_date + datetime.timedelta(days=_probation_days(e))
+        if deadline > month_end:
+            continue  # danh gia roi sang thang sau - tinh vao thang ke tiep
+        total += 1
+        if e.final_result == 'Pass thử việc':
+            passed += 1
+    rate = round(passed / total * 100, 1) if total else None
+    return total, passed, rate
+
+
+def _company_eval_days(employee):
+    """So ngay thu viec dung RIENG cho company_rate (probationCompanyMonth): uu tien
+    employee.probation_days neu co; neu khong, cap S (level_group='S') = PROBATION_S_DAYS,
+    CON LAI (O/van phong/PT dai han) = PROBATION_O_DAYS. Khac voi employees/dashboard.py::
+    _probation_days o CHIEU MAC DINH khi level_group rong/khong xac dinh: ham do mac dinh ve
+    S (15 ngay) tru khi ro rang la 'O'; ham nay mac dinh ve O (60 ngay) tru khi ro rang la 'S'
+    - dung theo dung dac ta "con lai = 60 ngay" cua khoi company_rate (khong dung chung voi
+    _probation_days vi 2 cong thuc co the ra ket qua khac nhau voi nhan su chua gan level_group)."""
+    from django.conf import settings
+
+    if employee.probation_days:
+        return employee.probation_days
+    is_level_s = (employee.level_group or '').upper() == 'S'
+    return settings.PROBATION_S_DAYS if is_level_s else settings.PROBATION_O_DAYS
+
+
+def _company_stats(tenant, month_start, month_end):
+    """Cong thuc probationCompanyMonth (port Apps Script): TOAN BO nhan su (khong loc level/
+    khoi), mau so = so NV co NGAY DANH GIA (eval_date = start_date + so ngay thu viec, xem
+    _company_eval_days) roi TRONG THANG nay, da loai nghi viec. Tu so = trong do da Pass."""
+    from django.conf import settings
+    from employees.models import Employee
+
+    # eval_date toi da cach start_date PROBATION_O_DAYS (muc mac dinh dai nhat) - xet ung vien
+    # co start_date tu (month_start - PROBATION_O_DAYS) den month_end de khong bo sot ai co
+    # eval_date roi dung trong thang.
+    earliest_start = month_start - datetime.timedelta(days=settings.PROBATION_O_DAYS)
+    candidates = (
+        Employee.objects.filter(tenant=tenant, start_date__range=(earliest_start, month_end))
+        .exclude(employee_status=Employee.EmployeeStatus.RESIGNED)
+    )
+    total = passed = 0
+    for e in candidates:
+        eval_date = e.start_date + datetime.timedelta(days=_company_eval_days(e))
+        if not (month_start <= eval_date <= month_end):
+            continue
+        total += 1
+        if e.final_result == 'Pass thử việc':
+            passed += 1
+    rate = round(passed / total * 100, 1) if total else None
+    return total, passed, rate
 
 
 def new_hires_block(tenant, start, end, ref_date):
@@ -8,11 +79,13 @@ def new_hires_block(tenant, start, end, ref_date):
     - resigned_count: NV chuyen sang nghi viec TRONG KY (Employee.resigned_at, xem
       employees/services.py::change_employee_status).
     - passed_count: NV Pass thu viec TRONG KY (Employee.pass_date).
-    - s_level: ty le hoan thanh cap S TINH TU DAU THANG chua ref_date (doc lap voi ky bao
-      cao - luon la thang hien tai, dung "tu dau thang" nhu yeu cau, khong phai "trong ky").
-    - slow_restaurants: nha hang dang co >=2 NV con thu viec (chua Pass/chua nghi) voi tien
-      do checklist TB <50% - snapshot HIEN TAI (khong bound theo ky, vi day la trang thai
-      dang dien ra can chu y ngay, khong phai so lieu phat sinh trong ky)."""
+    - s_level: ty le hoan thanh cap S TRONG THANG (thang chua ref_date - xem _s_level_stats).
+    - company: ty le hoan thanh thu viec TOAN CONG TY TRONG THANG, tinh theo ngay danh gia
+      (khong loc level/khoi - xem _company_stats).
+    - slow_restaurants: nha hang dang co >=2 NV con thu viec (chua Pass/chua nghi, loai khoi
+      van phong/bep trung tam) voi tien do checklist TB <50% - snapshot HIEN TAI (khong bound
+      theo ky, vi day la trang thai dang dien ra can chu y ngay, khong phai so lieu phat sinh
+      trong ky)."""
     from employees.models import Employee
     from employees.services import batch_checklist_progress_percent
 
@@ -24,19 +97,20 @@ def new_hires_block(tenant, start, end, ref_date):
     resigned_count = Employee.objects.filter(tenant=tenant, resigned_at__range=(start, end)).count()
     passed_count = Employee.objects.filter(tenant=tenant, pass_date__range=(start, end)).count()
 
+    from .period import _last_day_of_month
+
     month_start = ref_date.replace(day=1)
-    s_level_qs = (
-        Employee.objects.filter(tenant=tenant, level_group__iexact='S', start_date__range=(month_start, ref_date))
-        .exclude(employee_status=Employee.EmployeeStatus.RESIGNED)
-    )
-    s_level_total = s_level_qs.count()
-    s_level_passed = s_level_qs.filter(final_result='Pass thử việc').count()
-    s_level_rate = round(s_level_passed / s_level_total * 100, 1) if s_level_total else None
+    month_end = _last_day_of_month(ref_date)
+
+    s_level_total, s_level_passed, s_level_rate = _s_level_stats(tenant, month_start, month_end)
+    company_total, company_passed, company_rate = _company_stats(tenant, month_start, month_end)
 
     probation_qs = list(
         Employee.objects.filter(
             tenant=tenant, employee_status=Employee.EmployeeStatus.PROBATION, restaurant__isnull=False,
-        ).select_related('restaurant')
+        )
+        .exclude(operation_unit=Employee.OperationUnit.OFFICE)
+        .select_related('restaurant')
     )
     progress_by_id = batch_checklist_progress_percent(probation_qs) if probation_qs else {}
     by_restaurant = defaultdict(list)
@@ -59,6 +133,9 @@ def new_hires_block(tenant, start, end, ref_date):
         's_level_total': s_level_total,
         's_level_passed': s_level_passed,
         's_level_rate': s_level_rate,
+        'company_total': company_total,
+        'company_passed': company_passed,
+        'company_rate': company_rate,
         'slow_restaurants': slow_restaurants,
     }
 

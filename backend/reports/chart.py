@@ -14,6 +14,14 @@ BAR_COLOR_OK = (30, 111, 92)      # #1e6f5c - trung voi mau chu dao cua he thong
 BAR_COLOR_LOW = (192, 57, 43)     # #c0392b - diem thap (< SCORE_WARN_THRESHOLD)
 SCORE_WARN_THRESHOLD = 70
 
+# Bo cuc bieu do: moi cot rong 56-90px (tuy so luong nha hang), tong vung ve toi thieu
+# MIN_CHART_WIDTH de khong bi hep khi it nha hang. height/margin_bottom tang de chua du nhan
+# ten nha hang xoay nghieng khong bi cat/chong nhau.
+MIN_CHART_WIDTH = 560
+BAR_SLOT_MIN, BAR_SLOT_MAX = 56, 90
+CHART_HEIGHT = 420
+MARGIN_LEFT, MARGIN_RIGHT, MARGIN_TOP, MARGIN_BOTTOM = 50, 24, 40, 96
+
 
 def _load_font(size):
     from django.conf import settings
@@ -34,12 +42,13 @@ def render_service_score_chart(restaurants, title='Điểm chấm dịch vụ th
     font = _load_font(13)
     font_small = _load_font(11)
 
-    margin_left, margin_right, margin_top, margin_bottom = 46, 20, 34, 80
-    bar_area_w = max(90, min(70, 640 // max(1, len(restaurants)))) * len(restaurants)
-    width = margin_left + bar_area_w + margin_right
-    height = 340
+    n = len(restaurants)
+    margin_left, margin_right, margin_top, margin_bottom = MARGIN_LEFT, MARGIN_RIGHT, MARGIN_TOP, MARGIN_BOTTOM
+    bar_slot = max(BAR_SLOT_MIN, min(BAR_SLOT_MAX, MIN_CHART_WIDTH // n))
+    chart_w = max(MIN_CHART_WIDTH, bar_slot * n)
+    width = margin_left + chart_w + margin_right
+    height = CHART_HEIGHT
     chart_h = height - margin_top - margin_bottom
-    chart_w = width - margin_left - margin_right
 
     img = Image.new('RGB', (width, height), 'white')
     draw = ImageDraw.Draw(img)
@@ -50,7 +59,6 @@ def render_service_score_chart(restaurants, title='Điểm chấm dịch vụ th
         draw.line([(margin_left, y), (width - margin_right, y)], fill=(228, 228, 228))
         draw.text((6, y - 6), str(i), fill=(120, 120, 120), font=font_small)
 
-    n = len(restaurants)
     bar_w = chart_w / n
     base_y = margin_top + chart_h
     for i, r in enumerate(restaurants):

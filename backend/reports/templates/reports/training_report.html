@@ -42,9 +42,11 @@
     </div>
     <div class="stat-cell">
       <div class="stat-num">{% if block1.s_level_rate is not None %}{{ block1.s_level_rate }}%{% else %}—{% endif %}</div>
-      <div class="stat-label">Hoàn thành cấp S (từ đầu tháng, {{ block1.s_level_passed }}/{{ block1.s_level_total }})</div>
+      <div class="stat-label">Hoàn thành cấp S (trong tháng, {{ block1.s_level_passed }}/{{ block1.s_level_total }})</div>
     </div>
   </div>
+  <p style="margin-top:8px;"><strong>Tỷ lệ hoàn thành thử việc toàn công ty (trong tháng):</strong>
+    {% if block1.company_rate is not None %}{{ block1.company_rate }}% ({{ block1.company_passed }}/{{ block1.company_total }}){% else %}—{% endif %}</p>
 
   {% if block1.slow_restaurants %}
   <p style="margin-bottom: 4px;"><strong class="warn">Nhà hàng đào tạo chậm</strong> (≥2 NV thử việc, tiến độ TB &lt;50%):</p>
@@ -56,9 +58,14 @@
       {% endfor %}
     </tbody>
   </table>
+  {% for r in block1.slow_restaurants %}
+  <p class="warn" style="margin:4px 0;">Yêu cầu Ops Leader follow tiến độ đào tạo của nhà hàng {{ r.restaurant }}.</p>
+  {% endfor %}
   {% else %}
   <p class="empty-note">Không có nhà hàng nào đào tạo chậm.</p>
   {% endif %}
+
+  {% if block1_analysis %}<div class="analysis-box">{{ block1_analysis|safe }}</div>{% endif %}
 
   <h2>2. Kiểm tra kiến thức</h2>
   {% if block2.total_attempts %}
@@ -92,6 +99,8 @@
   <p class="empty-note">Không có lượt thi nào trong kỳ.</p>
   {% endif %}
 
+  {% if block2_analysis %}<div class="analysis-box">{{ block2_analysis|safe }}</div>{% endif %}
+
   {% if block3 is not None %}
   <h2>3. Tổ chức đào tạo</h2>
   <div class="stat-grid">
@@ -122,6 +131,7 @@
     </tbody>
   </table>
   {% endif %}
+  {% if block3_analysis %}<div class="analysis-box">{{ block3_analysis|safe }}</div>{% endif %}
   {% endif %}
 
   {% if block4 is not None %}
@@ -140,7 +150,9 @@
   </table>
 
   {% if block4.top_problems %}
-  <p style="margin-bottom: 4px;"><strong>Top vấn đề lặp lại (tiêu chí bị điểm 0):</strong></p>
+  <p style="margin-bottom: 4px;"><strong>
+    {% if kind == 'month' %}Top 5 vấn đề gặp nhiều nhất (tiêu chí không đạt):{% else %}Các vấn đề gặp phải (tiêu chí không đạt):{% endif %}
+  </strong></p>
   <table>
     <thead><tr><th>Tiêu chí</th><th>Số lần</th></tr></thead>
     <tbody>
@@ -152,7 +164,7 @@
   {% endif %}
 
   {% if block4_analysis %}
-  <div class="analysis-box">{{ block4_analysis|linebreaksbr }}</div>
+  <div class="analysis-box">{{ block4_analysis|safe }}</div>
   {% endif %}
   {% endif %}
 
