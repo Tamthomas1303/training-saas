@@ -12,14 +12,11 @@ export default function TrainingReportPage() {
   const [previewHtml, setPreviewHtml] = useState('')
   const [previewSubject, setPreviewSubject] = useState('')
   const [loading, setLoading] = useState(false)
-  const [sending, setSending] = useState(false)
-  const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
   async function loadPreview() {
     setLoading(true)
     setError('')
-    setMessage('')
     try {
       const { data } = await api.get('/reports/training/preview/', { params: { kind, date } })
       setPreviewHtml(data.html)
@@ -32,25 +29,13 @@ export default function TrainingReportPage() {
     }
   }
 
-  async function sendEmail() {
-    setSending(true)
-    setError('')
-    setMessage('')
-    try {
-      const { data } = await api.post('/reports/training/send/', { kind, date })
-      setMessage(`Đã gửi email tới: ${data.to.join(', ')}${data.cc.length ? ` (CC: ${data.cc.join(', ')})` : ''}.`)
-    } catch (err) {
-      setError(err.response?.data?.detail || 'Không gửi được email.')
-    } finally {
-      setSending(false)
-    }
-  }
-
   return (
     <AppShell>
       <h2 style={{ marginTop: 0 }}>Báo cáo đào tạo</h2>
       <p className="muted-note" style={{ marginTop: -6 }}>
-        Chọn kỳ báo cáo, xem trước rồi gửi email cho danh sách người nhận cấu hình sẵn (REPORT_TO/REPORT_CC).
+        Chọn kỳ báo cáo và xem trước. Báo cáo được gửi tự động theo lịch (GitHub Actions) hoặc
+        chạy tay workflow "Send Training Report" trong tab Actions của repo — nút gửi trực tiếp
+        từ web đã tắt vì Render (gói free) chặn cổng SMTP ra ngoài, dễ làm treo worker.
       </p>
 
       <div className="card" style={{ marginBottom: 16 }}>
@@ -63,12 +48,8 @@ export default function TrainingReportPage() {
           <button onClick={loadPreview} disabled={loading}>
             {loading ? 'Đang tải...' : 'Xem trước'}
           </button>
-          <button className="btn-outline" onClick={sendEmail} disabled={sending || !previewHtml}>
-            {sending ? 'Đang gửi...' : 'Gửi email'}
-          </button>
         </div>
         {error && <p style={{ color: 'var(--danger)', marginTop: 8 }}>{error}</p>}
-        {message && <p style={{ marginTop: 8 }}>{message}</p>}
       </div>
 
       {previewHtml && (

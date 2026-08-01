@@ -3,7 +3,7 @@ import datetime
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .services import preview_report, send_report_email
+from .services import preview_report
 
 REPORT_ROLES = {'admin', 'om'}
 
@@ -38,17 +38,21 @@ class TrainingReportPreviewView(APIView):
 
 
 class TrainingReportSendView(APIView):
-    """POST /api/reports/training/send/ {kind, date} — gui ngay bao cao qua email
-    (REPORT_TO/REPORT_CC), chi Admin/OM."""
+    """POST /api/reports/training/send/ — DA VO HIEU HOA gui SMTP truc tiep tu web: Render
+    (goi free dang dung) chan cong SMTP ra ngoai, khien socket.connect toi smtp.gmail.com:587
+    treo vo han va lam worker Render bi timeout/kill. Endpoint nay CHI con tra ve huong dan,
+    khong goi send_report_email nua - gui that qua GitHub Actions workflow
+    "send_training_report.yml" (tu dong theo lich hoac 'Run workflow' thu cong), hoac chay
+    `python manage.py send_training_report` tu may/CI co the ket noi SMTP that su.
+    Giu lai route (khong xoa) de tra loi ro rang thay vi 404 cho client cu."""
 
     def post(self, request):
         if (request.user.role or '').lower() not in REPORT_ROLES:
             return Response({'detail': 'Bạn không có quyền gửi báo cáo này.'}, status=403)
-        kind, ref_date, error = _parse_kind_and_date(request.data)
-        if error:
-            return Response({'detail': error}, status=400)
-        try:
-            result = send_report_email(request.user.tenant, kind, ref_date)
-        except ValueError as exc:
-            return Response({'detail': str(exc)}, status=400)
-        return Response(result)
+        return Response({
+            'detail': (
+                'Gửi email trực tiếp từ web đã tắt vì Render (gói free) chặn cổng SMTP ra '
+                'ngoài. Báo cáo được gửi tự động theo lịch (GitHub Actions) hoặc chạy tay '
+                'workflow "Send Training Report" trong tab Actions của repo.'
+            ),
+        }, status=400)

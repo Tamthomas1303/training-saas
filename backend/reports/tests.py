@@ -2,7 +2,9 @@ import datetime
 from decimal import Decimal
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.core import mail
+from django.core.management import call_command
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -222,7 +224,51 @@ class ReportApiPermissionTests(TestCase):
         resp = self.client.post(reverse('report-training-send'), {'kind': 'week'})
         self.assertEqual(resp.status_code, 403)
 
-    def test_send_without_report_to_returns_400(self):
+    def test_send_always_returns_guidance_instead_of_sending(self):
+        """Gui truc tiep tu web da bi vo hieu hoa (Render chan SMTP) - endpoint CHI tra ve
+        huong dan, khong bao gio thu goi SMTP, du REPORT_TO co cau hinh hay khong."""
         self.client.force_authenticate(self.admin)
-        resp = self.client.post(reverse('report-training-send'), {'kind': 'week'})
+        with override_settings(REPORT_TO=['a@example.com']):
+            with patch('reports.services.send_report_email') as mock_send:
+                resp = self.client.post(reverse('report-training-send'), {'kind': 'week'})
         self.assertEqual(resp.status_code, 400)
+        self.assertIn('SMTP', resp.data['detail'])
+        mock_send.assert_not_called()  # dam bao view khong con goi SMTP truc tiep nua
+
+
+class SendTrainingReportCommandTests(TestCase):
+    """management command chay tu GitHub Actions (khong bi Render chan SMTP) - dung lai
+    send_report_email() da co san, chi la lop CLI."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+
+    def test_raises_when_tenant_missing(self):
+        from django.core.management.base import CommandError
+
+        with self.assertRaises(CommandError):
+            call_command('send_training_report', tenant='Khong Ton Tai')
+
+    def test_raises_when_report_to_not_configured(self):
+        from django.core.management.base import CommandError
+
+        with override_settings(REPORT_TO=[]):
+            with self.assertRaises(CommandError):
+                call_command('send_training_report', kind='week')
+
+    def test_raises_on_invalid_date(self):
+        from django.core.management.base import CommandError
+
+        with self.assertRaises(CommandError):
+            call_command('send_training_report', date='not-a-date')
+
+    @override_settings(REPORT_TO=['ops@example.com'])
+    def test_sends_email_for_given_kind_and_date(self):
+        from io import StringIO
+
+        # stdout=StringIO tranh loi encode cp1252 cua console Windows voi ky tu tieng Viet
+        # (khong lien quan production - GitHub Actions runner dung UTF-8).
+        call_command('send_training_report', kind='week', date='2026-07-30', stdout=StringIO())
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('ops@example.com', mail.outbox[0].to)
+        self.assertIn('Tuần', mail.outbox[0].subject)
