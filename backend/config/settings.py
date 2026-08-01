@@ -33,7 +33,9 @@ SECRET_KEY = os.environ.get(
 )
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DJANGO_DEBUG', 'True') == 'True'
+# So khop khong phan biet hoa/thuong ('true'/'True'/'TRUE'/'1'/...) - '== "True"' cu se am
+# tham thanh False neu secret dat chu thuong, giong loi da gap voi EMAIL_USE_TLS ben duoi.
+DEBUG = os.environ.get('DJANGO_DEBUG', 'True').strip().lower() in ('true', '1', 'yes', 'on')
 
 ALLOWED_HOSTS = [h.strip() for h in os.environ.get('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h.strip()]
 
@@ -270,7 +272,10 @@ EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
 EMAIL_PORT = int(os.environ.get('EMAIL_PORT', '587'))
 EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
-EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True') == 'True'
+# So khop khong phan biet hoa/thuong - '== "True"' cu se am tham thanh False neu secret dat
+# 'true'/'TRUE'/'1' (chu thuong), khien SMTP goi khong co STARTTLS -> loi "SMTP AUTH extension
+# not supported by server" tu server yeu cau TLS.
+EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True').strip().lower() in ('true', '1', 'yes', 'on')
 DEFAULT_FROM_EMAIL = os.environ.get(
     'DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'no-reply@training.local'
 )
