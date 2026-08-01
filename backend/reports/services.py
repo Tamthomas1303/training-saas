@@ -83,14 +83,16 @@ def send_report_email(tenant, kind, ref_date):
         from_email=settings.DEFAULT_FROM_EMAIL, to=to, cc=cc or None,
     )
     msg.attach_alternative(html, 'text/html')
-    msg.mixed_subtype = 'related'
     if context['chart_png']:
-        from email.mime.image import MIMEImage
+        from email.message import MIMEPart
 
-        image = MIMEImage(context['chart_png'], _subtype='png')
-        image.add_header('Content-ID', '<chart.png>')
-        image.add_header('Content-Disposition', 'inline', filename='chart.png')
-        msg.attach(image)
+        inline_image = MIMEPart()
+        inline_image.set_content(
+            context['chart_png'],
+            maintype='image', subtype='png',
+            disposition='inline', cid='<chart.png>',
+        )
+        msg.attach(inline_image)
     msg.send(fail_silently=False)
 
     return {'sent': True, 'to': to, 'cc': cc, 'subject': subject}
