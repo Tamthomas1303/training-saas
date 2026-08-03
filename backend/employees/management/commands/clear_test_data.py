@@ -17,11 +17,14 @@ Cac model/field duoc XOA:
   - evaluation.Council + evaluation.CouncilMember (xoa toan bo dong): gan voi Evaluation qua FK
     SET_NULL nen khong tu mat khi xoa Evaluation - suy luan la du lieu test cung nhom (khong
     phai "cau hinh" nhu EvaluationCriteria) nen xoa cung, khong duoc prompt neu ten rieng.
-  - employees.Employee (KHONG xoa dong - CHI RESET field cho toan bo Employee cua tenant):
+  - employees.Employee (KHONG xoa dong - CHI RESET field, CHI cho nhan su is_legacy=False):
     probation_result_pdf_url (+ xoa file R2 - la "phieu ket qua thu viec" PDF sinh o
     employees/pdf.py::build_probation_result_pdf), pass_date, final_result, commission_status,
     retrain_deadline -> ve rong/None de nhap lai tu dau. Code hien tai khong co model AuditLog
     rieng nen "dau vet export" chinh la field probation_result_pdf_url nay.
+    QUAN TRONG: chi ap dung cho is_legacy=False (nhan su onboarding he moi tu 1/7, tinh nang
+    dang test). Nhan su is_legacy=True nap tu Data_LichSu la LO TRINH THAT trong qua khu, DA
+    duoc anh Chung xac nhan KHONG dua vao pham vi reset - xem doi thoai xac nhan 03/08/2026.
 
 Model TIM THAY nhung KHONG nam trong pham vi prompt neu ro - CHI liet ke o --dry-run (va moi
 lan chay) de doi chieu, KHONG dong den (tranh xoa nham theo yeu cau "DUNG hoi toi, dung doan"):
@@ -171,7 +174,9 @@ class Command(BaseCommand):
         return {'records': council_records + member_records, 'files_ok': 0, 'files_fail': 0}
 
     def _process_probation_result(self, tenant, dry_run):
-        qs = Employee.objects.filter(tenant=tenant).exclude(
+        # Chi is_legacy=False (onboarding he moi) - is_legacy=True la lo trinh THAT nap tu
+        # Data_LichSu, anh Chung da xac nhan KHONG dua vao pham vi reset (03/08/2026).
+        qs = Employee.objects.filter(tenant=tenant, is_legacy=False).exclude(
             probation_result_pdf_url='', pass_date__isnull=True,
             final_result='', commission_status='', retrain_deadline__isnull=True,
         )
@@ -182,8 +187,9 @@ class Command(BaseCommand):
             files_ok += ok
             files_fail += fail
         self.stdout.write(
-            f'[Employee] {records} nhan su co du lieu can reset (phieu KQ thu viec / pass_date / '
-            f'final_result / commission_status / retrain_deadline), {files_ok} file R2, {files_fail} file loi'
+            f'[Employee] {records} nhan su (is_legacy=False) co du lieu can reset (phieu KQ thu viec / '
+            f'pass_date / final_result / commission_status / retrain_deadline), '
+            f'{files_ok} file R2, {files_fail} file loi'
         )
         if not dry_run:
             qs.update(

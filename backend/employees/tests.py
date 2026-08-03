@@ -532,3 +532,20 @@ class ClearTestDataCommandTests(TestCase):
     def test_dry_run_and_confirm_together_raises(self):
         with self.assertRaises(CommandError):
             call_command('clear_test_data', tenant='Demo Tenant', dry_run=True, confirm=True)
+
+    @patch('employees.management.commands.clear_test_data.delete_by_url')
+    def test_confirm_does_not_reset_legacy_employee(self, mock_delete):
+        legacy = Employee.objects.create(
+            tenant=self.tenant, code='NV_LEGACY', name='Legacy', is_legacy=True,
+            probation_result_pdf_url='https://pub-x.r2.dev/ketquathuviec/1/legacy.pdf',
+            pass_date=datetime.date(2020, 1, 1), final_result='Pass thử việc',
+        )
+
+        call_command('clear_test_data', tenant='Demo Tenant', confirm=True)
+
+        legacy.refresh_from_db()
+        self.assertEqual(legacy.probation_result_pdf_url, 'https://pub-x.r2.dev/ketquathuviec/1/legacy.pdf')
+        self.assertEqual(legacy.pass_date, datetime.date(2020, 1, 1))
+        self.assertEqual(legacy.final_result, 'Pass thử việc')
+        deleted_urls = {c.args[0] for c in mock_delete.call_args_list}
+        self.assertNotIn('https://pub-x.r2.dev/ketquathuviec/1/legacy.pdf', deleted_urls)
