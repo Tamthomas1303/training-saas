@@ -5,6 +5,7 @@ from django.conf import settings
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 
+from accounts.models import User
 from checklist.storage import StorageError, is_data_url, upload_data_url, upload_pdf_bytes
 from employees.dashboard import _completion_date, _is_pass, scoped_employees
 from employees.models import Employee
@@ -197,6 +198,13 @@ def recompute_commission(employee):
             existing.save(update_fields=['status', 'updated_at'])
         return existing
 
+    trainer = trainer_of(employee)
+    if not trainer or trainer.role != User.Role.TRAINER:
+        if existing and existing.status != Commission.Status.PAID:
+            existing.status = Commission.Status.NA
+            existing.save(update_fields=['status', 'updated_at'])
+        return existing
+
     conditions = probation_conditions(employee)
     today = timezone.now().date()
     in_retrain = bool(employee.retrain_deadline and employee.retrain_deadline >= today)
@@ -213,7 +221,7 @@ def recompute_commission(employee):
     if commission.pk and commission.status == Commission.Status.PAID:
         status = Commission.Status.PAID  # sticky - da chi thi giu nguyen
 
-    commission.trainer = trainer_of(employee)
+    commission.trainer = trainer
     commission.amount = settings.COMMISSION_AMOUNT
     commission.cond_lms = conditions['lms']
     commission.cond_exam = conditions['exam']

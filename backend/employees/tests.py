@@ -1,8 +1,9 @@
 import datetime
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.core import mail
-from django.core.management import call_command
+from django.core.management import CommandError, call_command
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
@@ -14,6 +15,7 @@ from cls_sync.models import ExamResult, ExamScoreAdjustment
 from employees.dashboard import _month_end, _s_pass_rate_this_month
 from employees.models import Employee
 from employees.services import best_exam_score, change_employee_status, emp_type, exam_pass, recompute_final_result
+from evaluation.models import Council, CouncilMember, Evaluation, EvaluationDetail
 from restaurants.models import Restaurant
 from sourcing.models import Notification
 
@@ -454,3 +456,79 @@ class ClearBackfilledPassDateCommandTests(TestCase):
         )
         call_command('clear_backfilled_pass_date', tenant='Demo Tenant')
         call_command('clear_backfilled_pass_date', tenant='Demo Tenant')  # khong loi
+
+
+class ClearTestDataCommandTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.trainer = User.objects.create_user(username='trainer1', password='x', tenant=self.tenant, role='trainer')
+        self.employee = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='A', trainer=self.trainer,
+            probation_result_pdf_url='https://pub-x.r2.dev/ketquathuviec/1/x.pdf',
+            pass_date=datetime.date(2026, 1, 1), final_result='Pass thử việc',
+            commission_status='eligible', retrain_deadline=datetime.date(2026, 2, 1),
+        )
+        checklist = Checklist.objects.create(tenant=self.tenant, task_name='B1')
+        self.progress = TrainingProgress.objects.create(
+            tenant=self.tenant, employee=self.employee, checklist=checklist, trainer=self.trainer,
+            img_tailieu='https://pub-x.r2.dev/evidence/1/a.jpg', pdf_url='https://pub-x.r2.dev/bienban/1/b.pdf',
+        )
+        self.evaluation = Evaluation.objects.create(
+            tenant=self.tenant, employee=self.employee, evaluator=self.trainer, eval_type='Skill_BQL',
+            pdf_url='https://pub-x.r2.dev/danhgia/1/c.pdf',
+        )
+        EvaluationDetail.objects.create(
+            tenant=self.tenant, evaluation=self.evaluation, criteria_id='1', content='X',
+            photo_url='https://pub-x.r2.dev/danhgia/1/d.jpg',
+        )
+        self.council = Council.objects.create(tenant=self.tenant, employee=self.employee, kind='skill')
+        CouncilMember.objects.create(tenant=self.tenant, council=self.council, user=self.trainer)
+
+    @patch('employees.management.commands.clear_test_data.delete_by_url')
+    def test_dry_run_deletes_nothing(self, mock_delete):
+        call_command('clear_test_data', tenant='Demo Tenant', dry_run=True)
+
+        mock_delete.assert_not_called()
+        self.assertEqual(TrainingProgress.objects.count(), 1)
+        self.assertEqual(Evaluation.objects.count(), 1)
+        self.assertEqual(EvaluationDetail.objects.count(), 1)
+        self.assertEqual(Council.objects.count(), 1)
+        self.assertEqual(CouncilMember.objects.count(), 1)
+        self.employee.refresh_from_db()
+        self.assertTrue(self.employee.probation_result_pdf_url)
+        self.assertIsNotNone(self.employee.pass_date)
+
+    @patch('employees.management.commands.clear_test_data.delete_by_url')
+    def test_no_flags_defaults_to_dry_run(self, mock_delete):
+        call_command('clear_test_data', tenant='Demo Tenant')
+
+        mock_delete.assert_not_called()
+        self.assertEqual(TrainingProgress.objects.count(), 1)
+
+    @patch('employees.management.commands.clear_test_data.delete_by_url')
+    def test_confirm_deletes_records_and_files_and_resets_employee(self, mock_delete):
+        call_command('clear_test_data', tenant='Demo Tenant', confirm=True)
+
+        self.assertEqual(TrainingProgress.objects.count(), 0)
+        self.assertEqual(Evaluation.objects.count(), 0)
+        self.assertEqual(EvaluationDetail.objects.count(), 0)
+        self.assertEqual(Council.objects.count(), 0)
+        self.assertEqual(CouncilMember.objects.count(), 0)
+
+        self.employee.refresh_from_db()
+        self.assertEqual(self.employee.probation_result_pdf_url, '')
+        self.assertIsNone(self.employee.pass_date)
+        self.assertEqual(self.employee.final_result, '')
+        self.assertEqual(self.employee.commission_status, '')
+        self.assertIsNone(self.employee.retrain_deadline)
+
+        deleted_urls = {c.args[0] for c in mock_delete.call_args_list}
+        self.assertIn('https://pub-x.r2.dev/evidence/1/a.jpg', deleted_urls)
+        self.assertIn('https://pub-x.r2.dev/bienban/1/b.pdf', deleted_urls)
+        self.assertIn('https://pub-x.r2.dev/danhgia/1/c.pdf', deleted_urls)
+        self.assertIn('https://pub-x.r2.dev/danhgia/1/d.jpg', deleted_urls)
+        self.assertIn('https://pub-x.r2.dev/ketquathuviec/1/x.pdf', deleted_urls)
+
+    def test_dry_run_and_confirm_together_raises(self):
+        with self.assertRaises(CommandError):
+            call_command('clear_test_data', tenant='Demo Tenant', dry_run=True, confirm=True)
