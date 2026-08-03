@@ -16,8 +16,13 @@ from employees.dashboard import _month_end, _s_pass_rate_this_month
 from employees.models import Employee
 from employees.services import best_exam_score, change_employee_status, emp_type, exam_pass, recompute_final_result
 from employees.management.commands.import_july_data import (
+    Command as ImportJulyDataCommand,
+)
+from employees.management.commands.import_july_data import (
     _match_evidence_filename,
     _match_training_record_filename,
+    _parse_decimal_comma,
+    _parse_sheet_date,
     _parse_skill_percent,
     _parse_skill_result,
     build_checklist_code_map,
@@ -595,6 +600,82 @@ class ImportJulyDataHelperTests(TestCase):
         self.assertEqual(_parse_skill_result('Đạt'), Evaluation.Result.PASS)
         self.assertEqual(_parse_skill_result('Không đạt'), Evaluation.Result.FAIL)
         self.assertEqual(_parse_skill_result(''), '')
+
+    def test_parse_decimal_comma_keeps_fraction_scale(self):
+        self.assertEqual(_parse_decimal_comma('0,94'), 0.94)
+        self.assertEqual(_parse_decimal_comma('0.94'), 0.94)
+        self.assertIsNone(_parse_decimal_comma(''))
+        self.assertIsNone(_parse_decimal_comma(None))
+
+    def test_parse_sheet_date_drops_time_part(self):
+        self.assertEqual(_parse_sheet_date('2026-07-28'), datetime.date(2026, 7, 28))
+        self.assertEqual(_parse_sheet_date('2026-07-28 10:30:00'), datetime.date(2026, 7, 28))
+        self.assertEqual(_parse_sheet_date('2026-07-28T10:30:00'), datetime.date(2026, 7, 28))
+        self.assertIsNone(_parse_sheet_date(''))
+        self.assertIsNone(_parse_sheet_date('not-a-date'))
+
+
+class ProcessAppEmployeesFieldsTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='NH1', name='NH Demo', brand='Kampong')
+        self.employee = Employee.objects.create(
+            tenant=self.tenant, code='AM0001', name='A', restaurant=self.restaurant,
+        )
+        self.command = ImportJulyDataCommand()
+
+    def test_no_row_leaves_employee_untouched_and_not_synced(self):
+        stats = {'app_employees_synced': 0}
+
+        self.command._process_app_employees_fields(self.employee, None, dry_run=False, stats=stats)
+
+        self.assertEqual(stats['app_employees_synced'], 0)
+        self.employee.refresh_from_db()
+        self.assertEqual(self.employee.final_result, '')
+
+    def test_dry_run_counts_but_does_not_write(self):
+        row = {'Skill_Score_%': '0,94', 'Skill_Result': 'Đạt', 'Final_Probation_Result': 'Pass thử việc',
+               'Pass_Date': '2026-07-28'}
+        stats = {'app_employees_synced': 0}
+
+        self.command._process_app_employees_fields(self.employee, row, dry_run=True, stats=stats)
+
+        self.assertEqual(stats['app_employees_synced'], 1)
+        self.employee.refresh_from_db()
+        self.assertEqual(self.employee.final_result, '')
+        self.assertIsNone(self.employee.pass_date)
+
+    def test_confirm_writes_skill_and_final_result_and_pass_date_when_pass(self):
+        row = {'Skill_Score_%': '0,94', 'Skill_Result': 'Đạt', 'Final_Probation_Result': 'Pass thử việc',
+               'Pass_Date': '2026-07-28'}
+        stats = {'app_employees_synced': 0}
+
+        self.command._process_app_employees_fields(self.employee, row, dry_run=False, stats=stats)
+
+        self.employee.refresh_from_db()
+        self.assertEqual(float(self.employee.skill_score), 0.94)
+        self.assertEqual(self.employee.skill_result, 'Đạt')
+        self.assertEqual(self.employee.final_result, 'Pass thử việc')
+        self.assertEqual(self.employee.pass_date, datetime.date(2026, 7, 28))
+
+    def test_pass_date_not_set_when_final_result_is_not_pass(self):
+        row = {'Final_Probation_Result': 'Tiếp tục thử việc', 'Pass_Date': '2026-07-28'}
+        stats = {'app_employees_synced': 0}
+
+        self.command._process_app_employees_fields(self.employee, row, dry_run=False, stats=stats)
+
+        self.employee.refresh_from_db()
+        self.assertEqual(self.employee.final_result, 'Tiếp tục thử việc')
+        self.assertIsNone(self.employee.pass_date)
+
+    def test_resigned_at_set_when_resigned_date_present(self):
+        row = {'Resigned_Date': '2026-07-15'}
+        stats = {'app_employees_synced': 0}
+
+        self.command._process_app_employees_fields(self.employee, row, dry_run=False, stats=stats)
+
+        self.employee.refresh_from_db()
+        self.assertEqual(self.employee.resigned_at, datetime.date(2026, 7, 15))
 
 
 class BuildChecklistCodeMapTests(TestCase):

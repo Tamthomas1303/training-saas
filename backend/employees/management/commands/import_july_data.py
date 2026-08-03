@@ -1,8 +1,9 @@
 """
 import_july_data - ETL mot lan: keo anh minh chung/danh gia ky nang/phieu ket qua thu viec/bien
 ban dao tao thang 7/2026 tu Google Drive (qua service account) vao v2.1, danh dau checklist da
-hoan thanh, roi tinh lai final_result/pass_date/phu cap. KHONG tao moi nhan su/checklist - v2.1
-da co san 45 nhan su thang 7 + danh muc checklist, lenh nay CHI dinh file + danh dau + tinh lai.
+hoan thanh, ghi lai ket qua da CHOT tu app_employees, roi tinh lai phu cap. KHONG tao moi nhan
+su/checklist - v2.1 da co san 45 nhan su thang 7 + danh muc checklist, lenh nay CHI dinh file +
+danh dau + ghi ket qua + tinh lai.
 
 Nguon du lieu (da khao sat - xem Prompt_v2.1_ImportJuly_Drive.md):
   - Drive root TRAINING_DRIVE_ROOT_FOLDER_ID:
@@ -26,6 +27,17 @@ employees/models.py):
   - KetQuaThuViec_<NV>.pdf -> employees.Employee.probation_result_pdf_url (khong co model
     AuditLog rieng trong code hien tai nen day chinh la "cho luu phieu ket qua" cua v2.1).
   - BienBanDaoTao_<NV>_CL-xxxxx.pdf -> checklist.TrainingProgress.pdf_url cua muc tuong ung.
+
+Ghi ket qua da CHOT tu app_employees vao Employee (ap dung cho MOI nhan su khop app_employees,
+KHONG phu thuoc co thu muc Drive hay khong): skill_score (Skill_Score_% "0,94" -> 0.94, giu
+nguyen phan so - khac Evaluation.percent luu thang 0-100), skill_result (Dat/...), final_result
+(= Final_Probation_Result nguyen van); neu final_result = 'Pass thử việc' thi ghi them pass_date
+(= Pass_Date, bo phan gio neu co); resigned_at = Resigned_Date (bo phan gio) neu cot nay co gia
+tri. QUAN TRONG: sau khi ghi cac truong nay, KHONG goi recompute_final_result (chi
+recompute_commission) - vi recompute doc dieu kien LMS/thi/checklist/danh gia hien co, co the
+CHUA du du lieu va se ha 'Pass thu viec' xuong 'Tiep tuc thu viec' sai voi ket qua da chot trong
+app_employees. Dot backfill thang 7 nay TIN ket qua da chot trong sheet; recompute tu dong (goi
+o cac luong khac trong app) chi ap dung cho thay doi VE SAU.
 
 Khop Checklist_ID (CL-xxxxx) voi Checklist v2.1: can backfill Checklist.code (them o migration
 0006) tu tab position_checklists, khop theo (brand, position, task_name) da chuan hoa (strip +
@@ -59,7 +71,7 @@ from checklist.models import Checklist, TrainingProgress
 from checklist.storage import StorageError, upload_file_bytes
 from config.csv_source import load_csv_rows, pick
 from employees.models import Employee
-from employees.services import normalize_key, recompute_final_result
+from employees.services import normalize_key
 from evaluation.models import Evaluation
 from kpi.services import recompute_commission
 
@@ -94,15 +106,25 @@ def _match_training_record_filename(name):
     return m.group(1), m.group(2)
 
 
-def _parse_skill_percent(raw):
-    """'0,94' (phan so, dau phay thap phan) -> 94.0 ; '94' hoac '94,5' (da la %) -> giu nguyen.
+def _parse_decimal_comma(raw):
+    """'0,94' (dau phay thap phan kieu VN) -> 0.94, giu nguyen ty le (KHONG nhan 100) - dung cho
+    Employee.skill_score (luu dang phan so 0-1, xem employees/services.py::compute_final_result).
     None neu rong/khong parse duoc."""
-    raw = (raw or '').strip().replace('%', '')
+    raw = (raw or '').strip()
     if not raw:
         return None
     try:
-        value = float(raw.replace(',', '.'))
+        return float(raw.replace(',', '.'))
     except ValueError:
+        return None
+
+
+def _parse_skill_percent(raw):
+    """'0,94' (phan so, dau phay thap phan) -> 94.0 ; '94' hoac '94,5' (da la %) -> giu nguyen.
+    Dung cho Evaluation.percent (thang 0-100) - khac _parse_decimal_comma (giu nguyen phan so,
+    dung cho Employee.skill_score). None neu rong/khong parse duoc."""
+    value = _parse_decimal_comma((raw or '').replace('%', ''))
+    if value is None:
         return None
     return value * 100 if value <= 1 else value
 
@@ -112,6 +134,19 @@ def _parse_skill_result(raw):
     if not raw:
         return ''
     return Evaluation.Result.PASS if raw == 'Đạt' else Evaluation.Result.FAIL
+
+
+def _parse_sheet_date(raw):
+    """'2026-07-28' hoac '2026-07-28 10:30:00' (bo phan gio) -> date(2026,7,28). None neu rong/
+    khong parse duoc."""
+    raw = (raw or '').strip()
+    if not raw:
+        return None
+    date_part = raw.split(' ')[0].split('T')[0]
+    try:
+        return datetime.date.fromisoformat(date_part)
+    except ValueError:
+        return None
 
 
 def build_checklist_code_map(tenant, position_checklist_rows):
@@ -279,7 +314,6 @@ class Command(BaseCommand):
                 totals[key] += value
 
             if not dry_run:
-                recompute_final_result(employee)
                 recompute_commission(employee)
 
             self.stdout.write(
@@ -287,7 +321,9 @@ class Command(BaseCommand):
                 f"({stats['checklist_unmatched']} co anh nhung KHONG khop duoc CL-code), "
                 f"{stats['photos']} anh, danh gia ky nang: {'co' if stats['skill_eval'] else 'khong'}, "
                 f"phieu KQ thu viec: {'co' if stats['probation_result'] else 'khong'}, "
-                f"bien ban dao tao: {stats['training_records']}, file R2: {stats['files_ok']} OK/{stats['files_fail']} loi"
+                f"bien ban dao tao: {stats['training_records']}, "
+                f"app_employees: {'co' if stats['app_employees_synced'] else 'khong'}, "
+                f"file R2: {stats['files_ok']} OK/{stats['files_fail']} loi"
             )
 
         self.stdout.write('')
@@ -300,6 +336,7 @@ class Command(BaseCommand):
         self.stdout.write(f'  Danh gia ky nang tao moi: {totals["skill_eval"]}')
         self.stdout.write(f'  Phieu ket qua thu viec dinh: {totals["probation_result"]}')
         self.stdout.write(f'  Bien ban dao tao dinh: {totals["training_records"]}')
+        self.stdout.write(f'  Nhan su ghi ket qua tu app_employees: {totals["app_employees_synced"]}')
         self.stdout.write(f'  File R2: {totals["files_ok"]} OK, {totals["files_fail"]} loi')
         if dry_run:
             self.stdout.write(self.style.WARNING(
@@ -360,27 +397,29 @@ class Command(BaseCommand):
 
     # ------------------------------------------------------------------ Per-employee
 
-    def _process_employee(self, drive, root_id, evidence_root, tenant, employee, code_to_checklist, app_employees_by_code, dry_run):
+    def _find_employee_evidence_folder(self, drive, evidence_root, employee):
         rest_folder = drive.find_child(evidence_root['id'], employee.restaurant.code)
-        if not rest_folder:
-            return None
-        month_folder = drive.find_child(rest_folder['id'], MONTH_FOLDER)
-        if not month_folder:
-            return None
-        emp_folder = drive.find_child(month_folder['id'], employee.code)
-        if not emp_folder:
-            return None
+        month_folder = drive.find_child(rest_folder['id'], MONTH_FOLDER) if rest_folder else None
+        return drive.find_child(month_folder['id'], employee.code) if month_folder else None
+
+    def _process_employee(self, drive, root_id, evidence_root, tenant, employee, code_to_checklist, app_employees_by_code, dry_run):
+        emp_folder = self._find_employee_evidence_folder(drive, evidence_root, employee)
+        app_row = app_employees_by_code.get(employee.code)
+        if not emp_folder and not app_row:
+            return None  # khong co du lieu Drive lan sheet cho nhan su nay - bo qua
 
         stats = {
             'checklist_matched': 0, 'checklist_unmatched': 0, 'photos': 0,
             'skill_eval': 0, 'probation_result': 0, 'training_records': 0,
-            'files_ok': 0, 'files_fail': 0,
+            'app_employees_synced': 0, 'files_ok': 0, 'files_fail': 0,
         }
 
-        self._process_evidence_photos(drive, tenant, employee, emp_folder, code_to_checklist, dry_run, stats)
+        if emp_folder:
+            self._process_evidence_photos(drive, tenant, employee, emp_folder, code_to_checklist, dry_run, stats)
         self._process_skill_eval(drive, root_id, tenant, employee, app_employees_by_code, dry_run, stats)
         self._process_probation_result(drive, root_id, employee, dry_run, stats)
         self._process_training_records(drive, root_id, employee, code_to_checklist, dry_run, stats)
+        self._process_app_employees_fields(employee, app_row, dry_run, stats)
         return stats
 
     def _upload(self, raw_bytes, folder, filename_prefix, ext, content_type, stats):
@@ -554,3 +593,43 @@ class Command(BaseCommand):
                 progress = TrainingProgress(tenant_id=employee.tenant_id, employee=employee, checklist=checklist)
             progress.pdf_url = pdf_url
             progress.save()
+
+    def _process_app_employees_fields(self, employee, app_row, dry_run, stats):
+        """Ghi ket qua DA CHOT tu app_employees vao Employee. KHONG goi recompute_final_result
+        sau buoc nay (xem docstring dau file) - chi recompute_commission o handle()."""
+        if not app_row:
+            return
+
+        stats['app_employees_synced'] += 1
+        if dry_run:
+            return
+
+        update_fields = []
+
+        skill_score = _parse_decimal_comma(pick(app_row, 'Skill_Score_%', 'Skill_Score'))
+        if skill_score is not None:
+            employee.skill_score = skill_score
+            update_fields.append('skill_score')
+
+        skill_result = pick(app_row, 'Skill_Result')
+        if skill_result:
+            employee.skill_result = skill_result
+            update_fields.append('skill_result')
+
+        final_result = pick(app_row, 'Final_Probation_Result')
+        if final_result:
+            employee.final_result = final_result
+            update_fields.append('final_result')
+            if final_result == 'Pass thử việc':
+                pass_date = _parse_sheet_date(pick(app_row, 'Pass_Date'))
+                if pass_date:
+                    employee.pass_date = pass_date
+                    update_fields.append('pass_date')
+
+        resigned_at = _parse_sheet_date(pick(app_row, 'Resigned_Date'))
+        if resigned_at:
+            employee.resigned_at = resigned_at
+            update_fields.append('resigned_at')
+
+        if update_fields:
+            employee.save(update_fields=update_fields)
