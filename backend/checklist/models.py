@@ -15,6 +15,9 @@ class Checklist(models.Model):
     doc_url = models.URLField(blank=True)
     level_group = models.CharField(max_length=20, blank=True)
     order = models.IntegerField(default=0)
+    # Ma checklist ben ngoai (CL-xxxxx, sheet "DB_Dao tao"::position_checklists) - cau noi de
+    # cac Drive import/ETL (vd import_july_data) tim dung Checklist v2.1 tuong ung.
+    code = models.CharField(max_length=20, blank=True, db_index=True)
 
     class Meta:
         ordering = ['order']

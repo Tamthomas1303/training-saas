@@ -222,6 +222,12 @@ RESTAURANTS_SOURCE_CSV_URL = os.environ.get('RESTAURANTS_SOURCE_CSV_URL', '')
 CHECKLIST_SOURCE_CSV_URL = os.environ.get('CHECKLIST_SOURCE_CSV_URL', '')
 DOCUMENTS_SOURCE_CSV_URL = os.environ.get('DOCUMENTS_SOURCE_CSV_URL', '')
 
+# Google Drive/Sheets (service account) - dung cho import_july_data (ETL minh chung/danh gia/
+# phieu ket qua tu Drive vao v2.1). JSON string nguyen van cua key file service account.
+GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON', '')
+TRAINING_DRIVE_ROOT_FOLDER_ID = os.environ.get('TRAINING_DRIVE_ROOT_FOLDER_ID', '')
+TRAINING_DB_SHEET_ID = os.environ.get('TRAINING_DB_SHEET_ID', '')
+
 # Kho lưu file minh chứng/PDF — chọn backend qua STORAGE_BACKEND: 'r2' (mặc định) | 'supabase'.
 STORAGE_BACKEND = os.environ.get('STORAGE_BACKEND', 'r2')
 

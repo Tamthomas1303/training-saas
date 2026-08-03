@@ -15,6 +15,13 @@ from cls_sync.models import ExamResult, ExamScoreAdjustment
 from employees.dashboard import _month_end, _s_pass_rate_this_month
 from employees.models import Employee
 from employees.services import best_exam_score, change_employee_status, emp_type, exam_pass, recompute_final_result
+from employees.management.commands.import_july_data import (
+    _match_evidence_filename,
+    _match_training_record_filename,
+    _parse_skill_percent,
+    _parse_skill_result,
+    build_checklist_code_map,
+)
 from evaluation.models import Council, CouncilMember, Evaluation, EvaluationDetail
 from restaurants.models import Restaurant
 from sourcing.models import Notification
@@ -549,3 +556,101 @@ class ClearTestDataCommandTests(TestCase):
         self.assertEqual(legacy.final_result, 'Pass thử việc')
         deleted_urls = {c.args[0] for c in mock_delete.call_args_list}
         self.assertNotIn('https://pub-x.r2.dev/ketquathuviec/1/legacy.pdf', deleted_urls)
+
+
+class ImportJulyDataHelperTests(TestCase):
+    def test_match_evidence_filename_parses_kind_code_timestamp_ext(self):
+        result = _match_evidence_filename('tailieu_CL-000005_1784521654444.jpg')
+        self.assertEqual(result, ('tailieu', 'CL-000005', 1784521654444, 'jpg'))
+
+    def test_match_evidence_filename_case_insensitive(self):
+        result = _match_evidence_filename('HuongDan_CL-000005_123.JPG')
+        self.assertEqual(result, ('huongdan', 'CL-000005', 123, 'jpg'))
+
+    def test_match_evidence_filename_rejects_unrelated_name(self):
+        self.assertIsNone(_match_evidence_filename('random_photo.jpg'))
+        self.assertIsNone(_match_evidence_filename('tailieu_CL-000005.jpg'))
+
+    def test_match_training_record_filename(self):
+        result = _match_training_record_filename('BienBanDaoTao_AM002868_CL-000005.pdf')
+        self.assertEqual(result, ('AM002868', 'CL-000005'))
+
+    def test_match_training_record_filename_rejects_unrelated_name(self):
+        self.assertIsNone(_match_training_record_filename('KetQuaThuViec_AM002868.pdf'))
+
+    def test_parse_skill_percent_comma_fraction(self):
+        self.assertEqual(_parse_skill_percent('0,94'), 94.0)
+
+    def test_parse_skill_percent_already_percent_with_comma_decimal(self):
+        self.assertEqual(_parse_skill_percent('94,5'), 94.5)
+
+    def test_parse_skill_percent_plain_integer(self):
+        self.assertEqual(_parse_skill_percent('94'), 94.0)
+
+    def test_parse_skill_percent_blank_is_none(self):
+        self.assertIsNone(_parse_skill_percent(''))
+        self.assertIsNone(_parse_skill_percent(None))
+
+    def test_parse_skill_result(self):
+        self.assertEqual(_parse_skill_result('Đạt'), Evaluation.Result.PASS)
+        self.assertEqual(_parse_skill_result('Không đạt'), Evaluation.Result.FAIL)
+        self.assertEqual(_parse_skill_result(''), '')
+
+
+class BuildChecklistCodeMapTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+
+    def test_matches_by_brand_position_task_name(self):
+        c1 = Checklist.objects.create(
+            tenant=self.tenant, brand='Kampong', position='Phục vụ', task_name='An toàn vệ sinh',
+        )
+        sheet_rows = [{
+            'Brand': ' Kampong ', 'Position': ' Phục vụ ', 'Task_Name': ' An toàn vệ sinh ',
+            'Checklist_ID': 'CL-000001', 'Day': '1', 'Category': 'Onboarding',
+        }]
+
+        code_to_checklist, checklist_to_code, unmatched = build_checklist_code_map(self.tenant, sheet_rows)
+
+        self.assertEqual(code_to_checklist['CL-000001'], c1)
+        self.assertEqual(checklist_to_code[c1.id], 'CL-000001')
+        self.assertEqual(unmatched, [])
+
+    def test_skips_rows_with_empty_position(self):
+        Checklist.objects.create(tenant=self.tenant, brand='Kampong', position='Phục vụ', task_name='X')
+        sheet_rows = [{'Brand': 'Kampong', 'Position': '', 'Task_Name': 'X', 'Checklist_ID': 'CL-000080'}]
+
+        code_to_checklist, checklist_to_code, unmatched = build_checklist_code_map(self.tenant, sheet_rows)
+
+        self.assertEqual(code_to_checklist, {})
+        self.assertEqual(len(unmatched), 1)
+
+    def test_disambiguates_duplicate_task_name_by_day_and_category(self):
+        c1 = Checklist.objects.create(
+            tenant=self.tenant, brand='Kampong', position='Phục vụ', task_name='Ôn tập',
+            day=1, category='Lý thuyết',
+        )
+        c2 = Checklist.objects.create(
+            tenant=self.tenant, brand='Kampong', position='Phục vụ', task_name='Ôn tập',
+            day=2, category='Thực hành',
+        )
+        sheet_rows = [
+            {'Brand': 'Kampong', 'Position': 'Phục vụ', 'Task_Name': 'Ôn tập', 'Day': '1',
+             'Category': 'Lý thuyết', 'Checklist_ID': 'CL-000010'},
+            {'Brand': 'Kampong', 'Position': 'Phục vụ', 'Task_Name': 'Ôn tập', 'Day': '2',
+             'Category': 'Thực hành', 'Checklist_ID': 'CL-000011'},
+        ]
+
+        code_to_checklist, checklist_to_code, unmatched = build_checklist_code_map(self.tenant, sheet_rows)
+
+        self.assertEqual(checklist_to_code[c1.id], 'CL-000010')
+        self.assertEqual(checklist_to_code[c2.id], 'CL-000011')
+        self.assertEqual(unmatched, [])
+
+    def test_no_matching_row_is_unmatched(self):
+        c1 = Checklist.objects.create(tenant=self.tenant, brand='Kampong', position='Phục vụ', task_name='Không có trong sheet')
+
+        code_to_checklist, checklist_to_code, unmatched = build_checklist_code_map(self.tenant, [])
+
+        self.assertEqual(unmatched, [c1])
+        self.assertEqual(code_to_checklist, {})

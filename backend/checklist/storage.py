@@ -52,6 +52,13 @@ def upload_pdf_bytes(pdf_bytes, folder, filename_prefix):
     return _upload(path, pdf_bytes, 'application/pdf')
 
 
+def upload_file_bytes(raw_bytes, folder, filename_prefix, ext, content_type):
+    """Upload bytes da co san (vd tai ve tu Drive) - khac upload_data_url (nhan data: URL) va
+    upload_pdf_bytes (co dinh PDF, khong nen anh nhu upload_data_url)."""
+    path = f'{folder}/{filename_prefix}_{uuid.uuid4().hex}.{ext}'
+    return _upload(path, raw_bytes, content_type)
+
+
 def _compress_image(raw_bytes, max_dimension=MAX_IMAGE_DIMENSION, quality=JPEG_QUALITY):
     image = Image.open(BytesIO(raw_bytes))
     if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
