@@ -11,7 +11,10 @@ Nguon du lieu (da khao sat - xem Prompt_v2.1_ImportJuly_Drive.md):
       04_Assessment_PDFs/Skill_BQL/2026-07/DanhGia_<ma NV>_Skill_BQL.pdf
       04_Assessment_PDFs/KetQuaThuViec/2026-07/KetQuaThuViec_<ma NV>.pdf
       03_Training_Records/<ma NH>/2026-07/BienBanDaoTao_<ma NV>_CL-xxxxx.pdf
-  - Spreadsheet TRAINING_DB_SHEET_ID (tab position_checklists, app_employees) qua Sheets API.
+  - Spreadsheet TRAINING_DB_SHEET_ID (tab position_checklists) qua Sheets API.
+  - Tab 'app_employees' KHONG nam trong spreadsheet tren (Sheets API bao "Unable to parse
+    range") - doc rieng qua link CSV "Publish to web" cong khai (APP_EMPLOYEES_CSV_URL) bang
+    requests, giong cac lenh import_* khac (xem config/csv_source.py).
 
 Anh xa file -> model (da doi chieu voi checklist/models.py, evaluation/models.py,
 employees/models.py):
@@ -49,10 +52,12 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
+import requests
+
 from accounts.models import Tenant
 from checklist.models import Checklist, TrainingProgress
 from checklist.storage import StorageError, upload_file_bytes
-from config.csv_source import pick
+from config.csv_source import load_csv_rows, pick
 from employees.models import Employee
 from employees.services import normalize_key, recompute_final_result
 from evaluation.models import Evaluation
@@ -219,7 +224,7 @@ class Command(BaseCommand):
         sheets = self._sheets_service(creds)
 
         position_rows = self._read_sheet_safely(sheets, 'position_checklists')
-        app_employee_rows = self._read_sheet_safely(sheets, 'app_employees')
+        app_employee_rows = self._read_app_employees_csv()
         app_employees_by_code = {
             pick(row, 'Employee_ID', 'employee_id'): row for row in app_employee_rows if pick(row, 'Employee_ID', 'employee_id')
         }
@@ -343,6 +348,15 @@ class Command(BaseCommand):
             return []
         headers = [h.strip() for h in values[0]]
         return [dict(zip(headers, row + [''] * (len(headers) - len(row)))) for row in values[1:]]
+
+    def _read_app_employees_csv(self):
+        try:
+            return load_csv_rows(settings.APP_EMPLOYEES_CSV_URL)
+        except (requests.RequestException, OSError) as exc:
+            self.stdout.write(self.style.ERROR(
+                f"[CSV] Khong doc duoc APP_EMPLOYEES_CSV_URL: {exc}. Bo qua Skill_Score_%/Skill_Result."
+            ))
+            return []
 
     # ------------------------------------------------------------------ Per-employee
 

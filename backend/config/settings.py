@@ -227,6 +227,13 @@ DOCUMENTS_SOURCE_CSV_URL = os.environ.get('DOCUMENTS_SOURCE_CSV_URL', '')
 GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON', '')
 TRAINING_DRIVE_ROOT_FOLDER_ID = os.environ.get('TRAINING_DRIVE_ROOT_FOLDER_ID', '')
 TRAINING_DB_SHEET_ID = os.environ.get('TRAINING_DB_SHEET_ID', '')
+# Tab 'app_employees' (diem/ket qua) KHONG nam trong spreadsheet TRAINING_DB_SHEET_ID (Sheets
+# API bao "Unable to parse range") - doc rieng qua link CSV "Publish to web" cong khai bang
+# requests, giong cac lenh import_* khac (xem config/csv_source.py).
+APP_EMPLOYEES_CSV_URL = os.environ.get(
+    'APP_EMPLOYEES_CSV_URL',
+    'https://docs.google.com/spreadsheets/d/e/2PACX-1vQH4c0XK5A17FAHSn1hEdWsuDvSUsxf9Ulp4yAf-90hAsvKfbdKh0_uDgwk1N3y0kTb8vlAXXd304qu/pub?gid=1267495868&single=true&output=csv',
+)
 
 # Kho lưu file minh chứng/PDF — chọn backend qua STORAGE_BACKEND: 'r2' (mặc định) | 'supabase'.
 STORAGE_BACKEND = os.environ.get('STORAGE_BACKEND', 'r2')
