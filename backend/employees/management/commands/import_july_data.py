@@ -186,6 +186,11 @@ def build_checklist_code_map(tenant, position_checklist_rows):
                 chosen = refined[0]
 
         code = pick(chosen, 'Checklist_ID', 'checklist_id') if chosen else ''
+        if not code and c.code:
+            # Khong tu khop duoc (vd task_name trong DB bi sua them ghi chu so voi sheet) nhung
+            # da co code gan tay tu truoc (xem doi thoai xu ly AM003186/checklist 67) - tin gia
+            # tri da gan, khong bo qua/ghi de ve rong.
+            code = c.code
         if code:
             code_to_checklist[code] = c
             checklist_to_code[c.id] = code

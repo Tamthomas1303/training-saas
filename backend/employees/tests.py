@@ -735,3 +735,19 @@ class BuildChecklistCodeMapTests(TestCase):
 
         self.assertEqual(unmatched, [c1])
         self.assertEqual(code_to_checklist, {})
+
+    def test_falls_back_to_already_saved_code_when_string_match_fails(self):
+        c1 = Checklist.objects.create(
+            tenant=self.tenant, brand='YYM', position='Phục vụ',
+            task_name='Menu...\n(Tự đào tạo theo thực tế - chưa có SOP)', code='CL-000063',
+        )
+        sheet_rows = [{
+            'Brand': 'YYM', 'Position': 'Phục vụ', 'Task_Name': 'Menu... (khac ban DB)',
+            'Checklist_ID': 'CL-999999',
+        }]
+
+        code_to_checklist, checklist_to_code, unmatched = build_checklist_code_map(self.tenant, sheet_rows)
+
+        self.assertEqual(code_to_checklist['CL-000063'], c1)
+        self.assertEqual(checklist_to_code[c1.id], 'CL-000063')
+        self.assertEqual(unmatched, [])
