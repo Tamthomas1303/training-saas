@@ -277,9 +277,32 @@ def _is_parttime_p(employee):
     return level == 'P'
 
 
+def _strip_diacritics(text):
+    """Chuan hoa NFD + loai dau + doi d/Đ -> d + lowercase - dung de so khop Job_Position (vd
+    'NV Cơm gà' can khop tu khoa 'com ga'). Chuoi CON DAU se lam .find()/'in' truot (Phan 1
+    muc 7 - "QUAN TRONG ve so khop tieng Viet")."""
+    import unicodedata
+
+    text = unicodedata.normalize('NFD', text or '')
+    text = ''.join(ch for ch in text if unicodedata.category(ch) != 'Mn')
+    return text.replace('Đ', 'D').replace('đ', 'd').lower()
+
+
+# Tu khoa nhan dien nhan su bep (BOH) - KHONG chi chu "bep", con co cac vi tri khong chua chu
+# nay nhu "NV Com ga"/"To Truong Thot"/"Salad"/"Chao"/"Food check" (Phan 1 muc 7).
+BOH_KEYWORDS = ('bep', 'thot', 'com ga', 'salad', 'chao', 'food check')
+
+
+def _is_boh_position(position):
+    normalized = _strip_diacritics(position)
+    return any(kw in normalized for kw in BOH_KEYWORDS)
+
+
 def _bql_cohort_stats(employees, month, year):
-    """Cohort BQL KPI (port Apps Script 05-06/08/2026): nhan su co HAN DANH GIA (start_date +
-    so ngay theo cap - xem _kpi_tier_days) roi TRONG ky bao cao. Loai khoi mau/tu so: nghi viec,
+    """Cohort BQL KPI (port Apps Script 05-07/08/2026): nhan su co HAN DANH GIA (start_date +
+    so ngay theo cap - xem _kpi_tier_days) roi TRONG ky bao cao, VA thuoc Khoi Nha hang
+    (operation_unit='restaurant' - LOAI HAN Khoi Van phong/San xuat va nhan su khong co phong
+    ban, ho khong xuat hien o bat ky dau trong bao cao nay). Loai khoi mau/tu so: nghi viec,
     part-time cap P (Job_Level bat dau 'P' hoac level_group='P'). 'Dung lo trinh' do bang
     pass_date (KHONG dung moc hoan thanh checklist, vi dau Pass co the dong muon). 'Dat ky nang
     lan dau' = trong cohort, lay danh gia Skill_BQL SOM NHAT cua moi nguoi (khong gioi han
@@ -304,7 +327,7 @@ def _bql_cohort_stats(employees, month, year):
 
     cohort = []
     for e in employees:
-        if not e.start_date:
+        if not e.start_date or e.operation_unit != Employee.OperationUnit.RESTAURANT:
             continue
         tier = _kpi_tier_days(e.position)
         deadline = e.start_date + datetime.timedelta(days=tier)
@@ -345,62 +368,62 @@ def _bql_cohort_stats(employees, month, year):
     return by_restaurant
 
 
-def _avg_restaurant_rate(by_restaurant, num_key, den_key):
-    """Trung binh CONG ty le cac nha hang co mau so > 0 (khac tong gop tu so/mau so) - dung cho
-    khoi 'Thong ke theo AM/KCS'."""
-    rates = [round(r[num_key] / r[den_key] * 100) for r in by_restaurant.values() if r[den_key] > 0]
-    return round(sum(rates) / len(rates)) if rates else 0
+def _bql_person_totals(employees, month, year):
+    """Gop so lieu cohort THEO NHAN SU (tong tu so/mau so tren toan bo pham vi truyen vao,
+    KHONG PHAI trung binh cong ty le tung nha hang) - dung cho khoi 'Thong ke theo AM/KCS/OM'."""
+    by_restaurant = _bql_cohort_stats(employees, month, year)
+    totals = {'on_num': 0, 'on_den': 0, 'skill_pass': 0, 'skill_total': 0}
+    for row in by_restaurant.values():
+        for key in totals:
+            totals[key] += row[key]
+    totals['on_rate'] = round(totals['on_num'] / totals['on_den'] * 100) if totals['on_den'] else 0
+    totals['skill_rate'] = round(totals['skill_pass'] / totals['skill_total'] * 100) if totals['skill_total'] else 0
+    return totals
 
 
-def _kpi_bql_am_kcs_stats(user, month, year):
-    """Khoi 'Thong ke theo AM / KCS' (Phan B, muc cuoi): cung tieu chi cohort nhu bang BQL,
-    nhung tinh TRUNG BINH CONG ty le cac nha hang quan ly (khac tong gop). AM = toan he thong
-    (BOH+FOH, moi vi tri). KCS = CHI nhan su bep (Job_Position chua 'bếp'), gioi han cac nha
-    hang nam trong pham vi phan vung KCS (UserRestaurantAssignment, fallback User.restaurant -
-    giong logic get_restaurant_scope)."""
-    from accounts.models import User as _User
+def _kpi_bql_am_kcs_om_stats(tenant, month, year):
+    """Khoi 'Thong ke theo AM/KCS/OM' (Phan 1 muc 7): MOI DONG la 1 nguoi phu trach (tai khoan
+    role AM/OM/KCS), so lieu GOP THEO NHAN SU trong pham vi ho quan ly (tong dat/tong dien -
+    xem _bql_person_totals), KHONG PHAI trung binh cong ty le tung nha hang.
+    AM/OM = toan he thong (BOH+FOH, moi vi tri Khoi Nha hang). KCS = CHI nhan su bep (BOH -
+    xem _is_boh_position), gop cac nha hang KCS phu trach (UserRestaurantAssignment, fallback
+    User.restaurant - giong logic get_restaurant_scope)."""
     from accounts.models import UserRestaurantAssignment
 
-    tenant = user.tenant
-    employees = list(scoped_employees(user))
-
-    am_by_restaurant = _bql_cohort_stats(employees, month, year)
-
-    kcs_restaurant_ids = set(
-        UserRestaurantAssignment.objects.filter(user__tenant=tenant, user__role='kcs')
-        .values_list('restaurant_id', flat=True)
+    all_employees = list(
+        Employee.objects.filter(tenant=tenant, is_legacy=False).select_related('restaurant')
     )
-    kcs_users_no_assignment = _User.objects.filter(
-        tenant=tenant, role='kcs', restaurant__isnull=False,
-    ).exclude(id__in=UserRestaurantAssignment.objects.values_list('user_id', flat=True))
-    kcs_restaurant_ids |= set(kcs_users_no_assignment.values_list('restaurant_id', flat=True))
 
-    kitchen_employees = [
-        e for e in employees
-        if e.restaurant_id in kcs_restaurant_ids and 'bếp' in (e.position or '').lower()
-    ]
-    kcs_by_restaurant = _bql_cohort_stats(kitchen_employees, month, year)
+    rows = []
+    for u in User.objects.filter(tenant=tenant, role__in=('am', 'om')).order_by('username'):
+        totals = _bql_person_totals(all_employees, month, year)
+        rows.append({
+            'role': (u.role or '').upper(), 'name': u.full_name or u.username,
+            'scope': 'Toàn hệ thống (BOH + FOH)', 'emp_count': totals['on_den'], **totals,
+        })
 
-    return [
-        {
-            'label': 'AM (toàn hệ thống)',
-            'on_rate': _avg_restaurant_rate(am_by_restaurant, 'on_num', 'on_den'),
-            'skill_rate': _avg_restaurant_rate(am_by_restaurant, 'skill_pass', 'skill_total'),
-            'restaurant_count': sum(1 for r in am_by_restaurant.values() if r['on_den']),
-        },
-        {
-            'label': 'KCS (nhà hàng phụ trách)',
-            'on_rate': _avg_restaurant_rate(kcs_by_restaurant, 'on_num', 'on_den'),
-            'skill_rate': _avg_restaurant_rate(kcs_by_restaurant, 'skill_pass', 'skill_total'),
-            'restaurant_count': sum(1 for r in kcs_by_restaurant.values() if r['on_den']),
-        },
-    ]
+    for u in User.objects.filter(tenant=tenant, role='kcs').order_by('username'):
+        restaurant_ids = set(u.restaurant_assignments.values_list('restaurant_id', flat=True))
+        if not restaurant_ids and u.restaurant_id:
+            restaurant_ids = {u.restaurant_id}
+        kitchen_employees = [
+            e for e in all_employees
+            if e.restaurant_id in restaurant_ids and _is_boh_position(e.position)
+        ]
+        totals = _bql_person_totals(kitchen_employees, month, year)
+        rows.append({
+            'role': 'KCS', 'name': u.full_name or u.username,
+            'scope': f'{len(restaurant_ids)} nhà hàng (chỉ bếp)', 'emp_count': totals['on_den'], **totals,
+        })
+
+    return rows
 
 
 def kpi_bql_report_data(user, month, year):
     """So lieu 'Bao cao KPI BQL' theo thang: % NV moi dung lo trinh + % dat kiem tra ky nang
-    lan dau, gom theo nha hang + khoi 'Thong ke theo AM/KCS'. Port KpiReportService.gs::
-    trainingKpiData + cap nhat cong thuc theo Apps Script 05-06/08/2026 (xem _bql_cohort_stats)."""
+    lan dau, gom theo nha hang (chi Khoi Nha hang) + khoi 'Thong ke theo AM/KCS/OM'. Port
+    KpiReportService.gs::trainingKpiData + cap nhat cong thuc theo Apps Script 05-07/08/2026
+    (xem _bql_cohort_stats)."""
     by_restaurant = _bql_cohort_stats(scoped_employees(user), month, year)
 
     rows = []
@@ -418,7 +441,7 @@ def kpi_bql_report_data(user, month, year):
     totals['skill_rate'] = round(totals['skill_pass'] / totals['skill_total'] * 100) if totals['skill_total'] else 0
 
     rows.sort(key=lambda r: r['restaurant'])
-    return {'rows': rows, 'totals': totals, 'am_kcs': _kpi_bql_am_kcs_stats(user, month, year)}
+    return {'rows': rows, 'totals': totals, 'am_kcs': _kpi_bql_am_kcs_om_stats(user.tenant, month, year)}
 
 
 def get_exported_report_url(tenant, kind, month, year):
@@ -429,17 +452,25 @@ def get_exported_report_url(tenant, kind, month, year):
 
 
 def _save_exported_report(tenant, kind, month, year, pdf_url, user):
-    """Luu/thay URL phieu da xuat cho (tenant, kind, thang, nam) - xoa file R2 cu truoc khi
-    ghi de (giong pattern export_probation_result_pdf)."""
+    """Luu URL phieu vua xuat cho (tenant, kind, thang, nam). CHI xoa file R2 cu SAU KHI da luu
+    ban ghi moi thanh cong, VA chi khi pdf_url moi khac rong (Phan 2.C: "chi xoa SAU KHI luu
+    ban moi thanh cong va ban moi co du lieu" - tranh xoa nham phieu tot neu upload/luu loi
+    giua chung)."""
     from checklist.storage import delete_by_url
 
-    existing = ExportedReport.objects.filter(tenant=tenant, kind=kind, month=month, year=year).first()
-    if existing and existing.pdf_url and existing.pdf_url != pdf_url:
-        delete_by_url(existing.pdf_url)
+    if not pdf_url:
+        return
+
+    old_url = (
+        ExportedReport.objects.filter(tenant=tenant, kind=kind, month=month, year=year)
+        .values_list('pdf_url', flat=True).first()
+    )
     ExportedReport.objects.update_or_create(
         tenant=tenant, kind=kind, month=month, year=year,
         defaults={'pdf_url': pdf_url, 'exported_by': user},
     )
+    if old_url and old_url != pdf_url:
+        delete_by_url(old_url)
 
 
 def generate_kpi_report_pdf(user, month, year):
@@ -447,7 +478,7 @@ def generate_kpi_report_pdf(user, month, year):
     pdf_bytes = build_kpi_report_pdf({
         'record_no': f'KPIRPT{month}{year}/{user.tenant_id}',
         'tenant_name': user.tenant.name,
-        'month': month, 'year': year,
+        'month': month, 'year': year, 'generated': timezone.now().strftime('%d/%m/%Y'),
         'rows': data['rows'], 'totals': data['totals'], 'am_kcs': data['am_kcs'],
     })
     pdf_url = upload_pdf_bytes(pdf_bytes, f'baocao/{user.tenant_id}/kpi', f'BaoCaoKPI_{year}_{month}')
@@ -483,7 +514,7 @@ def generate_allowance_pdf(user, month, year):
     pdf_bytes = build_allowance_pdf({
         'record_no': f'PC{month}{year}/{user.tenant_id}',
         'tenant_name': user.tenant.name,
-        'month': month, 'year': year,
+        'month': month, 'year': year, 'generated': timezone.now().strftime('%d/%m/%Y'),
         'rows': data['rows'], 'total_amount': data['total_amount'],
     })
     pdf_url = upload_pdf_bytes(pdf_bytes, f'baocao/{user.tenant_id}/phucap', f'PhuCapTrainer_{year}_{month}')

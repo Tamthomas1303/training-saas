@@ -437,10 +437,10 @@ function KpiReportSection({ month, year, setMonth, setYear }) {
                     )}
                   </td>
                   <td>
-                    {r.on_num}/{r.on_den} ({r.on_rate}%)
+                    {r.on_num}/{r.on_den} ({r.on_den > 0 ? `${r.on_rate}%` : '—'})
                   </td>
                   <td>
-                    {r.skill_pass}/{r.skill_total} ({r.skill_rate}%)
+                    {r.skill_pass}/{r.skill_total} ({r.skill_total > 0 ? `${r.skill_rate}%` : '—'})
                   </td>
                 </tr>
               ))}
@@ -457,21 +457,32 @@ function KpiReportSection({ month, year, setMonth, setYear }) {
           {report.am_kcs?.length > 0 && (
             <div style={{ marginTop: 12 }}>
               <div className="stat-label" style={{ marginBottom: 6 }}>
-                Thống kê theo AM / KCS
+                Thống kê theo AM / KCS / OM
               </div>
-              {report.am_kcs.map((item) => (
-                <div
-                  key={item.label}
-                  style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0' }}
-                >
-                  <span>
-                    {item.label} ({item.restaurant_count} nhà hàng)
-                  </span>
-                  <span>
-                    Đúng lộ trình TB {item.on_rate}% · Đạt KN lần đầu TB {item.skill_rate}%
-                  </span>
-                </div>
-              ))}
+              <Table>
+                <thead>
+                  <tr>
+                    <th>Vị trí</th>
+                    <th>Người phụ trách</th>
+                    <th>Phạm vi</th>
+                    <th>Số NV trong kỳ</th>
+                    <th>Đúng lộ trình</th>
+                    <th>Đạt KN lần đầu</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.am_kcs.map((item, idx) => (
+                    <tr key={`${item.role}-${item.name}-${idx}`}>
+                      <td>{item.role}</td>
+                      <td>{item.name}</td>
+                      <td>{item.scope}</td>
+                      <td>{item.emp_count}</td>
+                      <td>{item.on_den > 0 ? `${item.on_rate}%` : '—'}</td>
+                      <td>{item.skill_total > 0 ? `${item.skill_rate}%` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
             </div>
           )}
         </>
@@ -544,45 +555,47 @@ export default function KpiPage() {
       </FilterBar>
 
       {loading && <p className="muted-note">Đang tải...</p>}
-      <Table>
-        <thead>
-          <tr>
-            <th>Ngày</th>
-            <th>Nhà hàng</th>
-            <th>Chủ đề</th>
-            <th>Người ĐT</th>
-            <th>SL</th>
-            <th>Biên bản</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sessions.results.map((sess) => (
-            <tr key={sess.id}>
-              <td>{sess.date}</td>
-              <td>{sess.restaurant_name}</td>
-              <td>{sess.topic}</td>
-              <td>{sess.trainer_name}</td>
-              <td>{sess.participant_count}</td>
-              <td>
-                {sess.pdf_url ? (
-                  <a href={sess.pdf_url} target="_blank" rel="noreferrer">
-                    Xem
-                  </a>
-                ) : (
-                  '—'
-                )}
-              </td>
-            </tr>
-          ))}
-          {sessions.results.length === 0 && (
+      <div className="table-sticky">
+        <Table>
+          <thead>
             <tr>
-              <td colSpan={6} className="muted-note">
-                Không có dữ liệu.
-              </td>
+              <th>Ngày</th>
+              <th>Nhà hàng</th>
+              <th>Chủ đề</th>
+              <th>Người ĐT</th>
+              <th>SL</th>
+              <th>Biên bản</th>
             </tr>
-          )}
-        </tbody>
-      </Table>
+          </thead>
+          <tbody>
+            {sessions.results.map((sess) => (
+              <tr key={sess.id}>
+                <td>{sess.date}</td>
+                <td>{sess.restaurant_name}</td>
+                <td>{sess.topic}</td>
+                <td>{sess.trainer_name}</td>
+                <td>{sess.participant_count}</td>
+                <td>
+                  {sess.pdf_url ? (
+                    <a href={sess.pdf_url} target="_blank" rel="noreferrer">
+                      Xem
+                    </a>
+                  ) : (
+                    '—'
+                  )}
+                </td>
+              </tr>
+            ))}
+            {sessions.results.length === 0 && (
+              <tr>
+                <td colSpan={6} className="muted-note">
+                  Không có dữ liệu.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </Table>
+      </div>
       <Pager page={page} pageSize={SESSIONS_PAGE_SIZE} count={sessions.count} onChange={setPage} />
     </AppShell>
   )

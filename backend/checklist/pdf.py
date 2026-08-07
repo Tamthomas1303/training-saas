@@ -114,9 +114,10 @@ def pdf_styles():
     }
 
 
-def styled_table(data, col_widths=None, header=True, row_heights=None):
+def styled_table(data, col_widths=None, header=True, row_heights=None, extra_style=None):
     """Bang chuan cho ca 3 phieu: vien 0.75pt mau #cfd6d3, header nen #eef3f1 chu dam,
-    padding 6x8, canh tren - tuong duong CSS 'table/th/td' trong yeu cau."""
+    padding 6x8, canh tren - tuong duong CSS 'table/th/td' trong yeu cau. extra_style: list
+    lenh TableStyle bo sung (vd SPAN cho dong TONG) - danh cho cac bang can tuy bien them."""
     style_cmds = [
         ('GRID', (0, 0), (-1, -1), 0.75, COLOR_BORDER),
         ('LEFTPADDING', (0, 0), (-1, -1), 8),
@@ -127,6 +128,8 @@ def styled_table(data, col_widths=None, header=True, row_heights=None):
     ]
     if header:
         style_cmds.append(('BACKGROUND', (0, 0), (-1, 0), COLOR_HEADER_BG))
+    if extra_style:
+        style_cmds.extend(extra_style)
     table = Table(data, colWidths=col_widths, rowHeights=row_heights, repeatRows=1 if header else 0)
     table.setStyle(TableStyle(style_cmds))
     return table

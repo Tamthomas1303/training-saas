@@ -11,6 +11,8 @@ from restaurants.models import Restaurant
 from .models import Commission, ExportedReport
 from .services import (
     _bql_cohort_stats,
+    _is_boh_position,
+    _strip_diacritics,
     allowance_report_data,
     generate_allowance_pdf,
     generate_kpi_report_pdf,
@@ -64,8 +66,32 @@ class RecomputeCommissionTrainerRoleTests(TestCase):
         self.assertEqual(result.status, Commission.Status.PAID)
 
 
+class ParseHelpersTests(TestCase):
+    """_strip_diacritics/_is_boh_position (Phan 1 muc 7 - Prompt v2.1_Port_va_LamDep_Form
+    07.08.2026: so khop BOH phai bo dau, dung tu khoa mo rong)."""
+
+    def test_strip_diacritics_and_dd(self):
+        self.assertEqual(_strip_diacritics('Cơm gà Đào Tấn'), 'com ga dao tan')
+
+    def test_is_boh_position_matches_beyond_bep_keyword(self):
+        self.assertTrue(_is_boh_position('NV Cơm gà'))
+        self.assertTrue(_is_boh_position('Tổ Trưởng Thớt'))
+        self.assertTrue(_is_boh_position('Salad'))
+        self.assertTrue(_is_boh_position('Chảo'))
+        self.assertTrue(_is_boh_position('Food check'))
+        self.assertTrue(_is_boh_position('Bếp phó'))
+
+    def test_is_boh_position_false_for_foh(self):
+        self.assertFalse(_is_boh_position('Phục vụ'))
+        self.assertFalse(_is_boh_position('Thu ngân'))
+
+    def test_is_boh_position_handles_blank(self):
+        self.assertFalse(_is_boh_position(''))
+        self.assertFalse(_is_boh_position(None))
+
+
 class BqlCohortStatsTests(TestCase):
-    """Cong thuc bao cao KPI BQL (Phan B - Prompt v2.1_Port_ThayDoi 05-06/08/2026)."""
+    """Cong thuc bao cao KPI BQL (Phan 1 - Prompt v2.1_Port_va_LamDep_Form 07.08.2026)."""
 
     def setUp(self):
         self.tenant = Tenant.objects.create(name='Demo Tenant')
@@ -75,9 +101,32 @@ class BqlCohortStatsTests(TestCase):
         self.month, self.year = 8, 2026
 
     def _employee(self, code, **kwargs):
-        defaults = dict(tenant=self.tenant, name=code, restaurant=self.restaurant, position='Phục vụ')
+        defaults = dict(
+            tenant=self.tenant, name=code, restaurant=self.restaurant, position='Phục vụ',
+            operation_unit=Employee.OperationUnit.RESTAURANT,
+        )
         defaults.update(kwargs)
         return Employee.objects.create(code=code, **defaults)
+
+    def test_office_operation_unit_excluded_entirely(self):
+        e = self._employee(
+            'NV1', start_date=datetime.date(2026, 7, 20), pass_date=datetime.date(2026, 8, 1),
+            operation_unit=Employee.OperationUnit.OFFICE,
+        )
+
+        by_restaurant = _bql_cohort_stats([e], self.month, self.year)
+
+        self.assertEqual(by_restaurant, {})
+
+    def test_blank_operation_unit_excluded_entirely(self):
+        e = self._employee(
+            'NV1', start_date=datetime.date(2026, 7, 20), pass_date=datetime.date(2026, 8, 1),
+            operation_unit='',
+        )
+
+        by_restaurant = _bql_cohort_stats([e], self.month, self.year)
+
+        self.assertEqual(by_restaurant, {})
 
     def test_on_track_uses_pass_date_not_checklist_completion(self):
         e = self._employee(
@@ -189,11 +238,16 @@ class KpiBqlReportDataTests(TestCase):
         self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='NH1', name='NH Demo', brand='Kampong')
         self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
 
-    def test_returns_rows_totals_and_am_kcs(self):
-        Employee.objects.create(
-            tenant=self.tenant, code='NV1', name='NV1', restaurant=self.restaurant, position='Phục vụ',
-            start_date=datetime.date(2026, 7, 20), pass_date=datetime.date(2026, 8, 1),
+    def _employee(self, code, **kwargs):
+        defaults = dict(
+            tenant=self.tenant, name=code, restaurant=self.restaurant, position='Phục vụ',
+            operation_unit=Employee.OperationUnit.RESTAURANT,
         )
+        defaults.update(kwargs)
+        return Employee.objects.create(code=code, **defaults)
+
+    def test_returns_rows_and_totals(self):
+        self._employee('NV1', start_date=datetime.date(2026, 7, 20), pass_date=datetime.date(2026, 8, 1))
 
         data = kpi_bql_report_data(self.admin, 8, 2026)
 
@@ -201,48 +255,60 @@ class KpiBqlReportDataTests(TestCase):
         self.assertEqual(data['totals']['on_num'], 1)
         self.assertEqual(data['totals']['on_den'], 1)
         self.assertEqual(data['totals']['on_rate'], 100)
-        self.assertEqual(len(data['am_kcs']), 2)
-        self.assertEqual(data['am_kcs'][0]['label'], 'AM (toàn hệ thống)')
+        self.assertEqual(data['am_kcs'], [])  # chua co tai khoan AM/OM/KCS nao
 
-    def test_am_kcs_averages_rates_not_totals(self):
+    def test_am_kcs_om_rows_only_appear_for_existing_users(self):
+        User.objects.create_user(username='am1', password='x', tenant=self.tenant, role='am')
+        User.objects.create_user(username='om1', password='x', tenant=self.tenant, role='om')
+        self._employee('NV1', start_date=datetime.date(2026, 7, 20), pass_date=datetime.date(2026, 8, 1))
+
+        data = kpi_bql_report_data(self.admin, 8, 2026)
+
+        roles = sorted(r['role'] for r in data['am_kcs'])
+        self.assertEqual(roles, ['AM', 'OM'])
+
+    def test_am_om_sum_across_restaurants_not_average(self):
         r2 = Restaurant.objects.create(tenant=self.tenant, code='NH2', name='NH2', brand='Kampong')
-        # NH1: 1/1 = 100% ; NH2: 0/1 = 0% -> trung binh cong = 50% (khac tong gop 1/2=50% trung
-        # hop o day, nen dung so lieu lech han de phan biet: NH1 co 3 nguoi dat 100%.
+        User.objects.create_user(username='am1', password='x', tenant=self.tenant, role='am')
+        # NH1: 3/3 dat (100%) ; NH2: 0/1 dat (0%). Gop theo nhan su: tong 3/4 = 75% - KHAC
+        # trung binh cong 2 nha hang ((100+0)/2 = 50%).
         for i in range(3):
-            Employee.objects.create(
-                tenant=self.tenant, code=f'A{i}', name=f'A{i}', restaurant=self.restaurant, position='Phục vụ',
-                start_date=datetime.date(2026, 7, 20), pass_date=datetime.date(2026, 8, 1),
-            )
+            self._employee(f'A{i}', start_date=datetime.date(2026, 7, 20), pass_date=datetime.date(2026, 8, 1))
         Employee.objects.create(
             tenant=self.tenant, code='B1', name='B1', restaurant=r2, position='Phục vụ',
+            operation_unit=Employee.OperationUnit.RESTAURANT,
             start_date=datetime.date(2026, 7, 20), pass_date=None,
         )
 
         data = kpi_bql_report_data(self.admin, 8, 2026)
 
-        # Tong gop: 3/4 = 75%. Trung binh cong 2 nha hang (100%, 0%) = 50%.
         self.assertEqual(data['totals']['on_rate'], 75)
-        am_row = next(r for r in data['am_kcs'] if r['label'].startswith('AM'))
-        self.assertEqual(am_row['on_rate'], 50)
+        am_row = next(r for r in data['am_kcs'] if r['role'] == 'AM')
+        self.assertEqual(am_row['on_rate'], 75)
+        self.assertEqual(am_row['emp_count'], 4)
 
-    def test_kcs_scope_limited_to_kitchen_positions_in_assigned_restaurants(self):
-        kitchen_emp = Employee.objects.create(
-            tenant=self.tenant, code='K1', name='K1', restaurant=self.restaurant, position='Bếp thớt',
-            start_date=datetime.date(2026, 7, 20), pass_date=datetime.date(2026, 8, 1),
-        )
-        Employee.objects.create(
-            tenant=self.tenant, code='F1', name='F1', restaurant=self.restaurant, position='Phục vụ',
-            start_date=datetime.date(2026, 7, 20), pass_date=None,
-        )
+    def test_kcs_scope_limited_to_boh_positions_in_assigned_restaurants(self):
+        self._employee('K1', position='Bếp thớt', start_date=datetime.date(2026, 7, 20), pass_date=datetime.date(2026, 8, 1))
+        self._employee('F1', position='Phục vụ', start_date=datetime.date(2026, 7, 20), pass_date=None)
         kcs_user = User.objects.create_user(username='kcs1', password='x', tenant=self.tenant, role='kcs')
         UserRestaurantAssignment.objects.create(user=kcs_user, restaurant=self.restaurant)
 
         data = kpi_bql_report_data(self.admin, 8, 2026)
 
-        kcs_row = next(r for r in data['am_kcs'] if r['label'].startswith('KCS'))
-        # Chi tinh Bep thot (Dat) - bo qua Phuc vu -> 100%, khong phai trung binh voi FOH.
+        kcs_row = next(r for r in data['am_kcs'] if r['role'] == 'KCS')
+        # Chi tinh Bep thot (Dat) - bo qua Phuc vu (FOH) -> 100%, mau so = 1 (khong phai 2).
         self.assertEqual(kcs_row['on_rate'], 100)
-        self.assertEqual(kcs_row['restaurant_count'], 1)
+        self.assertEqual(kcs_row['on_den'], 1)
+        self.assertEqual(kcs_row['name'], 'kcs1')
+
+    def test_kcs_falls_back_to_own_restaurant_without_assignment(self):
+        self._employee('K1', position='Bếp thớt', start_date=datetime.date(2026, 7, 20), pass_date=datetime.date(2026, 8, 1))
+        User.objects.create_user(username='kcs1', password='x', tenant=self.tenant, role='kcs', restaurant=self.restaurant)
+
+        data = kpi_bql_report_data(self.admin, 8, 2026)
+
+        kcs_row = next(r for r in data['am_kcs'] if r['role'] == 'KCS')
+        self.assertEqual(kcs_row['on_den'], 1)
 
 
 class AllowanceReportDataTests(TestCase):
