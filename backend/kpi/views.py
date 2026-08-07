@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 from accounts.pagination import DefaultPagination
 from checklist.models import Document
 
-from .models import Commission
+from .models import Commission, ExportedReport
 from .serializers import CommissionSerializer, KpiSessionSerializer, KpiTopicSerializer
 from .services import (
     ValidationError,
@@ -14,6 +14,7 @@ from .services import (
     commission_queryset_for_user,
     generate_allowance_pdf,
     generate_kpi_report_pdf,
+    get_exported_report_url,
     kpi_bql_report_data,
     kpi_queryset_for_user,
     kpi_stats,
@@ -46,7 +47,8 @@ class KpiTopicsView(APIView):
 
 class KpiSessionViewSet(viewsets.ReadOnlyModelViewSet):
     """Danh sach buoi KPI da ghi - chi doc (tao qua KpiSessionSaveView), loc theo pham vi
-    nha hang cua user + filter restaurant, phan trang."""
+    nha hang cua user + filter restaurant + thang/nam (--month/--year, tuy chon - man KPI dung
+    de bang bien ban buoi dao tao theo cung ky voi bo chon Thang/Nam), phan trang."""
 
     serializer_class = KpiSessionSerializer
     pagination_class = DefaultPagination
@@ -56,7 +58,14 @@ class KpiSessionViewSet(viewsets.ReadOnlyModelViewSet):
     ordering = ['-date']
 
     def get_queryset(self):
-        return kpi_queryset_for_user(self.request.user).select_related('restaurant', 'trainer')
+        qs = kpi_queryset_for_user(self.request.user).select_related('restaurant', 'trainer')
+        month = self.request.query_params.get('month')
+        year = self.request.query_params.get('year')
+        if month:
+            qs = qs.filter(date__month=month)
+        if year:
+            qs = qs.filter(date__year=year)
+        return qs
 
 
 class KpiSessionSaveView(APIView):
@@ -115,7 +124,11 @@ class KpiReportDataView(APIView):
         if (request.user.role or '').lower() not in REPORT_ROLES:
             return Response({'detail': 'Bạn không có quyền xem báo cáo này.'}, status=403)
         month, year = _parse_month_year(request)
-        return Response(kpi_bql_report_data(request.user, month, year))
+        data = kpi_bql_report_data(request.user, month, year)
+        data['exported_url'] = get_exported_report_url(
+            request.user.tenant, ExportedReport.Kind.KPI_BQL, month, year,
+        )
+        return Response(data)
 
 
 class KpiReportExportView(APIView):
@@ -138,7 +151,11 @@ class AllowanceDataView(APIView):
         if (request.user.role or '').lower() not in REPORT_ROLES:
             return Response({'detail': 'Bạn không có quyền xem phụ cấp trainer.'}, status=403)
         month, year = _parse_month_year(request)
-        return Response(allowance_report_data(request.user, month, year))
+        data = allowance_report_data(request.user, month, year)
+        data['exported_url'] = get_exported_report_url(
+            request.user.tenant, ExportedReport.Kind.ALLOWANCE, month, year,
+        )
+        return Response(data)
 
 
 class AllowanceExportView(APIView):

@@ -79,3 +79,29 @@ class Commission(models.Model):
 
     def __str__(self):
         return f'{self.employee_id} - {self.status}'
+
+
+class ExportedReport(models.Model):
+    """URL PDF da xuat gan nhat cho 1 (tenant, loai phieu, thang, nam) - de man KPI hien nut
+    "Xem" (mo lai phieu da luu) ma khong can xuat lai. Port Prompt v2.1 05-06/08/2026 muc D
+    ("Luu URL phieu da xuat theo ky de xem lai bat ky luc nao")."""
+
+    class Kind(models.TextChoices):
+        KPI_BQL = 'kpi_bql', 'Báo cáo KPI BQL'
+        ALLOWANCE = 'allowance', 'Phiếu phụ cấp trainer'
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='exported_reports')
+    kind = models.CharField(max_length=20, choices=Kind.choices)
+    month = models.IntegerField()
+    year = models.IntegerField()
+    pdf_url = models.URLField(max_length=500)
+    exported_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, related_name='exported_reports', null=True, blank=True,
+    )
+    exported_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('tenant', 'kind', 'month', 'year')
+
+    def __str__(self):
+        return f'{self.kind} {self.month}/{self.year} (tenant {self.tenant_id})'

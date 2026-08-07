@@ -243,7 +243,7 @@ def build_probation_result_pdf(ctx):
     story.append(Spacer(1, 6))
     final_status = ctx.get('final_status', '')
     if final_status == 'Pass thử việc' and ctx.get('pass_date'):
-        status_text = f"Trạng thái: Pass thử việc ngày {ctx['pass_date']}"
+        status_text = f"Trạng thái: Pass thử việc — ngày {ctx['pass_date']}"
     else:
         status_text = f"Trạng thái: {final_status}"
     story.append(Paragraph(

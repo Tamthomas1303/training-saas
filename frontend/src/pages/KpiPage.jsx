@@ -301,15 +301,31 @@ function KpiStatsSummary() {
   )
 }
 
-function KpiReportSection() {
-  const now = new Date()
-  const [month, setMonth] = useState(now.getMonth() + 1)
-  const [year, setYear] = useState(now.getFullYear())
+function ExportedReportSlot({ label, data, exportingKey, exporting, onExport }) {
+  return (
+    <div>
+      <div style={{ marginBottom: 4, fontWeight: 'bold', fontSize: 13 }}>{label}</div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        {data?.exported_url ? (
+          <a href={data.exported_url} target="_blank" rel="noreferrer" className="btn-outline btn-sm">
+            Xem
+          </a>
+        ) : (
+          <span className="muted-note" style={{ fontSize: 12 }}>Chưa xuất</span>
+        )}
+        <button className="btn-outline btn-sm" onClick={onExport} disabled={exporting === exportingKey}>
+          {data?.exported_url ? 'Xuất lại' : 'Xuất PDF'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function KpiReportSection({ month, year, setMonth, setYear }) {
   const [report, setReport] = useState(null)
   const [allowance, setAllowance] = useState(null)
   const [error, setError] = useState('')
   const [exporting, setExporting] = useState('')
-  const [exportedUrl, setExportedUrl] = useState('')
 
   useEffect(() => {
     setError('')
@@ -325,10 +341,9 @@ function KpiReportSection() {
 
   async function exportReport() {
     setExporting('report')
-    setExportedUrl('')
     try {
       const { data } = await api.post('/kpi/report/export/', null, { params: { month, year } })
-      setExportedUrl(data.pdf_url)
+      setReport((prev) => (prev ? { ...prev, exported_url: data.pdf_url } : prev))
     } catch {
       setError('Không xuất được báo cáo KPI BQL.')
     } finally {
@@ -338,10 +353,9 @@ function KpiReportSection() {
 
   async function exportAllowance() {
     setExporting('allowance')
-    setExportedUrl('')
     try {
       const { data } = await api.post('/kpi/allowance/export/', null, { params: { month, year } })
-      setExportedUrl(data.pdf_url)
+      setAllowance((prev) => (prev ? { ...prev, exported_url: data.pdf_url } : prev))
     } catch {
       setError('Không xuất được phiếu phụ cấp trainer.')
     } finally {
@@ -366,22 +380,30 @@ function KpiReportSection() {
           onChange={(e) => setYear(Number(e.target.value))}
           style={{ ...s.input, width: 100 }}
         />
-        <button className="btn-outline btn-sm" onClick={exportReport} disabled={exporting === 'report'}>
-          Xuất Báo cáo KPI BQL (PDF)
-        </button>
-        <button className="btn-outline btn-sm" onClick={exportAllowance} disabled={exporting === 'allowance'}>
-          Xuất Phiếu phụ cấp trainer (PDF)
-        </button>
       </div>
-      {exportedUrl && (
-        <p>
-          Đã xuất.{' '}
-          <a href={exportedUrl} target="_blank" rel="noreferrer">
-            Xem PDF
-          </a>
-        </p>
-      )}
       {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div style={{ fontWeight: 'bold', marginBottom: 10 }}>
+          Phiếu kỳ {month}/{year}
+        </div>
+        <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap' }}>
+          <ExportedReportSlot
+            label="Báo cáo KPI BQL"
+            data={report}
+            exportingKey="report"
+            exporting={exporting}
+            onExport={exportReport}
+          />
+          <ExportedReportSlot
+            label="Phiếu phụ cấp trainer"
+            data={allowance}
+            exportingKey="allowance"
+            exporting={exporting}
+            onExport={exportAllowance}
+          />
+        </div>
+      </div>
 
       {report && (
         <>
@@ -389,6 +411,12 @@ function KpiReportSection() {
             Đúng lộ trình: {report.totals.on_num}/{report.totals.on_den} ({report.totals.on_rate}%) · Đạt kỹ năng
             lần đầu: {report.totals.skill_pass}/{report.totals.skill_total} ({report.totals.skill_rate}%)
           </div>
+          {(report.totals.excl_resigned > 0 || report.totals.excl_next_period > 0) && (
+            <div className="muted-note" style={{ marginBottom: 6, fontSize: 12 }}>
+              Loại trừ toàn hệ thống: {report.totals.excl_resigned} nghỉ việc, {report.totals.excl_next_period} đánh
+              giá kỳ sau.
+            </div>
+          )}
           <Table>
             <thead>
               <tr>
@@ -400,7 +428,14 @@ function KpiReportSection() {
             <tbody>
               {report.rows.map((r) => (
                 <tr key={r.restaurant}>
-                  <td>{r.restaurant}</td>
+                  <td>
+                    {r.restaurant}
+                    {(r.excl_resigned > 0 || r.excl_next_period > 0) && (
+                      <div className="muted-note" style={{ fontSize: 11 }}>
+                        (loại {r.excl_resigned} nghỉ việc; {r.excl_next_period} đánh giá kỳ sau)
+                      </div>
+                    )}
+                  </td>
                   <td>
                     {r.on_num}/{r.on_den} ({r.on_rate}%)
                   </td>
@@ -418,6 +453,27 @@ function KpiReportSection() {
               )}
             </tbody>
           </Table>
+
+          {report.am_kcs?.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <div className="stat-label" style={{ marginBottom: 6 }}>
+                Thống kê theo AM / KCS
+              </div>
+              {report.am_kcs.map((item) => (
+                <div
+                  key={item.label}
+                  style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0' }}
+                >
+                  <span>
+                    {item.label} ({item.restaurant_count} nhà hàng)
+                  </span>
+                  <span>
+                    Đúng lộ trình TB {item.on_rate}% · Đạt KN lần đầu TB {item.skill_rate}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
 
@@ -436,6 +492,10 @@ export default function KpiPage() {
   const { user } = useAuth()
   const role = (user.role || '').toLowerCase()
   const canPerform = PERFORM_ROLES.has(role)
+  const canSeeReport = REPORT_ROLES.has(role)
+  const now = new Date()
+  const [month, setMonth] = useState(now.getMonth() + 1)
+  const [year, setYear] = useState(now.getFullYear())
   const [restaurantFilter, setRestaurantFilter] = useState('')
   const [page, setPage] = useState(1)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -443,6 +503,10 @@ export default function KpiPage() {
   const { data: restaurantOptions } = usePaginatedList('/restaurants/', { page_size: 100 })
   const { data: sessions, loading } = usePaginatedList('/kpi/sessions/', {
     restaurant: restaurantFilter || undefined,
+    // Bang bien ban buoi dao tao chi loc theo ky (Thang/Nam) cho vai tro xem duoc bao cao -
+    // cac vai tro con lai (trainer/BQL/AM/KCS) van xem toan bo lich su nhu truoc.
+    month: canSeeReport ? month : undefined,
+    year: canSeeReport ? year : undefined,
     page,
     page_size: SESSIONS_PAGE_SIZE,
     refreshKey,
@@ -452,7 +516,7 @@ export default function KpiPage() {
     <AppShell>
       <h2>KPI đào tạo</h2>
 
-      {REPORT_ROLES.has(role) && <KpiReportSection />}
+      {canSeeReport && <KpiReportSection month={month} year={year} setMonth={setMonth} setYear={setYear} />}
       {role === 'admin' && <KpiStatsSummary />}
 
       {canPerform && restaurantOptions.results.length > 0 && (
@@ -463,7 +527,7 @@ export default function KpiPage() {
         />
       )}
 
-      <h3>Danh sách buổi đã ghi</h3>
+      <h3>Danh sách buổi đã ghi{canSeeReport ? ` — kỳ ${month}/${year}` : ''}</h3>
       <FilterBar>
         <select
           value={restaurantFilter}

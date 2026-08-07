@@ -118,9 +118,21 @@ def build_kpi_session_pdf(ctx):
     return buf.getvalue()
 
 
+def _kpi_exclusion_note(row):
+    parts = []
+    if row.get('excl_resigned'):
+        parts.append(f"loại {row['excl_resigned']} nghỉ việc")
+    if row.get('excl_next_period'):
+        parts.append(f"{row['excl_next_period']} đánh giá kỳ sau")
+    return f"({'; '.join(parts)})" if parts else ''
+
+
 def build_kpi_report_pdf(ctx):
     """ctx keys: record_no, tenant_name, month, year, rows:[{restaurant,brand,on_num,on_den,
-    on_rate,skill_pass,skill_total,skill_rate}], totals{...}. Bao cao KPI BQL theo thang."""
+    on_rate,skill_pass,skill_total,skill_rate,excl_resigned,excl_next_period}], totals{... +
+    excl_resigned,excl_next_period}, am_kcs:[{label,on_rate,skill_rate,restaurant_count}].
+    Bao cao KPI BQL theo thang - cong thuc cap nhat theo Apps Script 05-06/08/2026 (xem
+    kpi/services.py::_bql_cohort_stats)."""
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     width, height = A4
@@ -155,7 +167,15 @@ def build_kpi_report_pdf(ctx):
         c.drawString(col_x[3], y, f"{row.get('on_rate', 0)}%")
         c.drawString(col_x[4], y, f"{row.get('skill_pass', 0)}/{row.get('skill_total', 0)}")
         c.drawString(col_x[5], y, f"{row.get('skill_rate', 0)}%")
-        y -= 16
+        y -= 12
+        note = _kpi_exclusion_note(row)
+        if note:
+            c.setFont('VNSans', 7)
+            c.drawString(col_x[0], y, note[:70])
+            c.setFont('VNSans', 9)
+            y -= 12
+        else:
+            y -= 4
 
     y -= 6
     c.line(margin, y, width - margin, y)
@@ -169,7 +189,32 @@ def build_kpi_report_pdf(ctx):
         f"({totals.get('on_rate', 0)}%) · {totals.get('skill_pass', 0)}/{totals.get('skill_total', 0)} "
         f"đạt kỹ năng lần đầu ({totals.get('skill_rate', 0)}%)",
     )
-    y -= 26
+    y -= 14
+    c.setFont('VNSans', 8)
+    c.drawString(
+        margin, y,
+        f"Loại trừ toàn hệ thống: {totals.get('excl_resigned', 0)} nghỉ việc, "
+        f"{totals.get('excl_next_period', 0)} đánh giá kỳ sau.",
+    )
+    y -= 22
+
+    am_kcs = ctx.get('am_kcs') or []
+    if am_kcs:
+        y = ensure_space(c, y, height, margin, 14 + len(am_kcs) * 14)
+        c.setFont('VNSans-Bold', 11)
+        c.drawString(margin, y, 'Thống kê theo AM / KCS')
+        y -= 16
+        c.setFont('VNSans', 9)
+        for item in am_kcs:
+            c.drawString(
+                margin, y,
+                f"{item.get('label', '')}: đúng lộ trình TB {item.get('on_rate', 0)}% · "
+                f"đạt kỹ năng lần đầu TB {item.get('skill_rate', 0)}% "
+                f"({item.get('restaurant_count', 0)} nhà hàng)",
+            )
+            y -= 14
+        y -= 8
+
     # Giu nguyen ven ghi chu muc tieu + dong nguoi lap (xac nhan) tren cung 1 trang.
     y = ensure_space(c, y, height, margin, 8 + 30 + 9)
     c.setFont('VNSans', 8)
@@ -183,9 +228,19 @@ def build_kpi_report_pdf(ctx):
     return buf.getvalue()
 
 
+# Khoi ky Phieu phu cap Trainer (Apps Script 05-06/08/2026): thu tu BGD -> Dao tao -> HCNS ->
+# Van hanh, moi cot ten phong ban + "(Ky, ghi ro ho ten)" + ten nguoi ky da co san.
+ALLOWANCE_SIGNERS = [
+    ('Ban Giám đốc', 'Nguyễn Ngọc Diệp - Giám đốc'),
+    ('Phòng Đào tạo', 'Nguyễn Văn Tam - Phó phòng Đào tạo'),
+    ('Phòng HCNS', 'Nguyễn Thị Mỹ Xuân - Trưởng phòng HCNS'),
+    ('Phòng Vận hành', 'Lưu Đức Hiệp - Trưởng phòng Vận hành'),
+]
+
+
 def build_allowance_pdf(ctx):
-    """ctx keys: record_no, tenant_name, month, year, rows:[{trainer,employee,status,amount}],
-    total_amount. Phieu phu cap trainer."""
+    """ctx keys: record_no, tenant_name, month, year, rows:[{trainer,trainer_code,
+    trainer_restaurant,employee,status,amount}], total_amount. Phieu phu cap trainer."""
     buf = BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     width, height = A4
@@ -199,26 +254,28 @@ def build_allowance_pdf(ctx):
     c.drawCentredString(width / 2, y, ctx.get('tenant_name', ''))
     y -= 24
 
-    headers = ['STT', 'Trainer', 'Nhân sự', 'Trạng thái', 'Số tiền']
-    col_x = [margin, margin + 30, margin + 170, margin + 320, margin + 420]
-    c.setFont('VNSans-Bold', 9)
+    headers = ['STT', 'Trainer', 'Mã NV trainer', 'Nhà hàng trainer', 'Nhân sự', 'Trạng thái', 'Số tiền']
+    col_x = [margin, margin + 24, margin + 130, margin + 200, margin + 300, margin + 400, margin + 460]
+    c.setFont('VNSans-Bold', 8)
     for h, x in zip(headers, col_x):
         c.drawString(x, y, h)
     y -= 4
     c.line(margin, y, width - margin, y)
     y -= 14
 
-    c.setFont('VNSans', 9)
+    c.setFont('VNSans', 8)
     for idx, row in enumerate(ctx.get('rows', []), start=1):
         if y < 30 * mm:
             c.showPage()
             y = height - margin
-            c.setFont('VNSans', 9)
+            c.setFont('VNSans', 8)
         c.drawString(col_x[0], y, str(idx))
-        c.drawString(col_x[1], y, str(row.get('trainer', ''))[:26])
-        c.drawString(col_x[2], y, str(row.get('employee', ''))[:26])
-        c.drawString(col_x[3], y, str(row.get('status', '')))
-        c.drawString(col_x[4], y, f"{row.get('amount', 0):,.0f}đ")
+        c.drawString(col_x[1], y, str(row.get('trainer', ''))[:18])
+        c.drawString(col_x[2], y, str(row.get('trainer_code', ''))[:14])
+        c.drawString(col_x[3], y, str(row.get('trainer_restaurant', ''))[:18])
+        c.drawString(col_x[4], y, str(row.get('employee', ''))[:18])
+        c.drawString(col_x[5], y, str(row.get('status', '')))
+        c.drawString(col_x[6], y, f"{row.get('amount', 0):,.0f}đ")
         y -= 16
 
     y -= 6
@@ -229,15 +286,22 @@ def build_allowance_pdf(ctx):
     y -= 26
     c.setFont('VNSans', 8)
     c.drawString(margin, y, 'Phụ cấp 300.000đ/nhân sự khi đủ 5 điều kiện onboarding.')
-    # Giu nguyen ven ca dong 4 o xac nhan chu ky tren cung 1 trang (khong bi tach doi).
-    y = ensure_space(c, y, height, margin, 40 + 14)
-    y -= 40
+    # Giu nguyen ven ca khoi 4 o xac nhan chu ky (ten phong ban + "(Ky...)" + ten) tren cung 1 trang.
+    y = ensure_space(c, y, height, margin, 16 + 30 + 40 + 14)
+    y -= 20
 
-    sign_labels = ['Phòng Đào tạo', 'Ban Giám đốc', 'TP.HCNS', 'TP.Vận hành']
-    col_w = (width - 2 * margin) / len(sign_labels)
+    col_w = (width - 2 * margin) / len(ALLOWANCE_SIGNERS)
+    c.setFont('VNSans-Bold', 9)
+    for i, (dept, _name) in enumerate(ALLOWANCE_SIGNERS):
+        c.drawCentredString(margin + col_w * i + col_w / 2, y, dept)
+    y -= 14
+    c.setFont('VNSans', 8)
+    for i, _dept in enumerate(ALLOWANCE_SIGNERS):
+        c.drawCentredString(margin + col_w * i + col_w / 2, y, '(Ký, ghi rõ họ tên)')
+    y -= 45  # khoang trong de ky tay
     c.setFont('VNSans', 9)
-    for i, label in enumerate(sign_labels):
-        c.drawCentredString(margin + col_w * i + col_w / 2, y, label)
+    for i, (_dept, name) in enumerate(ALLOWANCE_SIGNERS):
+        c.drawCentredString(margin + col_w * i + col_w / 2, y, name)
 
     c.showPage()
     c.save()
