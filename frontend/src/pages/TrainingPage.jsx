@@ -196,7 +196,7 @@ export default function TrainingPage() {
                   <div style={{ fontWeight: 'bold', color: 'var(--muted)', margin: '8px 0 4px' }}>{category}</div>
                   {items.map((item) => {
                     const status = item.progress?.status || 'pending'
-                    const allowed = canTrainPosition(user?.role, selectedEmployee.position)
+                    const allowed = canTrainPosition(user?.role, targetPosition || selectedEmployee.position)
                     return (
                       <div
                         key={item.checklist.id}
@@ -253,6 +253,7 @@ export default function TrainingPage() {
                             employeeId={selectedEmployee.id}
                             checklist={item.checklist}
                             progress={item.progress}
+                            position={targetPosition}
                             onSaved={(data) => handleSaved(item.checklist.id, data)}
                             onClose={() => setOpenItemId(null)}
                           />

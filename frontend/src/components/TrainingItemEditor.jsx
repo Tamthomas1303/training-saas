@@ -10,7 +10,7 @@ const PHOTO_FIELDS = [
   { key: 'img_thuchanh', label: 'Thực hành' },
 ]
 
-export default function TrainingItemEditor({ employeeId, checklist, progress, onSaved, onClose }) {
+export default function TrainingItemEditor({ employeeId, checklist, progress, position, onSaved, onClose }) {
   const [draft, setDraft] = useState({
     img_tailieu: '',
     img_lythuyet: '',
@@ -36,6 +36,7 @@ export default function TrainingItemEditor({ employeeId, checklist, progress, on
       checklist: checklist.id,
       note,
       complete,
+      ...(position ? { position } : {}),
       ...Object.fromEntries(Object.entries(draft).filter(([, v]) => v)),
     }
     await submitGuarded(

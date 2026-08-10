@@ -16,14 +16,24 @@ cua ban goc.
 """
 
 
+import unicodedata
+
+
 def _normalize_key(value):
-    return (value or '').strip().lower()
+    # Bỏ DẤU tiếng Việt trước khi so khớp: các is_ql/is_bt/is_gs/is_bp so với
+    # chuỗi KHÔNG DẤU ('quan ly', 'bep truong'...), nên phải deburr, nếu không
+    # "Quản lý nhà hàng" (còn dấu) sẽ không khớp 'quan ly' -> chặn/nới quyền sai.
+    s = unicodedata.normalize('NFD', value or '')
+    s = ''.join(c for c in s if unicodedata.category(c) != 'Mn')
+    s = s.replace('đ', 'd').replace('Đ', 'd').strip().lower()
+    return ' '.join(s.split())  # gộp nhiều dấu cách -> 1 (tránh 'quan  ly' không khớp 'quan ly')
 
 
 def can_train_position(user, job_position):
     role = (user.role or '').lower()
     p = _normalize_key(job_position)
-    is_ql = 'quan ly' in p
+    # Khớp cả biến thể chính tả ('quản lí') và mã viết tắt ('qlnh').
+    is_ql = ('quan ly' in p) or ('quan li' in p) or ('qlnh' in p)
     is_bt = 'bep truong' in p
     is_gs = 'giam sat' in p
     is_bp = 'bep pho' in p

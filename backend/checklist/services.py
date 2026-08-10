@@ -34,7 +34,10 @@ def save_training_progress(user, payload):
     if not checklist:
         raise ValidationError('Không tìm thấy checklist')
 
-    if not can_train_position(user, employee.position):
+    # M1.6: khi đào tạo theo VỊ TRÍ ĐÍCH (thăng tiến), kiểm quyền theo vị trí đích đó —
+    # KHÔNG theo vị trí hiện tại của học viên. Mặc định (onboarding) = vị trí hiện tại.
+    target_position = (payload.get('position') or '').strip() or None
+    if not can_train_position(user, target_position or employee.position):
         raise ValidationError('Bạn không có quyền đào tạo vị trí này.')
 
     progress, _ = TrainingProgress.objects.get_or_create(
