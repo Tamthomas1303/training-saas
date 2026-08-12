@@ -27,4 +27,5 @@ urlpatterns = [
     path('api/kpi/', include('kpi.urls')),
     path('api/sourcing/', include('sourcing.urls')),
     path('api/reports/', include('reports.urls')),
+    path('api/courses/', include('courses.urls')),
 ]

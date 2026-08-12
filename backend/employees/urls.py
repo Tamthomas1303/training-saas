@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     CompetencyGapView,
     DashboardStatsView,
+    EmployeeCreateLoginView,
     EmployeeViewSet,
     EvaluationHistoryImportView,
     ExamBatchListView,
@@ -54,7 +55,7 @@ urlpatterns = [
     path('import-eval-history/', EvaluationHistoryImportView.as_view(), name='import-eval-history'),
     path('dashboard/', DashboardStatsView.as_view(), name='employee-dashboard'),
     path('home/', HomeStatsView.as_view(), name='employee-home'),
-    path('<int:pk>/detail/', StudentDetailView.as_view(), name='employee-detail'),
+    path('<int:pk>/detail/', StudentDetailView.as_view(), name='employee-student-detail'),
     path('<int:pk>/change-status/', StudentChangeStatusView.as_view(), name='employee-change-status'),
     path('<int:pk>/office-result/', StudentOfficeResultView.as_view(), name='employee-office-result'),
     path('<int:pk>/exam-results/', StudentExamResultsView.as_view(), name='employee-exam-results'),
@@ -96,4 +97,5 @@ urlpatterns = [
         '<int:pk>/export-probation-result/', StudentExportProbationResultView.as_view(),
         name='employee-export-probation-result',
     ),
+    path('<int:pk>/create-login/', EmployeeCreateLoginView.as_view(), name='employee-create-login'),
 ] + router.urls

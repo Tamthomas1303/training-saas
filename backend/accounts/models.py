@@ -29,6 +29,10 @@ class User(AbstractUser):
         KCS = 'kcs', 'KCS'
         BQL = 'bql', 'BQL'
         TRAINER = 'trainer', 'Trainer'
+        # Tai khoan hoc vien (module Khoa hoc truc tuyen, MVP dot 1) - gan qua Employee.user,
+        # KHONG phai vai tro quan ly. Pham vi API bi gioi han qua
+        # accounts.permissions.EmployeeLearnerScope (chi /api/courses/, /api/auth/me).
+        EMPLOYEE = 'employee', 'Học viên'
 
     class JobTitle(models.TextChoices):
         QLNH = 'qlnh', 'Quản lý nhà hàng'

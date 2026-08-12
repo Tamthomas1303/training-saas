@@ -751,3 +751,31 @@ class BuildChecklistCodeMapTests(TestCase):
         self.assertEqual(code_to_checklist['CL-000063'], c1)
         self.assertEqual(checklist_to_code[c1.id], 'CL-000063')
         self.assertEqual(unmatched, [])
+
+
+class StudentDetailLoginUsernameTests(TestCase):
+    """student_info tra ve login_username (module Khoa hoc, MVP dot 1) - '' khi chua tao tai
+    khoan, username khi da co (Employee.user)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.employee = Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1')
+        self.client = APIClient()
+
+    def test_login_username_blank_when_no_account(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(reverse('employee-student-detail', args=[self.employee.id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['info']['login_username'], '')
+
+    def test_login_username_populated_when_linked(self):
+        learner = User.objects.create_user(
+            username='nv1', password='x', tenant=self.tenant, role=User.Role.EMPLOYEE,
+        )
+        self.employee.user = learner
+        self.employee.save(update_fields=['user'])
+
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(reverse('employee-student-detail', args=[self.employee.id]))
+        self.assertEqual(resp.data['info']['login_username'], 'nv1')

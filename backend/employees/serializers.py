@@ -15,6 +15,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
     result_pdf_url = serializers.CharField(source='probation_result_pdf_url', read_only=True)
     emp_type = serializers.SerializerMethodField()
     days_left = serializers.SerializerMethodField()
+    login_username = serializers.CharField(source='user.username', read_only=True, default='')
 
     class Meta:
         model = Employee
@@ -24,6 +25,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'skill_score', 'skill_result', 'shift_ops', 'office_result', 'final_result',
             'trainer', 'trainer_name', 'commission_status', 'retrain_deadline', 'progress_percent',
             'lms_marks', 'is_legacy', 'result_exported', 'result_pdf_url', 'emp_type', 'days_left',
+            'login_username',
         ]
 
     def get_result_exported(self, obj):

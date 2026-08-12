@@ -12,6 +12,7 @@ export const DOMAINS = [
       { label: 'Đánh giá', path: '/evaluation', icon: '✅', roles: ['admin', 'om', 'bql', 'am', 'kcs'] },
       { label: 'Checklist đào tạo', path: '/checklist', icon: '📋', roles: ['admin', 'om', 'bod'] },
       { label: 'Tiêu chí đánh giá', path: '/criteria', icon: '📝', roles: ['admin', 'om'] },
+      { label: 'Khóa học trực tuyến', path: '/courses-admin', icon: '🎬', roles: ['admin'] },
     ],
   },
   {

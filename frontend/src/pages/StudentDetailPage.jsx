@@ -51,6 +51,10 @@ export default function StudentDetailPage() {
   const [examSaving, setExamSaving] = useState(false)
   const [examMessage, setExamMessage] = useState('')
 
+  const [loginSaving, setLoginSaving] = useState(false)
+  const [loginResult, setLoginResult] = useState(null)
+  const [loginError, setLoginError] = useState('')
+
   const role = (user.role || '').toLowerCase()
   const isBod = role === 'bod'
   const isAdminPanel = ADMIN_ROLES.has(role)
@@ -162,6 +166,21 @@ export default function StudentDetailPage() {
       setMessage(err.response?.data?.detail || 'Không xuất được phiếu.')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function createLogin() {
+    setLoginSaving(true)
+    setLoginError('')
+    setLoginResult(null)
+    try {
+      const { data } = await api.post(`/employees/${id}/create-login/`)
+      setLoginResult(data)
+      load()
+    } catch (err) {
+      setLoginError(err.response?.data?.detail || 'Không tạo được tài khoản.')
+    } finally {
+      setLoginSaving(false)
     }
   }
 
@@ -286,6 +305,31 @@ export default function StudentDetailPage() {
               Không đạt
             </button>
           </div>
+        </div>
+      )}
+
+      {isAdminPanel && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <h3 style={{ marginTop: 0 }}>Tài khoản đăng nhập (Khóa học trực tuyến)</h3>
+          {info.login_username ? (
+            <Badge variant="success">Đã có tài khoản: {info.login_username}</Badge>
+          ) : (
+            <>
+              <p className="muted-note" style={{ fontSize: 13 }}>
+                Tạo tài khoản để nhân sự tự đăng nhập học "Khóa học trực tuyến" (Khóa học của tôi).
+              </p>
+              <button onClick={createLogin} disabled={loginSaving}>
+                Tạo tài khoản đăng nhập
+              </button>
+            </>
+          )}
+          {loginResult && (
+            <p style={{ marginTop: 8 }}>
+              Đã tạo — Tên đăng nhập: <b>{loginResult.username}</b> · Mật khẩu: <b>{loginResult.password}</b>{' '}
+              <span className="muted-note">(báo lại cho nhân sự, chỉ hiện 1 lần này)</span>
+            </p>
+          )}
+          {loginError && <p style={{ color: 'var(--danger)', marginTop: 8 }}>{loginError}</p>}
         </div>
       )}
 

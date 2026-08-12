@@ -18,22 +18,33 @@ export const MENU_ITEMS = {
   levelup: { label: 'Thăng tiến', icon: '🚀', path: '/levelup' },
   sourcing: { label: 'ĐT nguồn', icon: '🎯', path: '/sourcing' },
   reports: { label: 'Báo cáo', icon: '📧', path: '/reports' },
+  coursesAdmin: { label: 'Khóa học', icon: '🎬', path: '/courses-admin' },
+  myCourses: { label: 'Khóa học của tôi', icon: '🎬', path: '/my-courses' },
 }
 
 // Vai tro "toan he thong" -> shell desktop (topbar); con lai -> shell mobile (bottom-nav).
-const MOBILE_ROLES = new Set(['trainer', 'bql', 'am', 'kcs'])
+// 'employee' (hoc vien - module Khoa hoc, MVP dot 1) cung dung shell mobile (hoc tren dien
+// thoai la chinh).
+const MOBILE_ROLES = new Set(['trainer', 'bql', 'am', 'kcs', 'employee'])
 
 // M3 — Card Nesting: các chức năng theo vòng đời đào tạo (nhân sự mới / thăng tiến / nguồn / cấp
 // trung) gom vào "Trung tâm" (hub, thẻ cha → thẻ con). Thanh nav phẳng chỉ giữ hub + các mục
 // tiện ích toàn cục (dashboard/home, KPI, phụ cấp, tài liệu, người dùng).
 const ROLE_MENU = {
-  admin: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'users', 'reports'],
+  admin: [
+    'hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'users', 'reports',
+    'coursesAdmin',
+  ],
   om: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'reports'],
   bod: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents'],
   am: ['hub', 'home', 'kpi', 'documents'],
   kcs: ['hub', 'home', 'kpi', 'documents'],
   bql: ['hub', 'home', 'kpi', 'documents'],
   trainer: ['hub', 'home', 'documents'],
+  // Tai khoan hoc vien (module Khoa hoc, MVP dot 1) - pham vi API chi /api/courses/ + /api/auth/me
+  // (xem accounts.permissions.EmployeeLearnerScope), nen menu CHI co 1 muc de tranh mo trang
+  // khac roi bao loi 403.
+  employee: ['myCourses'],
 }
 
 export function isMobileRole(role) {

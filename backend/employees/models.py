@@ -55,6 +55,12 @@ class Employee(models.Model):
     # Nhân sự CŨ (nạp từ Data_LichSu/lộ trình, không thuộc luồng onboarding hệ mới). True = cũ,
     # False = nhân sự mới (onboarding từ 1/7, có trong DB_BACKUP). Dùng để tách danh sách theo dõi.
     is_legacy = models.BooleanField(default=False)
+    # Tai khoan dang nhap cua CHINH nhan su nay (module Khoa hoc truc tuyen, MVP dot 1) - null =
+    # chua tao. Tao qua employees/views.py::EmployeeCreateLoginView (role=User.Role.EMPLOYEE,
+    # pham vi API bi gioi han qua accounts.permissions.EmployeeLearnerScope).
+    user = models.OneToOneField(
+        User, on_delete=models.SET_NULL, related_name='employee', null=True, blank=True,
+    )
 
     class Meta:
         unique_together = ('tenant', 'code')

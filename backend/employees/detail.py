@@ -26,6 +26,8 @@ def student_info(employee):
         'office_result': employee.office_result,
         'trainer_name': employee.trainer.full_name if employee.trainer else '',
         'probation_result_pdf_url': employee.probation_result_pdf_url,
+        # Tai khoan dang nhap CHINH nhan su nay (module Khoa hoc, MVP dot 1) - '' = chua tao.
+        'login_username': employee.user.username if employee.user_id else '',
     }
 
 

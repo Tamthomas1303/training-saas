@@ -850,3 +850,37 @@ class StudentExportProbationResultView(APIView):
             return Response({'detail': 'Chỉ xuất phiếu khi nhân sự đã Đạt thử việc.'}, status=400)
         pdf_url = export_probation_result_pdf(employee)
         return Response({'pdf_url': pdf_url})
+
+
+class EmployeeCreateLoginView(APIView):
+    """POST /api/employees/<id>/create-login/ — tao tai khoan dang nhap CHO CHINH nhan su nay
+    (module Khoa hoc truc tuyen, MVP dot 1) - chi Admin, chi khi chua co (Employee.user rong).
+    Username = ma nhan su (chu thuong, them so neu trung - hiem khi tenant khac nhau dung
+    chung 1 ma). Mat khau mac dinh dung chung DEFAULT_PASSWORD nhu UserAdminSerializer (man
+    Nguoi dung) - nhan su tu doi qua /api/auth/me/change-password/. Tra ve username/password
+    MOT LAN DUY NHAT (khong luu lai mat khau ro), Admin tu bao lai cho nhan su."""
+
+    def post(self, request, pk):
+        if (request.user.role or '').lower() != 'admin':
+            return Response({'detail': 'Chỉ Admin được tạo tài khoản đăng nhập.'}, status=403)
+        employee = get_object_or_404(Employee, pk=pk, tenant=request.user.tenant)
+        if employee.user_id:
+            return Response({'detail': 'Nhân sự này đã có tài khoản đăng nhập.'}, status=400)
+
+        from accounts.models import User
+        from accounts.serializers import DEFAULT_PASSWORD
+
+        base_username = (employee.code or f'nv{employee.id}').lower()
+        username = base_username
+        suffix = 1
+        while User.objects.filter(username=username).exists():
+            suffix += 1
+            username = f'{base_username}{suffix}'
+
+        user = User(username=username, tenant=employee.tenant, full_name=employee.name, role=User.Role.EMPLOYEE)
+        user.set_password(DEFAULT_PASSWORD)
+        user.save()
+        employee.user = user
+        employee.save(update_fields=['user'])
+
+        return Response({'username': username, 'password': DEFAULT_PASSWORD})

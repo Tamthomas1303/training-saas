@@ -26,12 +26,22 @@ import MgmtDevPage from './pages/MgmtDevPage'
 import TrainingCatalogPage from './pages/TrainingCatalogPage'
 import CompetencyGapPage from './pages/CompetencyGapPage'
 import TrainingReportPage from './pages/TrainingReportPage'
+import CoursesAdminPage from './pages/CoursesAdminPage'
+import CourseEditPage from './pages/CourseEditPage'
+import MyCoursesPage from './pages/MyCoursesPage'
+import CoursePlayerPage from './pages/CoursePlayerPage'
 import api from './api/client'
 import { isMobileRole } from './config/menu'
 import { flushQueue, initOfflineSync } from './utils/offlineQueue'
 
 function HomeRouter() {
   const { user } = useAuth()
+  // Tai khoan hoc vien (module Khoa hoc, MVP dot 1) khong goi duoc /employees/home/ (pham vi API
+  // chi /api/courses/ - xem accounts.permissions.EmployeeLearnerScope) nen vao thang "Khoa hoc
+  // cua toi" thay vi man Trang chu danh cho nhan vien BQL/Trainer/AM/KCS.
+  if ((user.role || '').toLowerCase() === 'employee') {
+    return <MyCoursesPage />
+  }
   return isMobileRole(user.role) ? <HomePage /> : <DashboardPage />
 }
 
@@ -226,6 +236,38 @@ function App() {
             element={
               <ProtectedRoute>
                 <HubPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/courses-admin"
+            element={
+              <ProtectedRoute roles={['admin']}>
+                <CoursesAdminPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/courses-admin/:id"
+            element={
+              <ProtectedRoute roles={['admin']}>
+                <CourseEditPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/my-courses"
+            element={
+              <ProtectedRoute>
+                <MyCoursesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/my-courses/:courseId"
+            element={
+              <ProtectedRoute>
+                <CoursePlayerPage />
               </ProtectedRoute>
             }
           />
