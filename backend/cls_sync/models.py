@@ -4,6 +4,17 @@ from accounts.models import Tenant, User
 from employees.models import Employee
 
 
+class ResultSource(models.TextChoices):
+    """Nguon ghi 1 dong CourseResult/ExamResult - phan biet du lieu that tu CLS (sync_cls, KHONG
+    bao gio bi Dot 3 dong vao) voi du lieu tu module Khoa hoc/Ky thi noi bo (Dot 3 phan A,
+    integration.services.sync_result_to_profile). Mac dinh 'cls' de MOI dong da co tu truoc
+    (truoc khi them field nay) tu dong duoc coi la nguon CLS - an toan, khong can migrate du
+    lieu tay va khong lam sync_cls.py phai doi gi (no khong ghi field nay, dung default model)."""
+
+    CLS = 'cls', 'CLS (đồng bộ ngoài)'
+    INTERNAL_LMS = 'internal_lms', 'Nội bộ (Khóa học/Kỳ thi mới)'
+
+
 class CourseResult(models.Model):
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='course_results')
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='course_results')
@@ -14,6 +25,7 @@ class CourseResult(models.Model):
     # kien thi khi cot diem/status chua dong bo dung (xem cls_sync/services.py::onboarding_eligible).
     progress = models.IntegerField(null=True, blank=True)
     cls_id = models.CharField(max_length=100, blank=True)
+    source = models.CharField(max_length=20, choices=ResultSource.choices, default=ResultSource.CLS)
     synced_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -40,6 +52,7 @@ class ExamResult(models.Model):
     score_adjusted = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     passed = models.BooleanField(default=False)
     cls_id = models.CharField(max_length=100, blank=True)
+    source = models.CharField(max_length=20, choices=ResultSource.choices, default=ResultSource.CLS)
     synced_at = models.DateTimeField(auto_now=True)
 
     class Meta:

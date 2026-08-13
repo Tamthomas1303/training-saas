@@ -5,7 +5,9 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from accounts.models import Tenant, User
+from cls_sync.models import ExamResult
 from employees.models import Employee
+from integration.models import XapiStatement
 
 from .models import (
     Answer,
@@ -441,3 +443,126 @@ class EmployeeLearnerScopeExamsApiTests(TestCase):
         self.client.force_authenticate(self.learner_user)
         resp = self.client.get(reverse('employee-list'))
         self.assertEqual(resp.status_code, 403)
+
+
+class ExamHookTests(TestCase):
+    """Dot 3 phan A/C: bat dau/nop/dat/khong dat bai thi phai sinh XapiStatement dung verb, va
+    CHI dong bo ExamResult khi THAT SU dat (dung trigger cua prompt: 'graded & passed')."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.bank = QuestionBank.objects.create(tenant=self.tenant, name='Bank demo')
+        self.question = Question.objects.create(
+            tenant=self.tenant, bank=self.bank, type=Question.Type.SINGLE, stem_html='Q1',
+        )
+        self.correct_opt = QuestionOption.objects.create(
+            tenant=self.tenant, question=self.question, content_html='Đúng', is_correct=True,
+        )
+        QuestionOption.objects.create(tenant=self.tenant, question=self.question, content_html='Sai')
+        self.assessment = Assessment.objects.create(
+            tenant=self.tenant, title='Đề 1 câu', status=Assessment.Status.PUBLISHED,
+            sync_exam_type='15N', pass_mark=80,
+        )
+        AssessmentQuestion.objects.create(tenant=self.tenant, assessment=self.assessment, question=self.question)
+        self.learner_user = User.objects.create_user(
+            username='nv1', password='x', tenant=self.tenant, role=User.Role.EMPLOYEE,
+        )
+        self.employee = Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1', user=self.learner_user)
+        AssessmentAssignment.objects.create(tenant=self.tenant, assessment=self.assessment, employee=self.employee)
+        self.client = APIClient()
+
+    def _start(self):
+        self.client.force_authenticate(self.learner_user)
+        return self.client.post(reverse('exam-start', args=[self.assessment.id])).data['attempt_id']
+
+    def test_start_logs_started_xapi(self):
+        self._start()
+        self.assertTrue(
+            XapiStatement.objects.filter(
+                employee=self.employee, verb='started', object_type='assessment', object_id=self.assessment.id,
+            ).exists()
+        )
+
+    def test_pass_logs_passed_xapi_and_syncs_exam_result(self):
+        attempt_id = self._start()
+        self.client.post(
+            reverse('exam-attempt-answer', args=[attempt_id]),
+            {'question': self.question.id, 'response': {'option_id': self.correct_opt.id}}, format='json',
+        )
+        self.client.post(reverse('exam-attempt-submit', args=[attempt_id]))
+
+        self.assertTrue(
+            XapiStatement.objects.filter(
+                employee=self.employee, verb='passed', object_type='assessment', object_id=self.assessment.id,
+            ).exists()
+        )
+        result = ExamResult.objects.get(employee=self.employee, exam_name='15N')
+        self.assertTrue(result.passed)
+        self.assertEqual(result.source, 'internal_lms')
+
+    def test_fail_logs_failed_xapi_and_does_not_sync(self):
+        attempt_id = self._start()
+        wrong_opt = self.question.options.exclude(id=self.correct_opt.id).first()
+        self.client.post(
+            reverse('exam-attempt-answer', args=[attempt_id]),
+            {'question': self.question.id, 'response': {'option_id': wrong_opt.id}}, format='json',
+        )
+        self.client.post(reverse('exam-attempt-submit', args=[attempt_id]))
+
+        self.assertTrue(
+            XapiStatement.objects.filter(
+                employee=self.employee, verb='failed', object_type='assessment', object_id=self.assessment.id,
+            ).exists()
+        )
+        # KHONG dat -> KHONG dong bo (dung trigger 'graded & passed' cua prompt)
+        self.assertFalse(ExamResult.objects.filter(employee=self.employee, exam_name='15N').exists())
+
+
+class ExamEssayHookTests(TestCase):
+    """Bai co essay: xAPI/dong bo CHI ban hanh khi cham tay xong (GRADED that su), khong phai
+    luc nop (van con SUBMITTED cho cham)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.bank = QuestionBank.objects.create(tenant=self.tenant, name='Bank demo')
+        self.question = Question.objects.create(
+            tenant=self.tenant, bank=self.bank, type=Question.Type.ESSAY, stem_html='Q1', points=10,
+        )
+        self.assessment = Assessment.objects.create(
+            tenant=self.tenant, title='Đề tự luận', status=Assessment.Status.PUBLISHED,
+            sync_exam_type='ESSAY1', pass_mark=80,
+        )
+        AssessmentQuestion.objects.create(tenant=self.tenant, assessment=self.assessment, question=self.question)
+        self.learner_user = User.objects.create_user(
+            username='nv1', password='x', tenant=self.tenant, role=User.Role.EMPLOYEE,
+        )
+        self.employee = Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1', user=self.learner_user)
+        AssessmentAssignment.objects.create(tenant=self.tenant, assessment=self.assessment, employee=self.employee)
+        self.client = APIClient()
+
+    def test_no_finalize_until_manual_grade_then_finalizes(self):
+        self.client.force_authenticate(self.learner_user)
+        attempt_id = self.client.post(reverse('exam-start', args=[self.assessment.id])).data['attempt_id']
+        self.client.post(
+            reverse('exam-attempt-answer', args=[attempt_id]),
+            {'question': self.question.id, 'response': {'text': 'Bài làm của tôi'}}, format='json',
+        )
+        self.client.post(reverse('exam-attempt-submit', args=[attempt_id]))
+
+        self.assertFalse(XapiStatement.objects.filter(employee=self.employee, verb__in=['passed', 'failed']).exists())
+        self.assertFalse(ExamResult.objects.filter(employee=self.employee, exam_name='ESSAY1').exists())
+
+        self.client.force_authenticate(self.admin)
+        self.client.post(
+            reverse('exam-attempt-grade', args=[attempt_id]),
+            {'scores': {str(self.question.id): 9}}, format='json',
+        )
+
+        self.assertTrue(
+            XapiStatement.objects.filter(
+                employee=self.employee, verb='passed', object_type='assessment', object_id=self.assessment.id,
+            ).exists()
+        )
+        self.assertTrue(ExamResult.objects.filter(employee=self.employee, exam_name='ESSAY1', passed=True).exists())

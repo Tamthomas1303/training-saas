@@ -394,6 +394,122 @@ function AssignModal({ courseId, open, onClose }) {
   )
 }
 
+function OfflineConfirmModal({ course, open, onClose, onDone }) {
+  const [search, setSearch] = useState('')
+  const [results, setResults] = useState([])
+  const [employee, setEmployee] = useState(null)
+  const [targetType, setTargetType] = useState('course')
+  const [lessonId, setLessonId] = useState('')
+  const [method, setMethod] = useState('kem_tai_cho')
+  const [note, setNote] = useState('')
+  const [evidenceUrl, setEvidenceUrl] = useState('')
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const allLessons = (course?.modules || []).flatMap((m) => m.lessons.map((l) => ({ ...l, moduleTitle: m.title })))
+
+  useEffect(() => {
+    if (!search) {
+      setResults([])
+      return
+    }
+    const timeout = setTimeout(() => {
+      api.get('/employees/', { params: { search, page_size: 10 } }).then(({ data }) => setResults(data.results))
+    }, 300)
+    return () => clearTimeout(timeout)
+  }, [search])
+
+  async function submit() {
+    if (!employee) {
+      setError('Chọn nhân sự.')
+      return
+    }
+    if (targetType === 'lesson' && !lessonId) {
+      setError('Chọn bài học.')
+      return
+    }
+    setSaving(true)
+    setError('')
+    setMessage('')
+    try {
+      await api.post('/courses/offline-confirm/', {
+        employee: employee.id, target_type: targetType,
+        target_id: targetType === 'course' ? course.id : Number(lessonId),
+        method, note, evidence_url: evidenceUrl,
+      })
+      setMessage(`Đã xác nhận hoàn thành offline cho ${employee.name}.`)
+      onDone()
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Không xác nhận được.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal open={open} title="Xác nhận hoàn thành hộ (offline)" onClose={onClose}>
+      <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)' }}>Nhân sự</label>
+      <input
+        value={employee ? `${employee.code} — ${employee.name}` : search}
+        onChange={(e) => { setEmployee(null); setSearch(e.target.value) }}
+        placeholder="Tìm theo mã / tên..." style={{ ...s.input, width: '100%', marginBottom: 4 }}
+      />
+      {results.length > 0 && !employee && (
+        <div style={{ border: '1px solid var(--card-border)', borderRadius: 6, marginBottom: 8 }}>
+          {results.map((emp) => (
+            <div
+              key={emp.id} style={{ padding: 8, cursor: 'pointer' }}
+              onClick={() => { setEmployee(emp); setResults([]); setSearch('') }}
+            >
+              {emp.code} — {emp.name} ({emp.position})
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, margin: '8px 0' }}>
+        <button className={targetType === 'course' ? '' : 'btn-outline'} onClick={() => setTargetType('course')}>
+          Cả khóa học
+        </button>
+        <button className={targetType === 'lesson' ? '' : 'btn-outline'} onClick={() => setTargetType('lesson')}>
+          1 bài học
+        </button>
+      </div>
+      {targetType === 'lesson' && (
+        <select value={lessonId} onChange={(e) => setLessonId(e.target.value)} style={{ ...s.select, width: '100%', marginBottom: 8 }}>
+          <option value="">— Chọn bài học —</option>
+          {allLessons.map((l) => (
+            <option key={l.id} value={l.id}>{l.moduleTitle} — {l.title}</option>
+          ))}
+        </select>
+      )}
+
+      <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)' }}>Hình thức</label>
+      <select value={method} onChange={(e) => setMethod(e.target.value)} style={{ ...s.select, width: '100%', marginBottom: 8 }}>
+        <option value="kem_tai_cho">Kèm tại chỗ</option>
+        <option value="video_nhom">Học nhóm qua video</option>
+        <option value="checklist_giay">Checklist giấy</option>
+        <option value="khac">Khác</option>
+      </select>
+
+      <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)' }}>Ghi chú (tùy chọn)</label>
+      <textarea
+        value={note} onChange={(e) => setNote(e.target.value)}
+        style={{ width: '100%', minHeight: 50, marginBottom: 8 }}
+      />
+
+      <div style={{ marginBottom: 8 }}>
+        <PhotoSlot label="Ảnh minh chứng (tùy chọn)" value={evidenceUrl} onChange={setEvidenceUrl} />
+      </div>
+
+      {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
+      {message && <p style={{ color: 'var(--forest-dark)' }}>{message}</p>}
+      <button onClick={submit} disabled={saving}>Xác nhận</button>
+    </Modal>
+  )
+}
+
 export default function CourseEditPage() {
   const { id } = useParams()
   const [course, setCourse] = useState(null)
@@ -401,7 +517,14 @@ export default function CourseEditPage() {
   const [addingModule, setAddingModule] = useState(false)
   const [newModuleTitle, setNewModuleTitle] = useState('')
   const [assignOpen, setAssignOpen] = useState(false)
+  const [offlineConfirmOpen, setOfflineConfirmOpen] = useState(false)
+  const [offlineReport, setOfflineReport] = useState(null)
   const [savingField, setSavingField] = useState(false)
+
+  function loadOfflineReport() {
+    api.get(`/courses/${id}/offline-report/`).then(({ data }) => setOfflineReport(data)).catch(() => {})
+  }
+  useEffect(loadOfflineReport, [id])
 
   function load() {
     api
@@ -481,7 +604,24 @@ export default function CourseEditPage() {
                 <option value="archived">Lưu trữ</option>
               </select>
               <button onClick={() => setAssignOpen(true)}>Gán khóa học</button>
+              <button className="btn-outline" onClick={() => setOfflineConfirmOpen(true)}>
+                Xác nhận hoàn thành hộ
+              </button>
             </div>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>
+              Mã đồng bộ hồ sơ (sync_course_code) — để trống = không đồng bộ CourseResult
+            </label>
+            <input
+              defaultValue={course.sync_course_code}
+              onBlur={(e) => e.target.value !== course.sync_course_code && updateField('sync_course_code', e.target.value)}
+              placeholder="vd HOINHAP_PHUCVU..." style={{ ...s.input, width: '100%' }}
+            />
+            {offlineReport && offlineReport.total_done > 0 && (
+              <p className="muted-note" style={{ marginTop: 6 }}>
+                Hoàn thành: {offlineReport.total_done} bài — trực tuyến {offlineReport.online} ·
+                offline {offlineReport.offline} ({offlineReport.offline_percent}%)
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -512,6 +652,10 @@ export default function CourseEditPage() {
       )}
 
       <AssignModal courseId={id} open={assignOpen} onClose={() => setAssignOpen(false)} />
+      <OfflineConfirmModal
+        course={course} open={offlineConfirmOpen} onClose={() => setOfflineConfirmOpen(false)}
+        onDone={() => { load(); loadOfflineReport() }}
+      />
     </AppShell>
   )
 }

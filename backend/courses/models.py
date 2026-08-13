@@ -32,6 +32,10 @@ class Course(models.Model):
     )
     # Forward-compat Dot 2/3: gan nhan nang luc cho khoa hoc. CHUA co logic gi dung den o Dot 1.
     competency_tag = models.CharField(max_length=100, blank=True)
+    # Dot 3 phan A: ma dinh danh khoa nay ben he cu (CourseResult.course_name) - ADMIN TU GAN
+    # TAY. Rong = KHONG dong bo (bo qua, log canh bao) - tranh doan bua anh huong pass thu viec.
+    # Xem integration.services.sync_result_to_profile.
+    sync_course_code = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -98,8 +98,8 @@ class AssessmentSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'description', 'time_limit_min', 'pass_mark', 'max_attempts',
             'shuffle_questions', 'shuffle_options', 'show_result_mode', 'random_pool_config',
-            'competency_tag', 'status', 'status_display', 'created_by', 'created_by_name',
-            'questions_count', 'assigned_count', 'created_at', 'updated_at',
+            'competency_tag', 'sync_exam_type', 'status', 'status_display', 'created_by',
+            'created_by_name', 'questions_count', 'assigned_count', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_by', 'created_at', 'updated_at']
 

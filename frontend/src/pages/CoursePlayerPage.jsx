@@ -165,7 +165,16 @@ export default function CoursePlayerPage() {
               <LessonContent lesson={activeLesson} onPingVideo={pingVideo} />
               <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
                 {activeLesson.progress?.status === 'done' ? (
-                  <span style={{ color: 'var(--forest-dark)' }}>✓ Đã hoàn thành</span>
+                  <span style={{ color: 'var(--forest-dark)' }}>
+                    ✓{' '}
+                    {activeLesson.progress?.completed_offline
+                      ? `Hoàn thành offline (xác nhận bởi ${activeLesson.progress.offline_confirmed_by_name || '—'} — ${
+                          activeLesson.progress.offline_confirmed_at
+                            ? new Date(activeLesson.progress.offline_confirmed_at).toLocaleDateString('vi-VN')
+                            : ''
+                        })`
+                      : 'Đã hoàn thành'}
+                  </span>
                 ) : (
                   activeLesson.complete_rule !== 'watch_pct' && (
                     <button onClick={markDone} disabled={marking}>

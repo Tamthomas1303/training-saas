@@ -16,6 +16,9 @@ export const DOMAINS = [
       { label: 'Ngân hàng câu hỏi', path: '/exam-banks', icon: '🗃️', roles: ['admin'] },
       { label: 'Đề thi', path: '/exams-admin', icon: '📝', roles: ['admin'] },
       { label: 'Chấm bài', path: '/exam-grading', icon: '🖊️', roles: ['admin', 'om', 'am', 'kcs', 'bql'] },
+      { label: 'Mẫu chứng chỉ', path: '/cert-templates', icon: '🖼️', roles: ['admin'] },
+      { label: 'Chương trình chứng chỉ', path: '/cert-programs', icon: '🏆', roles: ['admin'] },
+      { label: 'Chứng chỉ đã cấp', path: '/certificates', icon: '📜', roles: ['admin'] },
     ],
   },
   {

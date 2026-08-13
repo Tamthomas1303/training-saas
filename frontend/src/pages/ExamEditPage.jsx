@@ -379,6 +379,14 @@ export default function ExamEditPage() {
           <button onClick={() => setAssignOpen(true)}>Gán đề thi</button>
           <button className="btn-outline" onClick={exportExcel}>Xuất Excel kết quả</button>
         </div>
+        <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>
+          Mã đồng bộ hồ sơ (sync_exam_type) — để trống = không đồng bộ ExamResult
+        </label>
+        <input
+          defaultValue={assessment.sync_exam_type}
+          onBlur={(e) => e.target.value !== assessment.sync_exam_type && updateField('sync_exam_type', e.target.value)}
+          placeholder="vd 15N..." style={{ ...s.input, width: '100%' }}
+        />
       </div>
 
       <h3>Câu hỏi trong đề</h3>

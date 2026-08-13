@@ -37,6 +37,10 @@ import ExamEditPage from './pages/ExamEditPage'
 import MyExamsPage from './pages/MyExamsPage'
 import ExamTakingPage from './pages/ExamTakingPage'
 import ExamGradingPage from './pages/ExamGradingPage'
+import CertTemplatesAdminPage from './pages/CertTemplatesAdminPage'
+import CertProgramsAdminPage from './pages/CertProgramsAdminPage'
+import CertificatesAdminPage from './pages/CertificatesAdminPage'
+import MyCertificatesPage from './pages/MyCertificatesPage'
 import api from './api/client'
 import { isMobileRole } from './config/menu'
 import { flushQueue, initOfflineSync } from './utils/offlineQueue'
@@ -331,6 +335,38 @@ function App() {
             element={
               <ProtectedRoute>
                 <ExamTakingPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/cert-templates"
+            element={
+              <ProtectedRoute roles={['admin']}>
+                <CertTemplatesAdminPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/cert-programs"
+            element={
+              <ProtectedRoute roles={['admin']}>
+                <CertProgramsAdminPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/certificates"
+            element={
+              <ProtectedRoute roles={['admin']}>
+                <CertificatesAdminPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/my-certificates"
+            element={
+              <ProtectedRoute>
+                <MyCertificatesPage />
               </ProtectedRoute>
             }
           />

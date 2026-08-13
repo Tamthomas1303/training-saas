@@ -9,6 +9,8 @@ from .views import (
     LessonViewSet,
     MyCourseDetailView,
     MyCoursesView,
+    OfflineConfirmView,
+    OfflineReportView,
     ProgressSaveView,
     ReorderView,
 )
@@ -24,5 +26,7 @@ urlpatterns = [
     path('my/<int:course_id>/', MyCourseDetailView.as_view(), name='course-my-detail'),
     path('progress/', ProgressSaveView.as_view(), name='course-progress'),
     path('reorder/', ReorderView.as_view(), name='course-reorder'),
+    path('offline-confirm/', OfflineConfirmView.as_view(), name='course-offline-confirm'),
     path('<int:pk>/assign/', CourseAssignView.as_view(), name='course-assign'),
+    path('<int:pk>/offline-report/', OfflineReportView.as_view(), name='course-offline-report'),
 ] + router.urls

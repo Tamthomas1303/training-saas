@@ -108,6 +108,10 @@ class Assessment(models.Model):
     random_pool_config = models.JSONField(null=True, blank=True)
     # Forward-compat Dot 3.
     competency_tag = models.CharField(max_length=100, blank=True)
+    # Dot 3 phan A: ma dinh danh bai thi nay ben he cu (ExamResult.exam_name) - ADMIN TU GAN
+    # TAY. Rong = KHONG dong bo (bo qua, log canh bao) - tranh doan bua anh huong pass thu viec.
+    # Xem integration.services.sync_result_to_profile.
+    sync_exam_type = models.CharField(max_length=255, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
     created_by = models.ForeignKey(
         User, on_delete=models.SET_NULL, related_name='assessments_created', null=True, blank=True,

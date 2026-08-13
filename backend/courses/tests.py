@@ -3,7 +3,9 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from accounts.models import Tenant, User
+from cls_sync.models import CourseResult
 from employees.models import Employee
+from integration.models import OfflineConfirmation, XapiStatement
 
 from .models import Course, CourseModule, Enrollment, Lesson, LessonProgress
 
@@ -295,3 +297,120 @@ class EmployeeCreateLoginApiTests(TestCase):
         self.client.force_authenticate(trainer)
         resp = self.client.post(reverse('employee-create-login', args=[self.employee.id]))
         self.assertEqual(resp.status_code, 403)
+
+
+class OfflineConfirmApiTests(TestCase):
+    """Dot 3 phan B: xac nhan hoan thanh HO (khong qua player) - moi vai tro dao tao duoc,
+    hoc vien (role=employee) khong duoc; ghi audit OfflineConfirmation day du."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.trainer = User.objects.create_user(username='trainer1', password='x', tenant=self.tenant, role='trainer')
+        self.course = Course.objects.create(tenant=self.tenant, title='Khóa demo', sync_course_code='HOINHAP_X')
+        self.module = CourseModule.objects.create(tenant=self.tenant, course=self.course, title='Chương 1')
+        self.lesson1 = Lesson.objects.create(tenant=self.tenant, module=self.module, title='Bài 1', order=0)
+        self.lesson2 = Lesson.objects.create(tenant=self.tenant, module=self.module, title='Bài 2', order=1)
+        self.employee = Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1')
+        self.client = APIClient()
+
+    def test_trainer_confirms_single_lesson_offline(self):
+        self.client.force_authenticate(self.trainer)
+        resp = self.client.post(reverse('course-offline-confirm'), {
+            'employee': self.employee.id, 'target_type': 'lesson', 'target_id': self.lesson1.id,
+            'method': 'kem_tai_cho', 'note': 'Kèm tại chỗ ca sáng',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+
+        enrollment = Enrollment.objects.get(course=self.course, employee=self.employee)
+        progress = LessonProgress.objects.get(enrollment=enrollment, lesson=self.lesson1)
+        self.assertEqual(progress.status, LessonProgress.Status.DONE)
+        self.assertTrue(progress.completed_offline)
+
+        confirmation = OfflineConfirmation.objects.get(employee=self.employee, target_id=self.lesson1.id)
+        self.assertEqual(confirmation.confirmed_by, self.trainer)
+        self.assertEqual(confirmation.method, 'kem_tai_cho')
+        self.assertEqual(confirmation.note, 'Kèm tại chỗ ca sáng')
+        self.assertIsNotNone(confirmation.confirmed_at)
+
+    def test_confirm_whole_course_marks_all_lessons_and_completes_enrollment(self):
+        self.client.force_authenticate(self.trainer)
+        resp = self.client.post(reverse('course-offline-confirm'), {
+            'employee': self.employee.id, 'target_type': 'course', 'target_id': self.course.id,
+            'method': 'checklist_giay',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['status'], Enrollment.Status.COMPLETED)
+
+        enrollment = Enrollment.objects.get(course=self.course, employee=self.employee)
+        self.assertEqual(enrollment.progresses.filter(completed_offline=True).count(), 2)
+        self.assertEqual(OfflineConfirmation.objects.filter(employee=self.employee).count(), 2)
+
+        # Dot 3 phan A: hoan thanh (du la offline) van chay dong bo ho so vi da gan sync_course_code.
+        result = CourseResult.objects.get(employee=self.employee, course_name='HOINHAP_X')
+        self.assertEqual(result.status, 'Đạt')
+
+    def test_employee_role_cannot_confirm_offline(self):
+        learner_user = User.objects.create_user(
+            username='nv1', password='x', tenant=self.tenant, role=User.Role.EMPLOYEE,
+        )
+        self.client.force_authenticate(learner_user)
+        resp = self.client.post(reverse('course-offline-confirm'), {
+            'employee': self.employee.id, 'target_type': 'lesson', 'target_id': self.lesson1.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_offline_report_counts_online_vs_offline(self):
+        enrollment = Enrollment.objects.create(tenant=self.tenant, course=self.course, employee=self.employee)
+        LessonProgress.objects.create(
+            tenant=self.tenant, enrollment=enrollment, lesson=self.lesson1,
+            status=LessonProgress.Status.DONE, completed_offline=False,
+        )
+        LessonProgress.objects.create(
+            tenant=self.tenant, enrollment=enrollment, lesson=self.lesson2,
+            status=LessonProgress.Status.DONE, completed_offline=True,
+        )
+        admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.client.force_authenticate(admin)
+        resp = self.client.get(reverse('course-offline-report', args=[self.course.id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data, {'total_done': 2, 'offline': 1, 'online': 1, 'offline_percent': 50})
+
+
+class XapiHookTests(TestCase):
+    """Dot 3 phan C: cac moc hoc (xem/hoan thanh bai, hoan thanh khoa) phai sinh XapiStatement
+    dung verb/object."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.course = Course.objects.create(tenant=self.tenant, title='Khóa demo', status=Course.Status.PUBLISHED)
+        self.module = CourseModule.objects.create(tenant=self.tenant, course=self.course, title='Chương 1')
+        self.lesson = Lesson.objects.create(
+            tenant=self.tenant, module=self.module, title='Bài 1', complete_rule=Lesson.CompleteRule.MARK,
+        )
+        self.learner_user = User.objects.create_user(
+            username='nv1', password='x', tenant=self.tenant, role=User.Role.EMPLOYEE,
+        )
+        self.employee = Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1', user=self.learner_user)
+        Enrollment.objects.create(tenant=self.tenant, course=self.course, employee=self.employee)
+        self.client = APIClient()
+
+    def test_first_touch_logs_viewed_then_mark_done_logs_completed(self):
+        self.client.force_authenticate(self.learner_user)
+        self.client.post(reverse('course-progress'), {'lesson': self.lesson.id, 'watched_pct': 10}, format='json')
+        self.assertTrue(
+            XapiStatement.objects.filter(
+                employee=self.employee, verb='viewed', object_type='lesson', object_id=self.lesson.id,
+            ).exists()
+        )
+
+        self.client.post(reverse('course-progress'), {'lesson': self.lesson.id, 'mark_done': True}, format='json')
+        self.assertTrue(
+            XapiStatement.objects.filter(
+                employee=self.employee, verb='completed', object_type='lesson', object_id=self.lesson.id,
+            ).exists()
+        )
+        self.assertTrue(
+            XapiStatement.objects.filter(
+                employee=self.employee, verb='completed', object_type='course', object_id=self.course.id,
+            ).exists()
+        )

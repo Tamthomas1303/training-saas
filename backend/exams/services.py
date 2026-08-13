@@ -189,10 +189,37 @@ def start_attempt(employee, assessment):
     if not question_ids:
         raise ValidationError('Đề thi chưa có câu hỏi.')
 
-    return Attempt.objects.create(
+    attempt = Attempt.objects.create(
         tenant=employee.tenant, assessment=assessment, employee=employee,
         attempt_no=used + 1, question_ids=question_ids,
     )
+    _log_xapi_safe(employee, 'started', 'assessment', assessment.id)
+    return attempt
+
+
+def _log_xapi_safe(employee, verb, object_type, object_id):
+    """Dot 3 phan C - log_xapi ban than da tu bat loi, nhung van bao ve them 1 lop o day (import
+    tre) de logic lam bai thi (Dot 2) khong bao gio bi anh huong boi Dot 3."""
+    try:
+        from integration.services import log_xapi
+
+        log_xapi(employee, verb, object_type, object_id)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _on_exam_finalized_safe(attempt):
+    try:
+        from integration.services import on_exam_finalized
+
+        on_exam_finalized(attempt)
+    except Exception:  # noqa: BLE001 - cham thi (Dot 2) khong duoc phep hong vi Dot 3
+        import logging
+
+        logging.getLogger(__name__).exception(
+            'on_exam_finalized thất bại cho attempt %s - đã bỏ qua, không chặn luồng chấm thi.',
+            attempt.id,
+        )
 
 
 def attempt_question_payload(question, shuffle_options, attempt_seed):
@@ -307,6 +334,11 @@ def submit_attempt(attempt):
     AssessmentAssignment.objects.filter(
         assessment=attempt.assessment, employee=attempt.employee,
     ).update(status=AssessmentAssignment.Status.DONE)
+
+    # Dot 3 phan A/C/D: chi ban hanh khi KHONG co essay - da GRADED (final) ngay luc nop. Neu co
+    # essay, cho grade_attempt ban hanh (moc "final" thuc su la luc do, khong phai luc nop).
+    if not has_essay:
+        _on_exam_finalized_safe(attempt)
     return attempt
 
 
@@ -340,6 +372,7 @@ def grade_attempt(attempt, grader, scores):
     attempt.passed = attempt.percent >= attempt.assessment.pass_mark
     attempt.status = Attempt.Status.GRADED
     attempt.save()
+    _on_exam_finalized_safe(attempt)
     return attempt
 
 

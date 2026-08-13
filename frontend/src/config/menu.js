@@ -24,6 +24,10 @@ export const MENU_ITEMS = {
   examsAdmin: { label: 'Đề thi', icon: '📝', path: '/exams-admin' },
   myExams: { label: 'Bài thi của tôi', icon: '📝', path: '/my-exams' },
   examGrading: { label: 'Chấm bài', icon: '🖊️', path: '/exam-grading' },
+  certTemplates: { label: 'Mẫu chứng chỉ', icon: '🖼️', path: '/cert-templates' },
+  certPrograms: { label: 'Chương trình chứng chỉ', icon: '🏆', path: '/cert-programs' },
+  certificates: { label: 'Chứng chỉ đã cấp', icon: '📜', path: '/certificates' },
+  myCertificates: { label: 'Chứng chỉ của tôi', icon: '📜', path: '/my-certificates' },
 }
 
 // Vai tro "toan he thong" -> shell desktop (topbar); con lai -> shell mobile (bottom-nav).
@@ -37,7 +41,8 @@ const MOBILE_ROLES = new Set(['trainer', 'bql', 'am', 'kcs', 'employee'])
 const ROLE_MENU = {
   admin: [
     'hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'users', 'reports',
-    'coursesAdmin', 'examBanks', 'examsAdmin', 'examGrading',
+    'coursesAdmin', 'examBanks', 'examsAdmin', 'examGrading', 'certTemplates', 'certPrograms',
+    'certificates',
   ],
   om: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'reports', 'examGrading'],
   bod: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents'],
@@ -45,10 +50,11 @@ const ROLE_MENU = {
   kcs: ['hub', 'home', 'kpi', 'documents', 'examGrading'],
   bql: ['hub', 'home', 'kpi', 'documents', 'examGrading'],
   trainer: ['hub', 'home', 'documents'],
-  // Tai khoan hoc vien (module Khoa hoc/Ky thi, MVP dot 1-2) - pham vi API chi /api/courses/,
-  // /api/exams/ + /api/auth/me (xem accounts.permissions.EmployeeLearnerScope), nen menu CHI co
-  // 2 muc de tranh mo trang khac roi bao loi 403.
-  employee: ['myCourses', 'myExams'],
+  // Tai khoan hoc vien (module Khoa hoc/Ky thi/Noi he thong, MVP dot 1-3) - pham vi API chi
+  // /api/courses/, /api/exams/, /api/integration/ + /api/auth/me (xem
+  // accounts.permissions.EmployeeLearnerScope), nen menu CHI co 3 muc de tranh mo trang khac
+  // roi bao loi 403.
+  employee: ['myCourses', 'myExams', 'myCertificates'],
 }
 
 export function isMobileRole(role) {

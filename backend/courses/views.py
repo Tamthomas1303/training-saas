@@ -6,6 +6,7 @@ from rest_framework.views import APIView
 
 from accounts.mixins import TenantScopedViewSetMixin
 from accounts.pagination import DefaultPagination
+from employees.models import Employee
 
 from .models import Course, CourseModule, Enrollment, Lesson
 from .serializers import (
@@ -16,7 +17,16 @@ from .serializers import (
     LessonProgressSerializer,
     LessonSerializer,
 )
-from .services import ValidationError, assign_course, my_course_detail, my_courses, reorder_items, save_lesson_progress
+from .services import (
+    ValidationError,
+    assign_course,
+    confirm_offline_completion,
+    my_course_detail,
+    my_courses,
+    offline_completion_report,
+    reorder_items,
+    save_lesson_progress,
+)
 
 
 def _require_admin_write(request):
@@ -28,6 +38,13 @@ def _require_learner(request):
     """Tra ve Employee cua request.user, hoac None neu tai khoan chua duoc lien ket (xem
     Employee.user - man Nhan su co nut 'Tao tai khoan dang nhap')."""
     return getattr(request.user, 'employee', None)
+
+
+def _require_training_staff(request):
+    """Dot 3 phan B: 'moi vai tro dao tao deu duoc' xac nhan hoan thanh ho - tuc la MOI role
+    TRU 'employee' (tai khoan hoc vien, khong phai nguoi dao tao). Chot cua anh Chung."""
+    if (request.user.role or '').lower() == 'employee':
+        raise PermissionDenied('Tài khoản học viên không được xác nhận hoàn thành hộ.')
 
 
 class CourseViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
@@ -174,3 +191,39 @@ class ProgressSaveView(APIView):
         except ValidationError as exc:
             return Response({'detail': str(exc)}, status=400)
         return Response(LessonProgressSerializer(progress).data)
+
+
+class OfflineConfirmView(APIView):
+    """POST /api/courses/offline-confirm/ — body {employee, target_type: lesson|course,
+    target_id, method, note?, evidence_url?}. Dot 3 phan B: 'moi vai tro dao tao' duoc xac
+    nhan hoan thanh HO cho 1 nhan su (khong qua player) - xem
+    courses.services.confirm_offline_completion."""
+
+    def post(self, request):
+        _require_training_staff(request)
+        employee = get_object_or_404(Employee, pk=request.data.get('employee'), tenant=request.user.tenant)
+        target_type = request.data.get('target_type')
+        target_id = request.data.get('target_id')
+        method = request.data.get('method') or 'kem_tai_cho'
+        note = request.data.get('note', '')
+        evidence_url = request.data.get('evidence_url', '')
+        if not target_id:
+            return Response({'detail': "Cần 'target_id'."}, status=400)
+        try:
+            enrollment = confirm_offline_completion(
+                request.user, employee, target_type, target_id, method, note, evidence_url,
+            )
+        except ValidationError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        return Response(EnrollmentSerializer(enrollment).data)
+
+
+class OfflineReportView(APIView):
+    """GET /api/courses/<id>/offline-report/ — ty le hoan thanh online vs offline cua 1 khoa
+    (don gian, dung y prompt Dot 3 phan B). Chi Admin."""
+
+    def get(self, request, pk):
+        if (request.user.role or '').lower() != 'admin':
+            return Response({'detail': 'Chỉ Admin được xem báo cáo.'}, status=403)
+        get_object_or_404(Course, pk=pk, tenant=request.user.tenant)
+        return Response(offline_completion_report(pk, request.user.tenant))
