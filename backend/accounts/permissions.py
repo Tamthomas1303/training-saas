@@ -39,13 +39,14 @@ class HasRole(BasePermission):
 
 
 class EmployeeLearnerScope(BasePermission):
-    """Tai khoan hoc vien (role='employee', gan qua Employee.user - module Khoa hoc MVP dot 1)
-    CHI duoc goi API duoi /api/courses/ (+ /api/auth/me, /api/auth/me/change-password de xem
-    thong tin/doi mat khau cua chinh minh) - KHONG duoc doc du lieu quan tri noi bo (nhan su,
-    checklist, KPI, danh gia...) qua cac app khac. Ap dung toan cuc qua
-    DEFAULT_PERMISSION_CLASSES giong BodReadOnly, tranh phai sua tung app khi them role nay."""
+    """Tai khoan hoc vien (role='employee', gan qua Employee.user - module Khoa hoc/Ky thi MVP
+    dot 1-2) CHI duoc goi API duoi /api/courses/, /api/exams/ (+ /api/auth/me,
+    /api/auth/me/change-password de xem thong tin/doi mat khau cua chinh minh) - KHONG duoc doc
+    du lieu quan tri noi bo (nhan su, checklist, KPI, danh gia...) qua cac app khac. Ap dung
+    toan cuc qua DEFAULT_PERMISSION_CLASSES giong BodReadOnly, tranh phai sua tung app khi them
+    role nay."""
 
-    ALLOWED_PREFIXES = ('/api/courses/', '/api/auth/me')
+    ALLOWED_PREFIXES = ('/api/courses/', '/api/exams/', '/api/auth/me')
 
     def has_permission(self, request, view):
         if (getattr(request.user, 'role', '') or '').lower() != 'employee':

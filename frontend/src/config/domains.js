@@ -13,6 +13,9 @@ export const DOMAINS = [
       { label: 'Checklist đào tạo', path: '/checklist', icon: '📋', roles: ['admin', 'om', 'bod'] },
       { label: 'Tiêu chí đánh giá', path: '/criteria', icon: '📝', roles: ['admin', 'om'] },
       { label: 'Khóa học trực tuyến', path: '/courses-admin', icon: '🎬', roles: ['admin'] },
+      { label: 'Ngân hàng câu hỏi', path: '/exam-banks', icon: '🗃️', roles: ['admin'] },
+      { label: 'Đề thi', path: '/exams-admin', icon: '📝', roles: ['admin'] },
+      { label: 'Chấm bài', path: '/exam-grading', icon: '🖊️', roles: ['admin', 'om', 'am', 'kcs', 'bql'] },
     ],
   },
   {

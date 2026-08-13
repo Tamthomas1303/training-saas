@@ -30,6 +30,13 @@ import CoursesAdminPage from './pages/CoursesAdminPage'
 import CourseEditPage from './pages/CourseEditPage'
 import MyCoursesPage from './pages/MyCoursesPage'
 import CoursePlayerPage from './pages/CoursePlayerPage'
+import ExamBanksAdminPage from './pages/ExamBanksAdminPage'
+import ExamBankEditPage from './pages/ExamBankEditPage'
+import ExamsAdminPage from './pages/ExamsAdminPage'
+import ExamEditPage from './pages/ExamEditPage'
+import MyExamsPage from './pages/MyExamsPage'
+import ExamTakingPage from './pages/ExamTakingPage'
+import ExamGradingPage from './pages/ExamGradingPage'
 import api from './api/client'
 import { isMobileRole } from './config/menu'
 import { flushQueue, initOfflineSync } from './utils/offlineQueue'
@@ -268,6 +275,62 @@ function App() {
             element={
               <ProtectedRoute>
                 <CoursePlayerPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/exam-banks"
+            element={
+              <ProtectedRoute roles={['admin']}>
+                <ExamBanksAdminPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/exam-banks/:id"
+            element={
+              <ProtectedRoute roles={['admin']}>
+                <ExamBankEditPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/exams-admin"
+            element={
+              <ProtectedRoute roles={['admin']}>
+                <ExamsAdminPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/exams-admin/:id"
+            element={
+              <ProtectedRoute roles={['admin']}>
+                <ExamEditPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/exam-grading"
+            element={
+              <ProtectedRoute roles={['admin', 'om', 'am', 'kcs', 'bql']}>
+                <ExamGradingPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/my-exams"
+            element={
+              <ProtectedRoute>
+                <MyExamsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/my-exams/attempt/:attemptId"
+            element={
+              <ProtectedRoute>
+                <ExamTakingPage />
               </ProtectedRoute>
             }
           />

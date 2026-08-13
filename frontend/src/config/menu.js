@@ -20,6 +20,10 @@ export const MENU_ITEMS = {
   reports: { label: 'Báo cáo', icon: '📧', path: '/reports' },
   coursesAdmin: { label: 'Khóa học', icon: '🎬', path: '/courses-admin' },
   myCourses: { label: 'Khóa học của tôi', icon: '🎬', path: '/my-courses' },
+  examBanks: { label: 'Ngân hàng câu hỏi', icon: '🗃️', path: '/exam-banks' },
+  examsAdmin: { label: 'Đề thi', icon: '📝', path: '/exams-admin' },
+  myExams: { label: 'Bài thi của tôi', icon: '📝', path: '/my-exams' },
+  examGrading: { label: 'Chấm bài', icon: '🖊️', path: '/exam-grading' },
 }
 
 // Vai tro "toan he thong" -> shell desktop (topbar); con lai -> shell mobile (bottom-nav).
@@ -33,18 +37,18 @@ const MOBILE_ROLES = new Set(['trainer', 'bql', 'am', 'kcs', 'employee'])
 const ROLE_MENU = {
   admin: [
     'hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'users', 'reports',
-    'coursesAdmin',
+    'coursesAdmin', 'examBanks', 'examsAdmin', 'examGrading',
   ],
-  om: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'reports'],
+  om: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'reports', 'examGrading'],
   bod: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents'],
-  am: ['hub', 'home', 'kpi', 'documents'],
-  kcs: ['hub', 'home', 'kpi', 'documents'],
-  bql: ['hub', 'home', 'kpi', 'documents'],
+  am: ['hub', 'home', 'kpi', 'documents', 'examGrading'],
+  kcs: ['hub', 'home', 'kpi', 'documents', 'examGrading'],
+  bql: ['hub', 'home', 'kpi', 'documents', 'examGrading'],
   trainer: ['hub', 'home', 'documents'],
-  // Tai khoan hoc vien (module Khoa hoc, MVP dot 1) - pham vi API chi /api/courses/ + /api/auth/me
-  // (xem accounts.permissions.EmployeeLearnerScope), nen menu CHI co 1 muc de tranh mo trang
-  // khac roi bao loi 403.
-  employee: ['myCourses'],
+  // Tai khoan hoc vien (module Khoa hoc/Ky thi, MVP dot 1-2) - pham vi API chi /api/courses/,
+  // /api/exams/ + /api/auth/me (xem accounts.permissions.EmployeeLearnerScope), nen menu CHI co
+  // 2 muc de tranh mo trang khac roi bao loi 403.
+  employee: ['myCourses', 'myExams'],
 }
 
 export function isMobileRole(role) {
