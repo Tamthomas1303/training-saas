@@ -29,6 +29,28 @@ const SAMPLE_TEXT = {
 }
 const CERT_W = 853
 const CERT_H = 603
+const CERT_EDGE_MARGIN = 24
+
+let _measureCanvas
+function measureTextWidth(text, px, bold) {
+  if (typeof document === 'undefined') return 0
+  if (!_measureCanvas) _measureCanvas = document.createElement('canvas')
+  const ctx = _measureCanvas.getContext('2d')
+  ctx.font = `${bold ? 700 : 400} ${px}px sans-serif`
+  return ctx.measureText(text).width
+}
+
+// Cỡ chữ hiển thị sau khi tự thu nhỏ cho vừa mép (mirror backend integration/pdf.py::_fit_font_size)
+function fittedFontPx(text, x, align, rawPx, scale, bold) {
+  let availPt
+  if (align === 'left') availPt = CERT_W - x - CERT_EDGE_MARGIN
+  else if (align === 'right') availPt = x - CERT_EDGE_MARGIN
+  else availPt = 2 * Math.min(x, CERT_W - x) - CERT_EDGE_MARGIN
+  const availPx = Math.max(0, availPt * scale)
+  if (availPx <= 0) return rawPx
+  const w = measureTextWidth(text, rawPx, bold)
+  return w > availPx ? Math.max(6, (rawPx * availPx) / w) : rawPx
+}
 
 // Trình kéo-thả căn chữ trực tiếp trên ảnh nền (khớp render backend: gốc dưới-trái, Y = chân chữ,
 // ảnh phủ kín 853x603). Kéo nhãn -> tự tính toạ độ (pt). Cỡ chữ/căn lề vẫn chỉnh ở bảng số bên dưới.
@@ -101,6 +123,7 @@ function CertDragPreview({ imageUrl, config, onChange }) {
           const y = f.y ?? CERT_H / 2
           const align = f.align || 'center'
           const anchorX = align === 'center' ? '-50%' : align === 'right' ? '-100%' : '0'
+          const fontPx = fittedFontPx(SAMPLE_TEXT[key], x, align, (f.font_size ?? 14) * scale, scale, f.bold)
           return (
             <div
               key={key}
@@ -109,7 +132,7 @@ function CertDragPreview({ imageUrl, config, onChange }) {
               style={{
                 position: 'absolute', left: `${(x / CERT_W) * 100}%`, top: `${(1 - y / CERT_H) * 100}%`,
                 transform: `translate(${anchorX}, -80%)`,
-                fontSize: Math.max(8, (f.font_size ?? 14) * scale), fontWeight: f.bold ? 700 : 400,
+                fontSize: Math.max(8, fontPx), fontWeight: f.bold ? 700 : 400,
                 whiteSpace: 'nowrap', cursor: 'move', color: '#1a1a3a', padding: '0 2px', borderRadius: 3,
                 background: 'rgba(255,255,255,0.35)',
                 outline: dragKey === key ? '2px solid var(--forest)' : '1px dashed rgba(0,0,0,0.35)',
