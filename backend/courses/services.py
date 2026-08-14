@@ -12,7 +12,7 @@ from employees.models import Employee
 
 from integration.models import OfflineConfirmation
 
-from .models import Course, CourseModule, Enrollment, Lesson, LessonProgress
+from .models import Course, CourseModule, Enrollment, Lesson, LessonProgress, ScormPackage
 
 
 class ValidationError(Exception):
@@ -116,6 +116,10 @@ def my_course_detail(employee, course_id):
                 'duration_sec': lesson.duration_sec, 'anti_seek': lesson.anti_seek,
                 'complete_rule': lesson.complete_rule, 'pass_watch_pct': lesson.pass_watch_pct,
                 'order': lesson.order,
+                # Dot 4: bai SCORM - FE dung id nay de dung URL trang phat (ScormPlayerView).
+                # Truy van rieng (khong dung lesson.scorm_package) - reverse OneToOne descriptor
+                # nem RelatedObjectDoesNotExist khi chua co goi, tranh phai bat ngoai le o day.
+                'scorm_package_id': ScormPackage.objects.filter(lesson=lesson).values_list('id', flat=True).first(),
                 'progress': {
                     'status': progress.status if progress else LessonProgress.Status.PENDING,
                     'watched_pct': progress.watched_pct if progress else 0,

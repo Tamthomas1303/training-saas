@@ -1,15 +1,30 @@
 from rest_framework import serializers
 
-from .models import Course, CourseModule, Enrollment, Lesson, LessonProgress
+from .models import Course, CourseModule, Enrollment, Lesson, LessonProgress, ScormPackage
+
+
+class ScormPackageSerializer(serializers.ModelSerializer):
+    version_display = serializers.CharField(source='get_version_display', read_only=True)
+
+    class Meta:
+        model = ScormPackage
+        fields = ['id', 'lesson', 'version', 'version_display', 'launch_path', 'title', 'created_at', 'updated_at']
+        read_only_fields = fields
 
 
 class LessonSerializer(serializers.ModelSerializer):
+    scorm_package = serializers.SerializerMethodField()
+
     class Meta:
         model = Lesson
         fields = [
             'id', 'module', 'title', 'type', 'content_url', 'content_html', 'duration_sec',
-            'anti_seek', 'complete_rule', 'pass_watch_pct', 'order',
+            'anti_seek', 'complete_rule', 'pass_watch_pct', 'order', 'scorm_package',
         ]
+
+    def get_scorm_package(self, obj):
+        package = getattr(obj, 'scorm_package', None)
+        return ScormPackageSerializer(package).data if package else None
 
 
 class CourseModuleSerializer(serializers.ModelSerializer):

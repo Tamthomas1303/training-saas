@@ -59,6 +59,13 @@ def upload_file_bytes(raw_bytes, folder, filename_prefix, ext, content_type):
     return _upload(path, raw_bytes, content_type)
 
 
+def upload_bytes_at_path(path, raw_bytes, content_type):
+    """Upload bytes len DUNG path chi dinh - khac 3 ham tren (tu sinh ten file voi uuid). Dung
+    khi can giu nguyen cau truc thu muc goc (vd giai nen goi SCORM - courses/scorm.py - cac
+    file ben trong tham chieu lan nhau bang duong dan tuong doi, doi ten se lam vo hieu)."""
+    return _upload(path, raw_bytes, content_type)
+
+
 def _compress_image(raw_bytes, max_dimension=MAX_IMAGE_DIMENSION, quality=JPEG_QUALITY):
     image = Image.open(BytesIO(raw_bytes))
     if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):

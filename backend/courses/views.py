@@ -1,4 +1,11 @@
-from django.shortcuts import get_object_or_404
+import json
+import mimetypes
+
+import requests
+from django.conf import settings
+from django.http import Http404, HttpResponse, HttpResponseBadRequest
+from django.shortcuts import get_object_or_404, render
+from django.views.decorators.clickjacking import xframe_options_exempt
 from rest_framework import viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
@@ -8,7 +15,8 @@ from accounts.mixins import TenantScopedViewSetMixin
 from accounts.pagination import DefaultPagination
 from employees.models import Employee
 
-from .models import Course, CourseModule, Enrollment, Lesson
+from .models import Course, CourseModule, Enrollment, Lesson, LessonProgress, ScormPackage, ScormTracking
+from .scorm import ScormImportError, import_scorm_zip
 from .serializers import (
     CourseDetailSerializer,
     CourseModuleSerializer,
@@ -16,6 +24,7 @@ from .serializers import (
     EnrollmentSerializer,
     LessonProgressSerializer,
     LessonSerializer,
+    ScormPackageSerializer,
 )
 from .services import (
     ValidationError,
@@ -227,3 +236,161 @@ class OfflineReportView(APIView):
             return Response({'detail': 'Chỉ Admin được xem báo cáo.'}, status=403)
         get_object_or_404(Course, pk=pk, tenant=request.user.tenant)
         return Response(offline_completion_report(pk, request.user.tenant))
+
+
+# ==================================================================== Dot 4: SCORM
+
+
+class ScormUploadView(APIView):
+    """POST /api/courses/scorm/upload/ — multipart {lesson: <id>, file: <.zip>}. Chi Admin.
+    Giai nen + parse imsmanifest.xml + upload len R2 (xem courses/scorm.py::import_scorm_zip),
+    tao/cap nhat ScormPackage 1-1 voi Lesson (type phai la 'scorm')."""
+
+    def post(self, request):
+        if (request.user.role or '').lower() != 'admin':
+            return Response({'detail': 'Chỉ Admin được upload gói SCORM.'}, status=403)
+        lesson = get_object_or_404(Lesson, pk=request.data.get('lesson'), tenant=request.user.tenant)
+        zip_file = request.FILES.get('file')
+        if not zip_file:
+            return Response({'detail': "Cần chọn file .zip ('file')."}, status=400)
+        try:
+            package = import_scorm_zip(request.user.tenant, lesson, request.user, zip_file)
+        except ScormImportError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        return Response(ScormPackageSerializer(package).data)
+
+
+@xframe_options_exempt
+def scorm_content(request, package_id, path):
+    """GET /api/courses/scorm/<package_id>/content/<path> — proxy-stream 1 file trong goi
+    SCORM tu R2, SAME-ORIGIN voi trang phat (scorm_player) de SCO doc duoc window.parent.API
+    (xem module docstring courses/scorm.py + ghi chu kien truc trong scorm_player.html).
+
+    KHONG yeu cau dang nhap (giong quy uoc file R2 cong khai khac trong app - course.cover_url,
+    lesson.content_url) - noi dung SCORM khong phai du lieu nhay cam, va MOI file con (JS/CSS/
+    anh) SCO tu tham chieu qua duong dan tuong doi (trinh duyet tu goi, khong kem duoc header
+    Authorization) nen endpoint nay BAT BUOC phai mo, khong the doi hoi JWT header."""
+    package = get_object_or_404(ScormPackage, pk=package_id)
+    if '..' in path.replace('\\', '/').split('/'):
+        raise Http404
+    url = f'{settings.R2_PUBLIC_BASE_URL.rstrip("/")}/{package.storage_prefix}{path}'
+    try:
+        resp = requests.get(url, timeout=15)
+    except requests.RequestException as exc:
+        raise Http404 from exc
+    if resp.status_code != 200:
+        raise Http404
+    content_type = mimetypes.guess_type(path)[0] or resp.headers.get('Content-Type') or 'application/octet-stream'
+    return HttpResponse(resp.content, content_type=content_type)
+
+
+@xframe_options_exempt
+def scorm_player(request, package_id):
+    """GET /api/courses/scorm/<package_id>/player/?progress=<lesson_progress_id> — trang phat
+    SCORM (HTML/JS thuan, KHONG phai React) do CHINH Django serve, gan window.API/API_1484_11
+    bang scorm-again TRUOC KHI tao iframe noi dung - iframe noi dung tro ve scorm_content o
+    TREN, cung origin Django nen SCO doc duoc window.parent.API (dung yeu cau same-origin).
+
+    React (khac origin - xem CORS_ALLOWED_ORIGINS) nhung KHONG lien quan: no chi nhung TRANG
+    NAY (scorm_player) trong 1 iframe ngoai cung; ben trong trang nay lai co iframe noi dung
+    THU HAI, ca hai deu o Django origin -> same-origin voi nhau, thoa dung dieu kien SCORM can.
+
+    Trang nay tu no KHONG doi hoi dang nhap (chi ho tro cac id cong khai) - JWT access token
+    duoc React truyen qua URL FRAGMENT (#token=...) luc tao iframe (khong gui len server qua
+    query string, tranh lo trong log) roi JS trong trang doc lai de goi state/commit (co
+    Authorization header, dung DRF auth binh thuong)."""
+    package = get_object_or_404(ScormPackage, pk=package_id)
+    progress_id = request.GET.get('progress')
+    if not progress_id:
+        return HttpResponseBadRequest("Thiếu tham số 'progress'.")
+
+    lib_file = (
+        'scorm2004.min.js' if package.version == ScormPackage.Version.SCORM_2004 else 'scorm12.min.js'
+    )
+    # Duong dan tinh THANG (khong qua {% static %}/ManifestStaticFilesStorage) - tranh phu
+    # thuoc vao da chay collectstatic (vd trong test/dev moi clone) de trang phat luon hoat
+    # dong duoc; WhiteNoise van serve dung file khong-hash nay o STATIC_URL binh thuong.
+    lib_url = f'{settings.STATIC_URL}courses/vendor/{lib_file}'
+    config = {
+        'isScorm2004': package.version == ScormPackage.Version.SCORM_2004,
+        'contentUrl': f'/api/courses/scorm/{package.id}/content/{package.launch_path}',
+        'stateUrl': f'/api/courses/scorm/{progress_id}/state/',
+        'commitUrl': f'/api/courses/scorm/{progress_id}/commit/',
+    }
+    # Chan '</script>' pha vo trang neu (khong the xay ra voi cac gia tri tren, nhung phong ho).
+    config_json = json.dumps(config).replace('</', '<\\/')
+    return render(request, 'courses/scorm_player.html', {
+        'lib_url': lib_url, 'config_json': config_json,
+    })
+
+
+def _require_own_lesson_progress(request, progress_id):
+    """Dot 4: xac thuc CHINH nguoi hoc so huu LessonProgress nay (dung cho state/commit). Tra
+    ve (progress, None) hoac (None, Response loi)."""
+    employee = _require_learner(request)
+    if not employee:
+        return None, Response({'detail': 'Tài khoản này chưa liên kết với hồ sơ nhân sự.'}, status=403)
+    progress = (
+        LessonProgress.objects.filter(pk=progress_id, enrollment__employee=employee)
+        .select_related('lesson', 'enrollment', 'enrollment__employee').first()
+    )
+    if not progress:
+        return None, Response({'detail': 'Không tìm thấy tiến trình bài học.'}, status=404)
+    return progress, None
+
+
+class ScormStateView(APIView):
+    """GET /api/courses/scorm/<progress_id>/state/ — tra cmi_json da luu (resume) hoac rong
+    neu chua hoc lan nao. Chi CHINH nguoi hoc so huu progress do."""
+
+    def get(self, request, progress_id):
+        progress, error = _require_own_lesson_progress(request, progress_id)
+        if error:
+            return error
+        tracking = ScormTracking.objects.filter(lesson_progress=progress).first()
+        return Response({
+            'cmi_json': tracking.cmi_json if tracking else {},
+            'lesson_status': tracking.lesson_status if tracking else '',
+            'score_raw': tracking.score_raw if tracking else None,
+        })
+
+
+class ScormCommitView(APIView):
+    """POST /api/courses/scorm/<progress_id>/commit/ — body = CommitObject chuan hoa cua
+    scorm-again (can renderCommonCommitFields=true o client): {completionStatus, successStatus,
+    score: {raw, scaled, ...}, runtimeData, ...} - CUNG 1 hinh dang cho ca SCORM 1.2 va 2004
+    (thu vien tu quy doi cmi.core.lesson_status cua 1.2 ve completionStatus/successStatus).
+
+    Hoan thanh khi completionStatus='completed' HOAC successStatus='passed' (dung y prompt).
+    Luu ScormTracking, roi neu hoan thanh -> goi lai save_lesson_progress(mark_done=True) -
+    TAI DUNG NGUYEN VEN luong hien co (Enrollment->completed, on_course_completed: dong bo ho
+    so + xAPI + chung chi - xem courses/services.py), KHONG viet lai (yeu cau an toan cua
+    prompt Dot 4)."""
+
+    def post(self, request, progress_id):
+        progress, error = _require_own_lesson_progress(request, progress_id)
+        if error:
+            return error
+
+        payload = request.data or {}
+        completion_status = payload.get('completionStatus') or ''
+        success_status = payload.get('successStatus') or ''
+        score = payload.get('score') or {}
+        score_raw = score.get('raw')
+        if score_raw is None:
+            score_raw = score.get('scaled')
+
+        ScormTracking.objects.update_or_create(
+            lesson_progress=progress,
+            defaults={
+                'tenant': progress.tenant, 'cmi_json': payload.get('runtimeData') or {},
+                'lesson_status': completion_status, 'score_raw': score_raw,
+            },
+        )
+
+        is_complete = completion_status == 'completed' or success_status == 'passed'
+        if is_complete and progress.status != LessonProgress.Status.DONE:
+            save_lesson_progress(
+                progress.enrollment.employee, {'lesson': progress.lesson_id, 'mark_done': True},
+            )
+        return Response({'ok': True})

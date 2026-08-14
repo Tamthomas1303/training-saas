@@ -73,6 +73,7 @@ class Lesson(models.Model):
         PDF = 'pdf', 'PDF'
         TEXT = 'text', 'Văn bản'
         LINK = 'link', 'Liên kết'
+        SCORM = 'scorm', 'SCORM (Articulate 360...)'  # Dot 4 - xem ScormPackage
 
     class CompleteRule(models.TextChoices):
         WATCH_PCT = 'watch_pct', 'Xem đủ % video'
@@ -158,3 +159,50 @@ class LessonProgress(models.Model):
 
     def __str__(self):
         return f'{self.enrollment_id} - {self.lesson_id}'
+
+
+class ScormPackage(models.Model):
+    """1 goi SCORM (zip đã giải nén) gan vao 1 Lesson type='scorm' - Dot 4.
+
+    storage_prefix: thu muc R2 chua toan bo file cua goi (vd 'scorm/<tenant>/<uuid>/'),
+    KHONG doi khi hoc vien hoc (chi doi khi admin upload lai). launch_path: duong dan file
+    khoi chay (href cua resource scormtype='sco' trong imsmanifest.xml), tuong doi so voi
+    storage_prefix - dung de dung URL noi dung: GET .../content/<launch_path>.
+    """
+
+    class Version(models.TextChoices):
+        SCORM_12 = 'scorm_12', 'SCORM 1.2'
+        SCORM_2004 = 'scorm_2004', 'SCORM 2004'
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='scorm_packages')
+    lesson = models.OneToOneField(Lesson, on_delete=models.CASCADE, related_name='scorm_package')
+    version = models.CharField(max_length=20, choices=Version.choices)
+    storage_prefix = models.CharField(max_length=500)
+    launch_path = models.CharField(max_length=500)
+    title = models.CharField(max_length=255, blank=True)
+    uploaded_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, related_name='scorm_packages_uploaded', null=True, blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.lesson_id} - {self.version}'
+
+
+class ScormTracking(models.Model):
+    """Trang thai chay (cmi) cua 1 nhan su cho 1 bai SCORM, gan theo LessonProgress (1-1) -
+    Dot 4. cmi_json luu TOAN BO cmi (runtimeData tu scorm-again CommitObject, dang json long -
+    xem courses/views.py::ScormCommitView) de np lai luc resume (loadFromJSON ben client)."""
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='scorm_trackings')
+    lesson_progress = models.OneToOneField(LessonProgress, on_delete=models.CASCADE, related_name='scorm_tracking')
+    cmi_json = models.JSONField(default=dict, blank=True)
+    # completionStatus tu CommitObject (scorm-again) - da chuan hoa chung cho ca 2 phien ban:
+    # 'completed' | 'incomplete' | 'not attempted' | 'unknown'. Xem ScormCommitView.
+    lesson_status = models.CharField(max_length=20, blank=True)
+    score_raw = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.lesson_progress_id} - {self.lesson_status}'

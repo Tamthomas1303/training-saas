@@ -14,6 +14,7 @@ const LESSON_TYPES = [
   { value: 'pdf', label: 'PDF' },
   { value: 'text', label: 'Văn bản' },
   { value: 'link', label: 'Liên kết' },
+  { value: 'scorm', label: 'SCORM (Articulate 360...)' },
 ]
 const COMPLETE_RULES = [
   { value: 'mark', label: 'Tự đánh dấu hoàn thành' },
@@ -40,6 +41,50 @@ function useDragReorder(items, onDrop) {
   }
 }
 
+function ScormUploadWidget({ lesson, onUploaded }) {
+  const inputRef = useRef(null)
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState('')
+  const [justUploaded, setJustUploaded] = useState(null)
+
+  async function handleFile(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    setUploading(true)
+    setError('')
+    const formData = new FormData()
+    formData.append('lesson', lesson.id)
+    formData.append('file', file)
+    try {
+      const { data } = await api.post('/courses/scorm/upload/', formData)
+      setJustUploaded(data)
+      onUploaded(data)
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Không tải lên được gói SCORM.')
+    } finally {
+      setUploading(false)
+      if (inputRef.current) inputRef.current.value = ''
+    }
+  }
+
+  const pkg = justUploaded || lesson.scorm_package
+
+  return (
+    <div style={{ marginBottom: 8 }}>
+      {pkg ? (
+        <p className="muted-note" style={{ marginBottom: 4 }}>
+          Đã có gói: {pkg.title || '(không có tên)'} · {pkg.version_display} · file khởi chạy: {pkg.launch_path}
+        </p>
+      ) : (
+        <p className="muted-note" style={{ marginBottom: 4 }}>Chưa có gói SCORM nào.</p>
+      )}
+      <input ref={inputRef} type="file" accept=".zip" onChange={handleFile} disabled={uploading} />
+      {uploading && <span className="muted-note"> Đang tải lên...</span>}
+      {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
+    </div>
+  )
+}
+
 function LessonForm({ moduleId, lesson, onSaved, onCancel }) {
   const [title, setTitle] = useState(lesson?.title || '')
   const [type, setType] = useState(lesson?.type || 'text')
@@ -62,9 +107,11 @@ function LessonForm({ moduleId, lesson, onSaved, onCancel }) {
       module: moduleId,
       title: title.trim(),
       type,
-      content_url: type !== 'text' ? contentUrl.trim() : '',
+      content_url: type !== 'text' && type !== 'scorm' ? contentUrl.trim() : '',
       content_html: type === 'text' ? contentHtml : '',
-      complete_rule: completeRule,
+      // SCORM tu bao hoan thanh qua ScormCommitView (mark_done=True) - complete_rule khong
+      // dung den, giu mac dinh 'mark' cho don gian.
+      complete_rule: type === 'scorm' ? 'mark' : completeRule,
       pass_watch_pct: Number(passWatchPct) || 80,
       anti_seek: antiSeek,
     }
@@ -99,14 +146,16 @@ function LessonForm({ moduleId, lesson, onSaved, onCancel }) {
             </option>
           ))}
         </select>
-        <select value={completeRule} onChange={(e) => setCompleteRule(e.target.value)} style={s.select}>
-          {COMPLETE_RULES.map((r) => (
-            <option key={r.value} value={r.value}>
-              {r.label}
-            </option>
-          ))}
-        </select>
-        {completeRule === 'watch_pct' && (
+        {type !== 'scorm' && (
+          <select value={completeRule} onChange={(e) => setCompleteRule(e.target.value)} style={s.select}>
+            {COMPLETE_RULES.map((r) => (
+              <option key={r.value} value={r.value}>
+                {r.label}
+              </option>
+            ))}
+          </select>
+        )}
+        {completeRule === 'watch_pct' && type !== 'scorm' && (
           <input
             type="number"
             value={passWatchPct}
@@ -115,12 +164,22 @@ function LessonForm({ moduleId, lesson, onSaved, onCancel }) {
             placeholder="% xem đủ"
           />
         )}
-        <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
-          <input type="checkbox" checked={antiSeek} onChange={(e) => setAntiSeek(e.target.checked)} /> Chống tua
-          (đợt sau)
-        </label>
+        {type !== 'scorm' && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
+            <input type="checkbox" checked={antiSeek} onChange={(e) => setAntiSeek(e.target.checked)} /> Chống tua
+            (đợt sau)
+          </label>
+        )}
       </div>
-      {type === 'text' ? (
+      {type === 'scorm' ? (
+        lesson ? (
+          <ScormUploadWidget lesson={lesson} onUploaded={() => {}} />
+        ) : (
+          <p className="muted-note" style={{ marginBottom: 8 }}>
+            Lưu bài học trước, sau đó bấm "Sửa" để tải lên gói SCORM (.zip xuất từ Articulate 360).
+          </p>
+        )
+      ) : type === 'text' ? (
         <textarea
           value={contentHtml}
           onChange={(e) => setContentHtml(e.target.value)}

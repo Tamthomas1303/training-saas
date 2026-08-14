@@ -1,4 +1,10 @@
-from django.test import TestCase
+import io
+import zipfile
+from unittest.mock import patch
+
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.http import Http404
+from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -7,7 +13,8 @@ from cls_sync.models import CourseResult
 from employees.models import Employee
 from integration.models import OfflineConfirmation, XapiStatement
 
-from .models import Course, CourseModule, Enrollment, Lesson, LessonProgress
+from .models import Course, CourseModule, Enrollment, Lesson, LessonProgress, ScormPackage, ScormTracking
+from .scorm import ScormImportError, parse_manifest
 
 
 class CourseAdminApiTests(TestCase):
@@ -414,3 +421,392 @@ class XapiHookTests(TestCase):
                 employee=self.employee, verb='completed', object_type='course', object_id=self.course.id,
             ).exists()
         )
+
+
+# ==================================================================== Dot 4: SCORM
+
+MANIFEST_SCORM_12 = '''<?xml version="1.0" standalone="no" ?>
+<manifest identifier="TEST_COURSE" version="1"
+    xmlns="http://www.imsglobal.org/xsd/imscp_rootv1p1p2"
+    xmlns:adlcp="http://www.adlnet.org/xsd/adlcp_rootv1p2">
+  <metadata>
+    <schema>ADL SCORM</schema>
+    <schemaversion>1.2</schemaversion>
+  </metadata>
+  <organizations default="ORG1">
+    <organization identifier="ORG1">
+      <title>Bai kiem tra SCORM</title>
+      <item identifier="ITEM1" identifierref="RES1">
+        <title>Bai kiem tra SCORM</title>
+      </item>
+    </organization>
+  </organizations>
+  <resources>
+    <resource identifier="RES1" type="webcontent" adlcp:scormtype="sco" href="index.html">
+      <file href="index.html" />
+    </resource>
+  </resources>
+</manifest>
+'''
+
+MANIFEST_SCORM_2004 = '''<?xml version="1.0" standalone="no" ?>
+<manifest identifier="TEST_COURSE_2004" version="1"
+    xmlns="http://www.imsglobal.org/xsd/imscp_v1p1"
+    xmlns:adlcp="http://www.adlnet.org/xsd/adlcp_v1p3">
+  <metadata>
+    <schema>ADL SCORM</schema>
+    <schemaversion>2004 3rd Edition</schemaversion>
+  </metadata>
+  <organizations default="ORG1">
+    <organization identifier="ORG1">
+      <title>Bai kiem tra SCORM 2004</title>
+      <item identifier="ITEM1" identifierref="RES1">
+        <title>Bai kiem tra SCORM 2004</title>
+      </item>
+    </organization>
+  </organizations>
+  <resources>
+    <resource identifier="RES1" type="webcontent" adlcp:scormType="sco" href="story.html">
+      <file href="story.html" />
+    </resource>
+  </resources>
+</manifest>
+'''
+
+# SCO toi thieu: goi LMSInitialize/LMSSetValue('cmi.core.lesson_status','completed')/LMSCommit/
+# LMSFinish dung y nghiem thu cua prompt Dot 4 (khong chay duoc trong Django test - chi de gioi
+# thieu noi dung file, phan cham diem thuc su test qua ScormCommitView voi payload gia lap dung
+# hinh dang CommitObject cua scorm-again).
+INDEX_HTML_12 = '''<!DOCTYPE html>
+<html><body><script>
+function findAPI(win) {
+  var attempts = 0;
+  while (!win.API && win.parent && win.parent != win && attempts < 10) {
+    attempts++;
+    win = win.parent;
+  }
+  return win.API;
+}
+var api = findAPI(window);
+if (api) {
+  api.LMSInitialize("");
+  api.LMSSetValue("cmi.core.lesson_status", "completed");
+  api.LMSCommit("");
+  api.LMSFinish("");
+}
+</script></body></html>
+'''
+
+
+def _build_zip(files):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w') as zf:
+        for name, content in files.items():
+            zf.writestr(name, content)
+    buf.seek(0)
+    return buf
+
+
+def _minimal_scorm12_zip():
+    return _build_zip({'imsmanifest.xml': MANIFEST_SCORM_12, 'index.html': INDEX_HTML_12})
+
+
+class ParseManifestTests(TestCase):
+    """Test A (Dot 4): parse imsmanifest.xml dung phien ban + file khoi chay, cho ca 2 bien
+    the thuoc tinh scormtype/scormType cua SCORM 1.2 va 2004."""
+
+    def test_parses_scorm_12(self):
+        info = parse_manifest(MANIFEST_SCORM_12.encode('utf-8'))
+        self.assertEqual(info['version'], ScormPackage.Version.SCORM_12)
+        self.assertEqual(info['launch_path'], 'index.html')
+        self.assertEqual(info['title'], 'Bai kiem tra SCORM')
+
+    def test_parses_scorm_2004(self):
+        info = parse_manifest(MANIFEST_SCORM_2004.encode('utf-8'))
+        self.assertEqual(info['version'], ScormPackage.Version.SCORM_2004)
+        self.assertEqual(info['launch_path'], 'story.html')
+
+    def test_missing_resource_raises(self):
+        bad_xml = b'<manifest><organizations/></manifest>'
+        with self.assertRaises(ScormImportError):
+            parse_manifest(bad_xml)
+
+    def test_invalid_xml_raises(self):
+        with self.assertRaises(ScormImportError):
+            parse_manifest(b'not xml at all <<<')
+
+
+class ScormUploadApiTests(TestCase):
+    """Test A (Dot 4): upload goi SCORM - parse dung + zip-slip bi chan - chi Admin."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.course = Course.objects.create(tenant=self.tenant, title='Khóa SCORM', status=Course.Status.PUBLISHED)
+        self.module = CourseModule.objects.create(tenant=self.tenant, course=self.course, title='Chương 1')
+        self.lesson = Lesson.objects.create(
+            tenant=self.tenant, module=self.module, title='Bài SCORM', type=Lesson.Type.SCORM, order=0,
+        )
+        self.learner_user = User.objects.create_user(
+            username='nv1', password='x', tenant=self.tenant, role=User.Role.EMPLOYEE,
+        )
+        self.client = APIClient()
+
+    @patch('courses.scorm.upload_bytes_at_path', return_value='https://pub-x.r2.dev/scorm/x')
+    def test_admin_uploads_scorm_12_package(self, mock_upload):
+        self.client.force_authenticate(self.admin)
+        zip_file = SimpleUploadedFile('pkg.zip', _minimal_scorm12_zip().getvalue(), content_type='application/zip')
+        resp = self.client.post(
+            reverse('scorm-upload'), {'lesson': self.lesson.id, 'file': zip_file}, format='multipart',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['version'], 'scorm_12')
+        self.assertEqual(resp.data['launch_path'], 'index.html')
+        self.assertTrue(ScormPackage.objects.filter(lesson=self.lesson).exists())
+        # 2 file trong goi (manifest + index.html) -> upload_bytes_at_path goi 2 lan.
+        self.assertEqual(mock_upload.call_count, 2)
+
+    def test_non_admin_cannot_upload(self):
+        self.client.force_authenticate(self.learner_user)
+        zip_file = SimpleUploadedFile('pkg.zip', _minimal_scorm12_zip().getvalue(), content_type='application/zip')
+        resp = self.client.post(
+            reverse('scorm-upload'), {'lesson': self.lesson.id, 'file': zip_file}, format='multipart',
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_missing_file_rejected(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(reverse('scorm-upload'), {'lesson': self.lesson.id}, format='multipart')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_missing_manifest_rejected(self):
+        self.client.force_authenticate(self.admin)
+        buf = _build_zip({'index.html': INDEX_HTML_12})
+        zip_file = SimpleUploadedFile('pkg.zip', buf.getvalue(), content_type='application/zip')
+        resp = self.client.post(
+            reverse('scorm-upload'), {'lesson': self.lesson.id, 'file': zip_file}, format='multipart',
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('imsmanifest.xml', resp.data['detail'])
+
+    @patch('courses.scorm.upload_bytes_at_path')
+    def test_zip_slip_rejected(self, mock_upload):
+        """Test bao mat zip-slip (bat buoc theo nghiem thu Dot 4) - duong dan chua '..' phai bi
+        loai, KHONG duoc upload bat cu file nao trong goi."""
+        self.client.force_authenticate(self.admin)
+        buf = _build_zip({
+            'imsmanifest.xml': MANIFEST_SCORM_12,
+            '../../evil.html': '<html>pwned</html>',
+        })
+        zip_file = SimpleUploadedFile('pkg.zip', buf.getvalue(), content_type='application/zip')
+        resp = self.client.post(
+            reverse('scorm-upload'), {'lesson': self.lesson.id, 'file': zip_file}, format='multipart',
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('không an toàn', resp.data['detail'])
+        mock_upload.assert_not_called()
+        self.assertFalse(ScormPackage.objects.filter(lesson=self.lesson).exists())
+
+    def test_bad_zip_file_rejected(self):
+        self.client.force_authenticate(self.admin)
+        zip_file = SimpleUploadedFile('pkg.zip', b'not a zip', content_type='application/zip')
+        resp = self.client.post(
+            reverse('scorm-upload'), {'lesson': self.lesson.id, 'file': zip_file}, format='multipart',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+
+class ScormRuntimeApiTests(TestCase):
+    """Test A/B (Dot 4): resume (state) + commit -> hoan thanh -> tai dung dung luong hien co
+    (Enrollment->completed, on_course_completed: dong bo ho so + chung chi)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.course = Course.objects.create(
+            tenant=self.tenant, title='Khóa SCORM', status=Course.Status.PUBLISHED,
+        )
+        self.module = CourseModule.objects.create(tenant=self.tenant, course=self.course, title='Chương 1')
+        self.lesson = Lesson.objects.create(
+            tenant=self.tenant, module=self.module, title='Bài SCORM', type=Lesson.Type.SCORM, order=0,
+        )
+        self.learner_user = User.objects.create_user(
+            username='nv1', password='x', tenant=self.tenant, role=User.Role.EMPLOYEE,
+        )
+        self.employee = Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1', user=self.learner_user)
+        Enrollment.objects.create(tenant=self.tenant, course=self.course, employee=self.employee)
+        self.client = APIClient()
+
+    def _make_package(self, version=ScormPackage.Version.SCORM_12):
+        return ScormPackage.objects.create(
+            tenant=self.tenant, lesson=self.lesson, version=version,
+            storage_prefix=f'scorm/{self.tenant.id}/testpkg/', launch_path='index.html',
+            title='Bài SCORM', uploaded_by=self.admin,
+        )
+
+    def _start_progress(self):
+        self.client.force_authenticate(self.learner_user)
+        resp = self.client.post(reverse('course-progress'), {'lesson': self.lesson.id}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        return resp.data['id']
+
+    def test_state_empty_before_any_commit(self):
+        self._make_package()
+        progress_id = self._start_progress()
+        resp = self.client.get(reverse('scorm-state', args=[progress_id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['cmi_json'], {})
+
+    def test_resume_returns_saved_cmi(self):
+        self._make_package()
+        progress_id = self._start_progress()
+        self.client.post(reverse('scorm-commit', args=[progress_id]), {
+            'completionStatus': 'incomplete',
+            'runtimeData': {'cmi': {'core': {'lesson_location': 'page3'}}},
+        }, format='json')
+
+        resp = self.client.get(reverse('scorm-state', args=[progress_id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['cmi_json'], {'cmi': {'core': {'lesson_location': 'page3'}}})
+        self.assertEqual(resp.data['lesson_status'], 'incomplete')
+
+        progress = LessonProgress.objects.get(pk=progress_id)
+        self.assertEqual(progress.status, LessonProgress.Status.IN_PROGRESS)  # chua hoan thanh
+
+    def test_commit_completed_marks_done_and_completes_course(self):
+        self._make_package()
+        progress_id = self._start_progress()
+        resp = self.client.post(reverse('scorm-commit', args=[progress_id]), {
+            'completionStatus': 'completed', 'successStatus': 'unknown',
+            'score': {'raw': 80, 'min': 0, 'max': 100},
+            'runtimeData': {'cmi': {'core': {'lesson_status': 'completed'}}},
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+
+        progress = LessonProgress.objects.get(pk=progress_id)
+        self.assertEqual(progress.status, LessonProgress.Status.DONE)
+        self.assertIsNotNone(progress.completed_at)
+
+        tracking = ScormTracking.objects.get(lesson_progress=progress)
+        self.assertEqual(tracking.lesson_status, 'completed')
+        self.assertEqual(float(tracking.score_raw), 80.0)
+
+        # Chi 1 bai trong khoa -> hoan thanh bai nay = hoan thanh ca khoa (tai dung
+        # _advance_enrollment_status co san, khong viet lai).
+        enrollment = Enrollment.objects.get(course=self.course, employee=self.employee)
+        self.assertEqual(enrollment.status, Enrollment.Status.COMPLETED)
+
+    def test_commit_passed_success_status_also_completes(self):
+        """SCORM 2004: successStatus='passed' cung phai duoc coi la hoan thanh, du
+        completionStatus chua phai 'completed' (dung mapping cua prompt)."""
+        self._make_package(version=ScormPackage.Version.SCORM_2004)
+        progress_id = self._start_progress()
+        self.client.post(reverse('scorm-commit', args=[progress_id]), {
+            'completionStatus': 'incomplete', 'successStatus': 'passed',
+            'score': {'scaled': 0.9}, 'runtimeData': {},
+        }, format='json')
+        progress = LessonProgress.objects.get(pk=progress_id)
+        self.assertEqual(progress.status, LessonProgress.Status.DONE)
+
+    @patch('integration.services.upload_pdf_bytes', return_value='https://pub-x.r2.dev/certificates/x.pdf')
+    def test_commit_completed_triggers_course_completion_hook_and_certificate(self, _mock_upload_pdf):
+        """Dot 4 nghiem thu: 'neu la bai cuoi thi Enrollment=completed va hook chay (chung chi
+        khoa duoc cap)' - xac nhan CourseResult dong bo (Dot 3 phan A) + CertificateIssued
+        duoc tao (Dot 3 phan D), TAT CA qua dung on_course_completed co san, khong viet lai."""
+        from cls_sync.models import CourseResult
+        from integration.models import CertificateIssued, CertificateTemplate
+
+        self.course.sync_course_code = 'SCORM_TEST_COURSE'
+        self.course.save()
+        CertificateTemplate.objects.create(tenant=self.tenant, type='hoc', name='Mẫu', active=True)
+
+        self._make_package()
+        progress_id = self._start_progress()
+        self.client.post(reverse('scorm-commit', args=[progress_id]), {
+            'completionStatus': 'completed', 'score': {'raw': 100}, 'runtimeData': {},
+        }, format='json')
+
+        self.assertTrue(
+            CourseResult.objects.filter(
+                employee=self.employee, course_name='SCORM_TEST_COURSE', status='Đạt', source='internal_lms',
+            ).exists()
+        )
+        self.assertTrue(CertificateIssued.objects.filter(employee=self.employee, ref_type='course').exists())
+
+    def test_cannot_access_other_employee_progress(self):
+        self._make_package()
+        progress_id = self._start_progress()
+
+        other_user = User.objects.create_user(
+            username='nv2', password='x', tenant=self.tenant, role=User.Role.EMPLOYEE,
+        )
+        Employee.objects.create(tenant=self.tenant, code='NV2', name='NV2', user=other_user)
+
+        self.client.force_authenticate(other_user)
+        state_resp = self.client.get(reverse('scorm-state', args=[progress_id]))
+        self.assertEqual(state_resp.status_code, 404)
+        commit_resp = self.client.post(
+            reverse('scorm-commit', args=[progress_id]), {'completionStatus': 'completed'}, format='json',
+        )
+        self.assertEqual(commit_resp.status_code, 404)
+
+
+class ScormSameOriginApiTests(TestCase):
+    """Test C (Dot 4): trang phat + noi dung SCORM khong duoc gan X-Frame-Options (nguoc lai
+    se bi trinh duyet chan khi React nhung vao iframe - day la yeu cau 'same-origin' cot loi
+    cua tinh nang) + phong ho zip-slip lan 2 o tang serve noi dung."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.course = Course.objects.create(tenant=self.tenant, title='Khóa SCORM')
+        self.module = CourseModule.objects.create(tenant=self.tenant, course=self.course, title='Chương 1')
+        self.lesson = Lesson.objects.create(
+            tenant=self.tenant, module=self.module, title='Bài SCORM', type=Lesson.Type.SCORM, order=0,
+        )
+        self.learner_user = User.objects.create_user(
+            username='nv1', password='x', tenant=self.tenant, role=User.Role.EMPLOYEE,
+        )
+        self.employee = Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1', user=self.learner_user)
+        Enrollment.objects.create(tenant=self.tenant, course=self.course, employee=self.employee)
+        self.package = ScormPackage.objects.create(
+            tenant=self.tenant, lesson=self.lesson, version=ScormPackage.Version.SCORM_12,
+            storage_prefix=f'scorm/{self.tenant.id}/testpkg/', launch_path='index.html',
+            title='Bài SCORM', uploaded_by=self.admin,
+        )
+        self.client = APIClient()
+
+    def test_player_view_has_no_x_frame_options_header(self):
+        self.client.force_authenticate(self.learner_user)
+        progress_resp = self.client.post(reverse('course-progress'), {'lesson': self.lesson.id}, format='json')
+        resp = self.client.get(reverse('scorm-player', args=[self.package.id]), {'progress': progress_resp.data['id']})
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn('X-Frame-Options', resp)
+        self.assertIn(b'Scorm12API', resp.content)
+        self.assertEqual(resp['Content-Type'].split(';')[0], 'text/html')
+
+    def test_player_requires_progress_param(self):
+        resp = self.client.get(reverse('scorm-player', args=[self.package.id]))
+        self.assertEqual(resp.status_code, 400)
+
+    @patch('courses.views.requests.get')
+    def test_content_view_streams_file_without_x_frame_options(self, mock_get):
+        mock_resp = mock_get.return_value
+        mock_resp.status_code = 200
+        mock_resp.content = b'<html>hello</html>'
+        mock_resp.headers = {'Content-Type': 'text/html'}
+
+        resp = self.client.get(reverse('scorm-content', args=[self.package.id, 'index.html']))
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn('X-Frame-Options', resp)
+        self.assertEqual(resp.content, b'<html>hello</html>')
+
+    def test_content_view_rejects_dotdot_path(self):
+        """Phong ho zip-slip lan 2 o tang SERVE (ngoai lan chan luc UPLOAD) - path chua '..'
+        khong duoc doc tu R2 du storage_prefix hop le."""
+        from courses.views import scorm_content
+
+        factory = RequestFactory()
+        request = factory.get(f'/api/courses/scorm/{self.package.id}/content/../secret.txt')
+        with self.assertRaises(Http404):
+            scorm_content(request, self.package.id, '../secret.txt')

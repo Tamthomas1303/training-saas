@@ -5,6 +5,7 @@ import ProgressBar from '../components/ProgressBar'
 import api from '../api/client'
 
 const STATUS_ICON = { pending: '○', in_progress: '◐', done: '✓' }
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api'
 
 function youtubeEmbedUrl(url) {
   const match = (url || '').match(/(?:v=|youtu\.be\/|embed\/)([\w-]{6,})/)
@@ -14,6 +15,44 @@ function youtubeEmbedUrl(url) {
 function vimeoEmbedUrl(url) {
   const match = (url || '').match(/vimeo\.com\/(\d+)/)
   return match ? `https://player.vimeo.com/video/${match[1]}` : url
+}
+
+// Bai SCORM (Dot 4): trang phat do CHINH Django serve (KHONG phai React) o URL rieng, gan
+// window.API bang scorm-again TRUOC KHI tao iframe noi dung - dam bao SCO doc duoc
+// window.parent.API cung origin (Django), khong lien quan origin cua trang React nay. Truoc
+// khi nhung iframe, phai dam bao co LessonProgress (get_or_create qua /courses/progress/,
+// giong logic cac dang bai khac) de lay progress_id dung cho state/commit. JWT truyen qua URL
+// FRAGMENT (#token=...) - khong len server qua query string.
+function ScormContent({ lesson }) {
+  const [progressId, setProgressId] = useState(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    setProgressId(null)
+    setError('')
+    api.post('/courses/progress/', { lesson: lesson.id })
+      .then(({ data }) => { if (active) setProgressId(data.id) })
+      .catch(() => { if (active) setError('Không khởi tạo được tiến trình bài SCORM.') })
+    return () => { active = false }
+  }, [lesson.id])
+
+  if (error) return <p style={{ color: 'var(--danger)' }}>{error}</p>
+  if (!lesson.scorm_package_id) return <p className="muted-note">Bài học chưa có gói SCORM.</p>
+  if (!progressId) return <p className="muted-note">Đang tải bài học...</p>
+
+  const token = localStorage.getItem('access_token') || ''
+  const src = `${API_BASE}/courses/scorm/${lesson.scorm_package_id}/player/`
+    + `?progress=${progressId}#token=${encodeURIComponent(token)}`
+
+  return (
+    <iframe
+      key={progressId}
+      src={src}
+      title={lesson.title}
+      style={{ width: '100%', height: '70vh', border: 0, background: '#fff' }}
+    />
+  )
 }
 
 function LessonContent({ lesson, onPingVideo }) {
@@ -82,6 +121,8 @@ function LessonContent({ lesson, onPingVideo }) {
           </a>
         </div>
       )
+    case 'scorm':
+      return <ScormContent lesson={lesson} />
     default:
       return null
   }
@@ -109,6 +150,17 @@ export default function CoursePlayerPage() {
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => load(false), [courseId])
+
+  // Bai SCORM bao hoan thanh tu trang phat (Django, khac origin) qua postMessage - tai lai
+  // tien do de UI (% khoa, nhan "Da hoan thanh") cap nhat ngay, khong can hoc vien tu reload.
+  useEffect(() => {
+    function onMessage(event) {
+      if (event.data?.type === 'scorm-completed') load(true)
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [courseId])
 
   const allLessons = useMemo(() => course?.modules.flatMap((m) => m.lessons) || [], [course])
   const activeLesson = allLessons.find((l) => l.id === activeLessonId)
@@ -175,6 +227,8 @@ export default function CoursePlayerPage() {
                         })`
                       : 'Đã hoàn thành'}
                   </span>
+                ) : activeLesson.type === 'scorm' ? (
+                  <span className="muted-note">Hoàn thành tự động khi làm xong nội dung SCORM ở trên.</span>
                 ) : (
                   activeLesson.complete_rule !== 'watch_pct' && (
                     <button onClick={markDone} disabled={marking}>

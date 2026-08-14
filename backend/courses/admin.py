@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Course, CourseModule, Enrollment, Lesson, LessonProgress
+from .models import Course, CourseModule, Enrollment, Lesson, LessonProgress, ScormPackage, ScormTracking
 
 
 @admin.register(Course)
@@ -31,3 +31,15 @@ class EnrollmentAdmin(admin.ModelAdmin):
 class LessonProgressAdmin(admin.ModelAdmin):
     list_display = ('enrollment', 'lesson', 'status', 'watched_pct', 'tenant')
     list_filter = ('tenant', 'status')
+
+
+@admin.register(ScormPackage)
+class ScormPackageAdmin(admin.ModelAdmin):
+    list_display = ('lesson', 'version', 'title', 'tenant')
+    list_filter = ('tenant', 'version')
+
+
+@admin.register(ScormTracking)
+class ScormTrackingAdmin(admin.ModelAdmin):
+    list_display = ('lesson_progress', 'lesson_status', 'score_raw', 'updated_at', 'tenant')
+    list_filter = ('tenant', 'lesson_status')
