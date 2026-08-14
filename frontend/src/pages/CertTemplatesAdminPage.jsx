@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import AppShell from '../components/AppShell'
 import Badge from '../components/Badge'
 import PhotoSlot from '../components/PhotoSlot'
@@ -18,6 +18,110 @@ const FIELD_LABELS = {
   completion_line: 'Dòng loại hoàn thành',
   issue_date: 'Ngày cấp',
   cert_code: 'Mã chứng chỉ',
+}
+
+const SAMPLE_TEXT = {
+  recipient_name: 'Nguyễn Văn A',
+  program_or_course_name: 'Nghiệp vụ nhà hàng',
+  completion_line: 'ĐÃ HOÀN THÀNH KHÓA HỌC',
+  issue_date: 'Ngày cấp: 14/08/2026',
+  cert_code: 'CC202608ABCD1234',
+}
+const CERT_W = 853
+const CERT_H = 603
+
+// Trình kéo-thả căn chữ trực tiếp trên ảnh nền (khớp render backend: gốc dưới-trái, Y = chân chữ,
+// ảnh phủ kín 853x603). Kéo nhãn -> tự tính toạ độ (pt). Cỡ chữ/căn lề vẫn chỉnh ở bảng số bên dưới.
+function CertDragPreview({ imageUrl, config, onChange }) {
+  const boxRef = useRef(null)
+  const dragRef = useRef(null)
+  const [boxW, setBoxW] = useState(680)
+  const [dragKey, setDragKey] = useState(null)
+
+  useEffect(() => {
+    if (!boxRef.current) return
+    const ro = new ResizeObserver((entries) => setBoxW(entries[0].contentRect.width))
+    ro.observe(boxRef.current)
+    return () => ro.disconnect()
+  }, [imageUrl])
+
+  useEffect(() => {
+    function move(e) {
+      const d = dragRef.current
+      if (!d) return
+      const scale = boxW / CERT_W
+      let x = Math.round(d.startX + (e.clientX - d.grabX) / scale)
+      let y = Math.round(d.startY - (e.clientY - d.grabY) / scale) // màn hình đi xuống -> y (gốc dưới) giảm
+      x = Math.max(0, Math.min(CERT_W, x))
+      y = Math.max(0, Math.min(CERT_H, y))
+      const f = config[d.key] || {}
+      onChange({ ...config, [d.key]: { ...f, x, y } })
+    }
+    function up() { dragRef.current = null; setDragKey(null) }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    return () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+    }
+  }, [boxW, config, onChange])
+
+  function onDown(e, key) {
+    e.preventDefault()
+    const f = config[key] || {}
+    dragRef.current = { key, grabX: e.clientX, grabY: e.clientY, startX: f.x ?? CERT_W / 2, startY: f.y ?? CERT_H / 2 }
+    setDragKey(key)
+  }
+
+  if (!imageUrl) {
+    return <p className="muted-note" style={{ marginBottom: 12 }}>Tải ảnh nền mẫu để dùng chế độ kéo-thả căn chữ.</p>
+  }
+
+  const scale = boxW / CERT_W
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <p className="muted-note" style={{ marginBottom: 6 }}>
+        Kéo từng chữ tới vị trí mong muốn — hệ thống tự tính toạ độ. Cỡ chữ / độ đậm / căn lề chỉnh ở bảng
+        dưới. (Xem trước gần đúng; nên sinh thử 1 chứng chỉ để đối chiếu.)
+      </p>
+      <div
+        ref={boxRef}
+        style={{
+          position: 'relative', width: '100%', maxWidth: 680, aspectRatio: `${CERT_W} / ${CERT_H}`,
+          border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', userSelect: 'none', touchAction: 'none',
+        }}
+      >
+        <img
+          src={imageUrl} alt="mẫu chứng chỉ"
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'fill', pointerEvents: 'none' }}
+        />
+        {Object.keys(FIELD_LABELS).map((key) => {
+          const f = config[key] || {}
+          const x = f.x ?? CERT_W / 2
+          const y = f.y ?? CERT_H / 2
+          const align = f.align || 'center'
+          const anchorX = align === 'center' ? '-50%' : align === 'right' ? '-100%' : '0'
+          return (
+            <div
+              key={key}
+              onPointerDown={(e) => onDown(e, key)}
+              title={FIELD_LABELS[key]}
+              style={{
+                position: 'absolute', left: `${(x / CERT_W) * 100}%`, top: `${(1 - y / CERT_H) * 100}%`,
+                transform: `translate(${anchorX}, -80%)`,
+                fontSize: Math.max(8, (f.font_size ?? 14) * scale), fontWeight: f.bold ? 700 : 400,
+                whiteSpace: 'nowrap', cursor: 'move', color: '#1a1a3a', padding: '0 2px', borderRadius: 3,
+                background: 'rgba(255,255,255,0.35)',
+                outline: dragKey === key ? '2px solid var(--forest)' : '1px dashed rgba(0,0,0,0.35)',
+              }}
+            >
+              {SAMPLE_TEXT[key]}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 function FieldsConfigEditor({ config, onChange }) {
@@ -150,6 +254,7 @@ function TemplateForm({ template, onSaved, onCancel }) {
         </div>
       </div>
 
+      <CertDragPreview imageUrl={templatePdfUrl} config={fieldsConfig} onChange={setFieldsConfig} />
       <FieldsConfigEditor config={fieldsConfig} onChange={setFieldsConfig} />
 
       {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
