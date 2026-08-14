@@ -14,7 +14,8 @@ from .serializers import (
     CertProgramSerializer,
     XapiStatementSerializer,
 )
-from .services import reissue_certificate
+from employees.models import Employee
+from .services import check_and_issue_programs, reissue_certificate
 
 
 def _require_admin_write(request):
@@ -85,6 +86,24 @@ class ReissueCertificateView(APIView):
         certificate = get_object_or_404(CertificateIssued, pk=pk, tenant=request.user.tenant)
         certificate = reissue_certificate(certificate)
         return Response(CertificateIssuedSerializer(certificate).data)
+
+
+class RecheckProgramsView(APIView):
+    """POST /api/integration/programs/recheck/ — rà TẤT CẢ nhân sự trong tenant và cấp chứng chỉ
+    CHƯƠNG TRÌNH cho ai vừa đủ điều kiện (dùng cho lần đầu triển khai / người đã đủ điều kiện từ
+    trước mà chưa có mốc mới kích hoạt). Idempotent — không cấp trùng. Chỉ Admin."""
+
+    def post(self, request):
+        if (request.user.role or '').lower() != 'admin':
+            return Response({'detail': 'Chỉ Admin được rà cấp chứng chỉ.'}, status=403)
+        issued_total = 0
+        employees_awarded = 0
+        for emp in Employee.objects.filter(tenant=request.user.tenant):
+            issued = check_and_issue_programs(emp)
+            if issued:
+                issued_total += len(issued)
+                employees_awarded += 1
+        return Response({'issued': issued_total, 'employees': employees_awarded})
 
 
 class MyCertificatesView(APIView):

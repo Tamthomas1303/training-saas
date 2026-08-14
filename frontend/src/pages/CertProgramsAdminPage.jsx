@@ -159,6 +159,8 @@ export default function CertProgramsAdminPage() {
   const [refreshKey, setRefreshKey] = useState(0)
   const [creating, setCreating] = useState(false)
   const [editingId, setEditingId] = useState(null)
+  const [rechecking, setRechecking] = useState(false)
+  const [recheckMsg, setRecheckMsg] = useState('')
   const { data, loading } = usePaginatedList('/integration/programs/', { page_size: 50, refreshKey })
   const { data: templates } = usePaginatedList('/integration/templates/', { page_size: 100, active: true })
 
@@ -166,6 +168,23 @@ export default function CertProgramsAdminPage() {
     setCreating(false)
     setEditingId(null)
     setRefreshKey((k) => k + 1)
+  }
+
+  async function recheckPrograms() {
+    setRechecking(true)
+    setRecheckMsg('')
+    try {
+      const { data: r } = await api.post('/integration/programs/recheck/')
+      setRecheckMsg(
+        r.issued > 0
+          ? `Đã cấp ${r.issued} chứng chỉ chương trình cho ${r.employees} nhân sự. Xem ở tab "Chứng chỉ đã cấp".`
+          : 'Không có nhân sự nào mới đủ điều kiện (những người đủ điều kiện đã được cấp trước đó).'
+      )
+    } catch (err) {
+      setRecheckMsg(err.response?.data?.detail || 'Rà cấp thất bại.')
+    } finally {
+      setRechecking(false)
+    }
   }
 
   return (
@@ -177,7 +196,13 @@ export default function CertProgramsAdminPage() {
       </p>
 
       {!creating && !editingId && (
-        <button onClick={() => setCreating(true)} style={{ marginBottom: 16 }}>+ Tạo chương trình</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+          <button onClick={() => setCreating(true)}>+ Tạo chương trình</button>
+          <button className="btn-outline" onClick={recheckPrograms} disabled={rechecking}>
+            {rechecking ? 'Đang rà...' : 'Rà & cấp chứng chỉ chương trình'}
+          </button>
+          {recheckMsg && <span className="muted-note" style={{ fontSize: 13 }}>{recheckMsg}</span>}
+        </div>
       )}
       {creating && <ProgramForm templates={templates.results} onSaved={reload} onCancel={() => setCreating(false)} />}
 

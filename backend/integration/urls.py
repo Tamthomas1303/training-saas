@@ -6,6 +6,7 @@ from .views import (
     CertificateTemplateViewSet,
     CertProgramViewSet,
     MyCertificatesView,
+    RecheckProgramsView,
     ReissueCertificateView,
     TemplateImageUploadView,
     XapiStatementViewSet,
@@ -21,4 +22,5 @@ urlpatterns = [
     path('my-certificates/', MyCertificatesView.as_view(), name='cert-my'),
     path('certificates/<int:pk>/reissue/', ReissueCertificateView.as_view(), name='cert-reissue'),
     path('templates/upload/', TemplateImageUploadView.as_view(), name='cert-template-upload'),
+    path('programs/recheck/', RecheckProgramsView.as_view(), name='cert-recheck'),
 ] + router.urls
