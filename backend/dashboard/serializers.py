@@ -1,6 +1,14 @@
 from rest_framework import serializers
 
-from .models import CompetencyGroup, Competency, DashboardIndicator, PositionGroupWeight, PositionTarget
+from .models import (
+    ClsExamCompetencyMap,
+    CompetencyGroup,
+    Competency,
+    CompetencyScoringConfig,
+    DashboardIndicator,
+    PositionGroupWeight,
+    PositionTarget,
+)
 
 
 class CompetencyGroupSerializer(serializers.ModelSerializer):
@@ -43,6 +51,22 @@ class PositionGroupWeightSerializer(serializers.ModelSerializer):
         model = PositionGroupWeight
         fields = ['id', 'position', 'group', 'group_code', 'group_name', 'weight']
         read_only_fields = ['id']
+
+
+class ClsExamCompetencyMapSerializer(serializers.ModelSerializer):
+    competency_name = serializers.CharField(source='competency.name', read_only=True, default='')
+    group_code = serializers.CharField(source='competency.group.code', read_only=True, default='')
+
+    class Meta:
+        model = ClsExamCompetencyMap
+        fields = ['id', 'exam_name', 'competency', 'competency_name', 'group_code']
+        read_only_fields = ['id']
+
+
+class CompetencyScoringConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CompetencyScoringConfig
+        fields = ['theory_weight', 'practice_weight']
 
 
 class DashboardIndicatorSerializer(serializers.ModelSerializer):

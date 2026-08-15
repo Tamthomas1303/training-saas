@@ -6,17 +6,29 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from accounts.models import Tenant, User
+from checklist.models import Checklist, TrainingProgress
+from cls_sync.models import ExamResult
 from courses.models import Course, CourseModule, Enrollment, Lesson, LessonProgress
 from employees.models import Employee
 from evaluation.models import Evaluation, EvaluationCriteria, EvaluationDetail
 from exams.models import Assessment, Attempt
+from restaurants.models import Restaurant
 
-from .models import CompetencyGroup, Competency, DashboardIndicator, PositionGroupWeight, PositionTarget
+from .models import (
+    ClsExamCompetencyMap,
+    CompetencyGroup,
+    Competency,
+    CompetencyScoringConfig,
+    DashboardIndicator,
+    PositionGroupWeight,
+    PositionTarget,
+)
 from .services import (
     ValidationError,
     compute_competency_scores,
     competency_gaps,
     employee_360,
+    get_scoring_weights,
     import_position_group_weights,
     import_position_targets,
     indicator_color,
@@ -330,6 +342,90 @@ class ResolvePositionTests(TestCase):
         self.assertIsNone(resolve_position(['NV Phục vụ'], ''))
 
 
+class ScoringWeightsTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+
+    def test_default_50_50_when_not_configured(self):
+        self.assertEqual(get_scoring_weights(self.tenant), (50.0, 50.0))
+
+    def test_reads_configured_weights(self):
+        CompetencyScoringConfig.objects.create(
+            tenant=self.tenant, theory_weight=Decimal('30'), practice_weight=Decimal('70'),
+        )
+        self.assertEqual(get_scoring_weights(self.tenant), (30.0, 70.0))
+
+
+class EngineFourSourcesTests(TestCase):
+    """Prompt_Dashboard_A1_GanNhanNangLuc.md: engine cong don 4 nguon (khoa hoc + thi noi bo/CLS
+    = khoi Ly thuyet; checklist + danh gia ky nang = khoi Thuc hanh), trong so LT/TH cau hinh
+    duoc theo tenant."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='R1', name='NH 1', brand='Kampong')
+        self.employee = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='NV1', position='NV Phục vụ', restaurant=self.restaurant,
+        )
+        self.group = CompetencyGroup.objects.create(tenant=self.tenant, code='A2', name='Chuyên môn Phục vụ')
+        self.comp = Competency.objects.create(tenant=self.tenant, group=self.group, name='Quy trình phục vụ chuẩn')
+        PositionTarget.objects.create(tenant=self.tenant, position='NV Phục vụ', competency=self.comp, target_score=80)
+        PositionGroupWeight.objects.create(tenant=self.tenant, position='NV Phục vụ', group=self.group, weight=Decimal('100'))
+
+    def test_checklist_source_only_contributes_to_practice(self):
+        c1 = Checklist.objects.create(tenant=self.tenant, task_name='Việc 1', brand='KMP', position='Phục vụ', competency=self.comp)
+        c2 = Checklist.objects.create(tenant=self.tenant, task_name='Việc 2', brand='KMP', position='Phục vụ', competency=self.comp)
+        TrainingProgress.objects.create(tenant=self.tenant, employee=self.employee, checklist=c1, status=TrainingProgress.Status.DONE)
+        # c2 chua lam -> tinh nhu 0, keo trung binh Thuc hanh xuong 50.
+
+        scores = compute_competency_scores(self.employee)
+        comp_result = next(c for c in scores['competencies'] if c['id'] == self.comp.id)
+        self.assertEqual(comp_result['practice_score'], 50.0)
+        self.assertIsNone(comp_result['theory_score'])
+        self.assertEqual(comp_result['score'], 50.0)  # chi co Thuc hanh -> diem = diem Thuc hanh
+
+    def test_cls_exam_source_only_contributes_to_theory(self):
+        ClsExamCompetencyMap.objects.create(tenant=self.tenant, exam_name='15N', competency=self.comp)
+        ExamResult.objects.create(tenant=self.tenant, employee=self.employee, exam_name='15N', attempt=1, score=Decimal('88'))
+
+        scores = compute_competency_scores(self.employee)
+        comp_result = next(c for c in scores['competencies'] if c['id'] == self.comp.id)
+        self.assertEqual(comp_result['theory_score'], 88.0)
+        self.assertIsNone(comp_result['practice_score'])
+        self.assertEqual(comp_result['score'], 88.0)
+
+    def test_unmapped_cls_exam_is_ignored(self):
+        # Khong tao ClsExamCompetencyMap cho 'UNMAPPED' -> bai thi nay khong duoc tinh, khong doan.
+        ExamResult.objects.create(tenant=self.tenant, employee=self.employee, exam_name='UNMAPPED', attempt=1, score=Decimal('99'))
+
+        scores = compute_competency_scores(self.employee)
+        comp_result = next(c for c in scores['competencies'] if c['id'] == self.comp.id)
+        self.assertIsNone(comp_result['score'])
+
+    def test_combines_theory_and_practice_with_default_weights(self):
+        ClsExamCompetencyMap.objects.create(tenant=self.tenant, exam_name='15N', competency=self.comp)
+        ExamResult.objects.create(tenant=self.tenant, employee=self.employee, exam_name='15N', attempt=1, score=Decimal('80'))
+        c1 = Checklist.objects.create(tenant=self.tenant, task_name='Việc 1', brand='KMP', position='Phục vụ', competency=self.comp)
+        TrainingProgress.objects.create(tenant=self.tenant, employee=self.employee, checklist=c1, status=TrainingProgress.Status.DONE)
+
+        scores = compute_competency_scores(self.employee)
+        comp_result = next(c for c in scores['competencies'] if c['id'] == self.comp.id)
+        self.assertEqual(comp_result['theory_score'], 80.0)
+        self.assertEqual(comp_result['practice_score'], 100.0)
+        self.assertEqual(comp_result['score'], 90.0)  # mac dinh 50/50 -> (80+100)/2
+
+    def test_changing_tenant_weight_changes_score(self):
+        ClsExamCompetencyMap.objects.create(tenant=self.tenant, exam_name='15N', competency=self.comp)
+        ExamResult.objects.create(tenant=self.tenant, employee=self.employee, exam_name='15N', attempt=1, score=Decimal('80'))
+        c1 = Checklist.objects.create(tenant=self.tenant, task_name='Việc 1', brand='KMP', position='Phục vụ', competency=self.comp)
+        TrainingProgress.objects.create(tenant=self.tenant, employee=self.employee, checklist=c1, status=TrainingProgress.Status.DONE)
+
+        CompetencyScoringConfig.objects.create(tenant=self.tenant, theory_weight=Decimal('20'), practice_weight=Decimal('80'))
+        scores = compute_competency_scores(self.employee)
+        comp_result = next(c for c in scores['competencies'] if c['id'] == self.comp.id)
+        self.assertEqual(comp_result['score'], 96.0)  # 0.2*80 + 0.8*100 = 96
+
+
 class CompetencyGapsTests(TestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name='Demo Tenant')
@@ -360,6 +456,23 @@ class CompetencyGapsTests(TestCase):
         suggested_ids = {c['id'] for c in gaps[0]['suggested_courses']}
         self.assertIn(course_todo.id, suggested_ids)
         self.assertNotIn(course_done.id, suggested_ids)  # da hoan thanh, khong goi y lai
+
+    def test_gap_suggests_undone_checklist_item(self):
+        """Prompt_Dashboard_A1_GanNhanNangLuc.md muc 3: goi y checklist chua hoan thanh gan
+        nang luc dang thieu, khong goi y lai muc da xong."""
+        restaurant = Restaurant.objects.create(tenant=self.tenant, code='R1', name='NH 1', brand='Kampong')
+        self.employee.restaurant = restaurant
+        self.employee.save(update_fields=['restaurant'])
+
+        done_item = Checklist.objects.create(tenant=self.tenant, task_name='Đã xong', brand='KMP', position='Phục vụ', competency=self.comp)
+        todo_item = Checklist.objects.create(tenant=self.tenant, task_name='Chưa xong', brand='KMP', position='Phục vụ', competency=self.comp)
+        TrainingProgress.objects.create(tenant=self.tenant, employee=self.employee, checklist=done_item, status=TrainingProgress.Status.DONE)
+
+        gaps = competency_gaps(self.employee)
+        self.assertEqual(len(gaps), 1)
+        suggested_ids = {c['id'] for c in gaps[0]['suggested_checklist']}
+        self.assertIn(todo_item.id, suggested_ids)
+        self.assertNotIn(done_item.id, suggested_ids)
 
 
 class IndicatorColorTests(TestCase):
@@ -628,3 +741,65 @@ class CleanupCompetencyDataCommandTests(TestCase):
         call_command('cleanup_competency_data', tenant='Demo Tenant')
         self.assertEqual(CompetencyGroup.objects.filter(tenant=self.tenant).count(), 6)
         self.assertEqual(Competency.objects.filter(tenant=self.tenant).count(), 24)
+
+
+class ScoringConfigApiTests(TestCase):
+    """GET/PATCH /api/dashboard/scoring-config/ (Prompt_Dashboard_A1_GanNhanNangLuc.md, muc 2)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.om = User.objects.create_user(username='om1', password='x', tenant=self.tenant, role='om')
+        self.client = APIClient()
+
+    def test_get_default_when_not_configured(self):
+        self.client.force_authenticate(self.om)
+        resp = self.client.get(reverse('dashboard-scoring-config'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data, {'theory_weight': 50.0, 'practice_weight': 50.0})
+
+    def test_admin_can_patch_and_it_persists(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.patch(reverse('dashboard-scoring-config'), {'theory_weight': 30, 'practice_weight': 70}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(float(resp.data['theory_weight']), 30.0)
+
+        resp2 = self.client.get(reverse('dashboard-scoring-config'))
+        self.assertEqual(float(resp2.data['theory_weight']), 30.0)
+        self.assertEqual(float(resp2.data['practice_weight']), 70.0)
+
+    def test_non_admin_cannot_patch(self):
+        self.client.force_authenticate(self.om)
+        resp = self.client.patch(reverse('dashboard-scoring-config'), {'theory_weight': 10}, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+
+class ClsExamCompetencyMapApiTests(TestCase):
+    """CRUD /api/dashboard/cls-exam-map/ (Prompt_Dashboard_A1_GanNhanNangLuc.md, muc 1)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.om = User.objects.create_user(username='om1', password='x', tenant=self.tenant, role='om')
+        self.group = CompetencyGroup.objects.create(tenant=self.tenant, code='A2', name='Chuyên môn Phục vụ')
+        self.comp = Competency.objects.create(tenant=self.tenant, group=self.group, name='Quy trình phục vụ chuẩn')
+        self.client = APIClient()
+
+    def test_admin_can_create(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(reverse('cls-exam-map-list'), {'exam_name': '15N', 'competency': self.comp.id})
+        self.assertEqual(resp.status_code, 201)
+        self.assertTrue(ClsExamCompetencyMap.objects.filter(tenant=self.tenant, exam_name='15N', competency=self.comp).exists())
+
+    def test_om_cannot_create(self):
+        self.client.force_authenticate(self.om)
+        resp = self.client.post(reverse('cls-exam-map-list'), {'exam_name': '15N', 'competency': self.comp.id})
+        self.assertEqual(resp.status_code, 403)
+
+    def test_om_can_list(self):
+        ClsExamCompetencyMap.objects.create(tenant=self.tenant, exam_name='15N', competency=self.comp)
+        self.client.force_authenticate(self.om)
+        resp = self.client.get(reverse('cls-exam-map-list'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['count'], 1)
+        self.assertEqual(resp.data['results'][0]['competency_name'], self.comp.name)

@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import AppShell from '../components/AppShell'
 import Badge from '../components/Badge'
+import CompetencySelect from '../components/CompetencySelect'
 import Modal from '../components/Modal'
 import Table from '../components/Table'
 import api from '../api/client'
 import { DIFFICULTIES, typeLabel } from '../config/examQuestionTypes'
 import { usePaginatedList } from '../hooks/usePaginatedList'
+import { useCompetencyOptions } from '../hooks/useCompetencyOptions'
 import * as s from './listPageStyles'
 
 const SHOW_RESULT_MODES = [
@@ -225,6 +227,7 @@ function AssignModal({ assessmentId, open, onClose }) {
 
 export default function ExamEditPage() {
   const { id } = useParams()
+  const competencyOptions = useCompetencyOptions()
   const [assessment, setAssessment] = useState(null)
   const [results, setResults] = useState([])
   const [error, setError] = useState('')
@@ -379,6 +382,15 @@ export default function ExamEditPage() {
           <button onClick={() => setAssignOpen(true)}>Gán đề thi</button>
           <button className="btn-outline" onClick={exportExcel}>Xuất Excel kết quả</button>
         </div>
+        <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>
+          Năng lực (dùng để tính điểm Hồ sơ 360)
+        </label>
+        <CompetencySelect
+          value={assessment.competency}
+          onChange={(v) => updateField('competency', v)}
+          options={competencyOptions}
+          style={{ width: '100%' }}
+        />
         <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>
           Mã đồng bộ hồ sơ (sync_exam_type) — để trống = không đồng bộ ExamResult
         </label>

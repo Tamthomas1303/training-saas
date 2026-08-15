@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from .models import CompetencyGroup, Competency, DashboardIndicator, PositionGroupWeight, PositionTarget
+from .models import (
+    ClsExamCompetencyMap,
+    CompetencyGroup,
+    Competency,
+    CompetencyScoringConfig,
+    DashboardIndicator,
+    PositionGroupWeight,
+    PositionTarget,
+)
 
 
 @admin.register(CompetencyGroup)
@@ -31,3 +39,14 @@ class PositionGroupWeightAdmin(admin.ModelAdmin):
 class DashboardIndicatorAdmin(admin.ModelAdmin):
     list_display = ('key', 'label', 'enabled', 'direction', 'order', 'tenant')
     list_filter = ('tenant', 'enabled', 'direction')
+
+
+@admin.register(ClsExamCompetencyMap)
+class ClsExamCompetencyMapAdmin(admin.ModelAdmin):
+    list_display = ('exam_name', 'competency', 'tenant')
+    list_filter = ('tenant',)
+
+
+@admin.register(CompetencyScoringConfig)
+class CompetencyScoringConfigAdmin(admin.ModelAdmin):
+    list_display = ('tenant', 'theory_weight', 'practice_weight')

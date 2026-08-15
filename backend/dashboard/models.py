@@ -5,6 +5,8 @@ Nen tang phan tich nang luc + Ho so 360 - Dashboard Phan A
 KHONG ghi de, va KHONG dung toi employees.services.compute_final_result/recompute_final_result
 (logic pass thu viec giu nguyen, an toan tuyet doi - xem services.py docstring).
 """
+from decimal import Decimal
+
 from django.db import models
 
 from accounts.models import Tenant
@@ -71,6 +73,40 @@ class PositionGroupWeight(models.Model):
 
     def __str__(self):
         return f'{self.position} - {self.group_id}: {self.weight}%'
+
+
+class ClsExamCompetencyMap(models.Model):
+    """Anh xa ten bai thi ben CLS (cls_sync.ExamResult.exam_name) -> Competency - dung khi tinh
+    diem nang luc tu nguon CLS, vi ExamResult khong co san FK toi Assessment/Competency (de thi
+    CLS khong ton tai o he moi). Chua map (khong co dong nao voi exam_name do) -> engine bo qua
+    dong gop cua bai thi do, khong doan (Prompt_Dashboard_A1_GanNhanNangLuc.md, muc 1)."""
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='cls_exam_competency_maps')
+    exam_name = models.CharField(max_length=255)
+    competency = models.ForeignKey(
+        Competency, on_delete=models.SET_NULL, related_name='cls_exam_maps', null=True, blank=True,
+    )
+
+    class Meta:
+        unique_together = ('tenant', 'exam_name')
+        ordering = ['exam_name']
+
+    def __str__(self):
+        return f'{self.exam_name} -> {self.competency}'
+
+
+class CompetencyScoringConfig(models.Model):
+    """Trong so Ly thuyet/Thuc hanh khi cong don diem 1 nang luc tu 4 nguon (Prompt_Dashboard_
+    A1_GanNhanNangLuc.md, muc 2) - 1 dong/tenant, mac dinh 50/50 neu tenant chua tao dong nao
+    (xem services.py::get_scoring_weights). Luu duoi dang % (0-100), KHONG bat buoc tong = 100 -
+    engine tu chuan hoa (chia lai theo ty le) luc tinh diem."""
+
+    tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name='competency_scoring_config')
+    theory_weight = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('50'))
+    practice_weight = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('50'))
+
+    def __str__(self):
+        return f'{self.tenant_id} - LT {self.theory_weight}% / TH {self.practice_weight}%'
 
 
 class DashboardIndicator(models.Model):

@@ -1,5 +1,6 @@
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -32,6 +33,29 @@ class ChecklistViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
             from rest_framework.exceptions import PermissionDenied
 
             raise PermissionDenied('Chỉ Admin được thêm/sửa/xóa checklist.')
+
+    @action(detail=False, methods=['post'], url_path='bulk-assign-competency')
+    def bulk_assign_competency(self, request):
+        """POST /api/checklist/bulk-assign-competency/ {ids: [...]} HOẶC {category: 'X'} +
+        {competency: <id hoặc null>} - gán 1 năng lực cho NHIỀU dòng checklist cùng lúc (theo
+        chọn tay hoặc theo cả 1 nhóm/category), thay vì phải sửa từng dòng (Prompt_Dashboard_
+        A1_GanNhanNangLuc.md, mục 1)."""
+        ids = request.data.get('ids')
+        category = (request.data.get('category') or '').strip()
+        if not ids and not category:
+            return Response({'detail': "Cần 'ids' (danh sách id) hoặc 'category' (tên nhóm)."}, status=400)
+
+        competency_id = request.data.get('competency') or None
+        if competency_id is not None:
+            from dashboard.models import Competency
+
+            if not Competency.objects.filter(tenant=request.user.tenant, pk=competency_id).exists():
+                return Response({'detail': 'Năng lực không hợp lệ.'}, status=400)
+
+        qs = Checklist.objects.filter(tenant=request.user.tenant)
+        qs = qs.filter(id__in=ids) if ids else qs.filter(category=category)
+        updated = qs.update(competency_id=competency_id)
+        return Response({'updated': updated})
 
 
 class DocumentViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):

@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import AppShell from '../components/AppShell'
+import CompetencySelect from '../components/CompetencySelect'
 import FilterBar from '../components/FilterBar'
 import Modal from '../components/Modal'
 import Pager from '../components/Pager'
 import api from '../api/client'
+import { useCompetencyOptions } from '../hooks/useCompetencyOptions'
 import * as s from './listPageStyles'
 
 // ---- Cấp O (hội đồng) ----
@@ -29,6 +31,7 @@ const S_TYPES = [
 ]
 
 export default function CriteriaEditorPage() {
+  const competencyOptions = useCompetencyOptions()
   const [mode, setMode] = useState('S') // 'S' cấp S theo vị trí, 'O' cấp O hội đồng
   // cấp O
   const [oType, setOType] = useState('ShiftOps')
@@ -44,44 +47,72 @@ export default function CriteriaEditorPage() {
   const [form, setForm] = useState(null)
   const [msg, setMsg] = useState('')
   const [page, setPage] = useState(1)
+  const [selected, setSelected] = useState(new Set())
+  const [bulkCompetency, setBulkCompetency] = useState('')
   const fileRef = useRef(null)
   const PAGE_SIZE = 25
 
   const isO = mode === 'O'
   const isInterview = isO && oType === 'Council_Interview'
+  const currentFilter = isO
+    ? { eval_type: oType, position_group: group, ...(isInterview ? { dept_role: deptRole } : {}) }
+    : { eval_type: sType, ...(brand ? { brand } : {}), ...(position ? { position } : {}) }
 
   useEffect(() => {
     api.get('/employees/positions/').then(({ data }) => setPositions(data)).catch(() => {})
   }, [])
 
   function load() {
-    const params = isO
-      ? { eval_type: oType, position_group: group, ...(isInterview ? { dept_role: deptRole } : {}) }
-      : { eval_type: sType, ...(brand ? { brand } : {}), ...(position ? { position } : {}) }
-    api.get('/evaluation/council-criteria/', { params }).then(({ data }) => setRows(data)).catch(() => setRows([]))
+    api.get('/evaluation/council-criteria/', { params: currentFilter }).then(({ data }) => setRows(data)).catch(() => setRows([]))
+    setSelected(new Set())
   }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(load, [mode, oType, group, deptRole, sType, brand, position])
   useEffect(() => setPage(1), [mode, oType, group, deptRole, sType, brand, position])
 
   const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
+  function toggleSelected(id) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function bulkAssign(target) {
+    // target: {ids: [...]} (mục đã chọn) hoặc dùng currentFilter (cả bộ tiêu chí/vị trí đang lọc).
+    setMsg('')
+    try {
+      const { data } = await api.post('/evaluation/council-criteria/bulk-assign-competency/', {
+        ...target, competency: bulkCompetency || null,
+      })
+      setMsg(`Đã gán năng lực cho ${data.updated} tiêu chí.`)
+      setBulkCompetency('')
+      load()
+    } catch (e) {
+      setMsg(e.response?.data?.detail || 'Gán hàng loạt thất bại.')
+    }
+  }
+
   function openAdd() {
     if (isO) {
-      setForm({ id: null, section: '', content: '', max_score: oType === 'ShiftOps' ? 1 : 4, order: rows.length })
+      setForm({ id: null, section: '', content: '', max_score: oType === 'ShiftOps' ? 1 : 4, order: rows.length, competency: null })
     } else {
       setForm({
         id: null, brand, position, level_group: 'S', section: '', content: '',
-        max_score: 10, is_mandatory: false, require_photo: false, order: rows.length,
+        max_score: 10, is_mandatory: false, require_photo: false, order: rows.length, competency: null,
       })
     }
   }
   function openEdit(r) {
     setForm(isO
-      ? { id: r.id, section: r.section, content: r.content, max_score: r.max_score, order: r.order }
+      ? { id: r.id, section: r.section, content: r.content, max_score: r.max_score, order: r.order, competency: r.competency }
       : {
           id: r.id, brand: r.brand, position: r.position, level_group: r.level_group || 'S',
           section: r.section, content: r.content, max_score: r.max_score,
-          is_mandatory: r.is_mandatory, require_photo: r.require_photo, order: r.order,
+          is_mandatory: r.is_mandatory, require_photo: r.require_photo, order: r.order, competency: r.competency,
         })
   }
   async function save() {
@@ -173,28 +204,59 @@ export default function CriteriaEditorPage() {
 
       {msg && <p style={{ color: 'var(--forest-dark)' }}>{msg}</p>}
 
+      <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+        <span style={{ fontSize: 13, color: 'var(--muted)' }}>Gán hàng loạt năng lực:</span>
+        <CompetencySelect value={bulkCompetency} onChange={(v) => setBulkCompetency(v || '')} options={competencyOptions} />
+        <button
+          className="btn-sm btn-outline" disabled={selected.size === 0}
+          onClick={() => bulkAssign({ ids: [...selected] })}
+        >
+          Gán cho {selected.size} mục đã chọn
+        </button>
+        <button
+          className="btn-sm btn-outline" disabled={rows.length === 0}
+          onClick={() => bulkAssign(currentFilter)}
+        >
+          Gán cho cả bộ lọc hiện tại ({rows.length} mục)
+        </button>
+      </div>
+
       <div className="table-sticky">
         <table className="themed">
           <thead>
             <tr>
+              <th style={{ width: 30 }}>
+                <input
+                  type="checkbox"
+                  checked={pageRows.length > 0 && pageRows.every((r) => selected.has(r.id))}
+                  onChange={(e) => {
+                    const next = new Set(selected)
+                    pageRows.forEach((r) => (e.target.checked ? next.add(r.id) : next.delete(r.id)))
+                    setSelected(next)
+                  }}
+                />
+              </th>
               <th style={{ width: 40 }}>STT</th>
               {!isO && <th>Brand</th>}
               {!isO && <th>Vị trí</th>}
               <th>Mục</th>
               <th>Nội dung</th>
               <th style={{ width: 70 }}>Tối đa</th>
+              <th>Năng lực</th>
               <th style={{ width: 110 }}></th>
             </tr>
           </thead>
           <tbody>
             {pageRows.map((r, i) => (
               <tr key={r.id}>
+                <td><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSelected(r.id)} /></td>
                 <td>{(page - 1) * PAGE_SIZE + i + 1}</td>
                 {!isO && <td>{r.brand}</td>}
                 {!isO && <td>{r.position}</td>}
                 <td>{r.section}</td>
                 <td>{r.content}</td>
                 <td style={{ textAlign: 'center' }}>{r.max_score}</td>
+                <td className="muted-note">{r.competency_name || '—'}</td>
                 <td style={{ display: 'flex', gap: 6 }}>
                   <button className="btn-outline btn-sm" onClick={() => openEdit(r)}>Sửa</button>
                   <button className="btn-outline btn-sm" style={{ color: 'var(--danger)', borderColor: 'var(--danger)' }} onClick={() => del(r)}>Xóa</button>
@@ -202,7 +264,7 @@ export default function CriteriaEditorPage() {
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan={isO ? 5 : 7} className="muted-note">Chưa có tiêu chí. {!isO && 'Dùng "Nhập từ file" để nạp bộ tiêu chí ban đầu.'}</td></tr>
+              <tr><td colSpan={isO ? 7 : 9} className="muted-note">Chưa có tiêu chí. {!isO && 'Dùng "Nhập từ file" để nạp bộ tiêu chí ban đầu.'}</td></tr>
             )}
           </tbody>
         </table>
@@ -229,6 +291,12 @@ export default function CriteriaEditorPage() {
             <label>Mục (nhóm tiêu chí)<input style={{ display: 'block', width: '100%' }} value={form.section} onChange={(e) => setForm({ ...form, section: e.target.value })} /></label>
             <label>Nội dung<input style={{ display: 'block', width: '100%' }} value={form.content} onChange={(e) => setForm({ ...form, content: e.target.value })} /></label>
             <label>Điểm tối đa<input type="number" min="1" style={{ display: 'block', width: '100%' }} value={form.max_score} onChange={(e) => setForm({ ...form, max_score: Number(e.target.value) || 1 })} /></label>
+            <label>Năng lực<CompetencySelect
+              value={form.competency}
+              onChange={(v) => setForm({ ...form, competency: v })}
+              options={competencyOptions}
+              style={{ display: 'block', width: '100%', marginTop: 4 }}
+            /></label>
             {!isO && (
               <>
                 <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input type="checkbox" checked={!!form.is_mandatory} onChange={(e) => setForm({ ...form, is_mandatory: e.target.checked })} /> Bắt buộc (không đạt là trượt)</label>

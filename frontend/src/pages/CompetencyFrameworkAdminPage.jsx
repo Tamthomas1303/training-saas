@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import AppShell from '../components/AppShell'
+import CompetencySelect from '../components/CompetencySelect'
 import Table from '../components/Table'
 import api from '../api/client'
+import { useCompetencyOptions } from '../hooks/useCompetencyOptions'
 import { usePaginatedList } from '../hooks/usePaginatedList'
 import * as s from './listPageStyles'
 
@@ -166,6 +168,125 @@ function PositionLookup() {
   )
 }
 
+function ClsExamMapCard() {
+  const competencyOptions = useCompetencyOptions()
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [examName, setExamName] = useState('')
+  const [competency, setCompetency] = useState(null)
+  const [error, setError] = useState('')
+  const { data } = usePaginatedList('/dashboard/cls-exam-map/', { page_size: 100, refreshKey })
+
+  async function add() {
+    if (!examName.trim()) {
+      setError('Nhập đúng exam_name (ExamResult.exam_name bên CLS).')
+      return
+    }
+    try {
+      await api.post('/dashboard/cls-exam-map/', { exam_name: examName.trim(), competency })
+      setExamName('')
+      setCompetency(null)
+      setError('')
+      setRefreshKey((k) => k + 1)
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Không tạo được ánh xạ.')
+    }
+  }
+
+  async function remove(id) {
+    await api.delete(`/dashboard/cls-exam-map/${id}/`)
+    setRefreshKey((k) => k + 1)
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <h3 style={{ marginTop: 0 }}>Ánh xạ bài thi CLS → Năng lực</h3>
+      <p className="muted-note">
+        Bài thi bên CLS (cls_sync.ExamResult) không gắn được năng lực trực tiếp như đề thi nội bộ - ánh xạ
+        theo tên bài thi (exam_name) ở đây. Chưa ánh xạ = bỏ qua, không tính vào điểm năng lực.
+      </p>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+        <input
+          value={examName} onChange={(e) => setExamName(e.target.value)}
+          placeholder="Tên bài thi CLS (exam_name), vd 15N" style={{ ...s.input, flex: 1, minWidth: 160 }}
+        />
+        <CompetencySelect value={competency} onChange={setCompetency} options={competencyOptions} />
+        <button onClick={add}>+ Thêm ánh xạ</button>
+      </div>
+      {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
+      <Table>
+        <thead><tr><th>Bài thi CLS (exam_name)</th><th>Năng lực</th><th></th></tr></thead>
+        <tbody>
+          {data.results.map((m) => (
+            <tr key={m.id}>
+              <td>{m.exam_name}</td>
+              <td>{m.competency_name ? `${m.group_code} · ${m.competency_name}` : '—'}</td>
+              <td><button className="btn-outline btn-sm" onClick={() => remove(m.id)}>Xóa</button></td>
+            </tr>
+          ))}
+          {data.results.length === 0 && (
+            <tr><td colSpan={3} className="muted-note">Chưa có ánh xạ nào.</td></tr>
+          )}
+        </tbody>
+      </Table>
+    </div>
+  )
+}
+
+function ScoringWeightCard() {
+  const [weights, setWeights] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  function load() {
+    api.get('/dashboard/scoring-config/').then(({ data }) => setWeights(data)).catch(() => {})
+  }
+  useEffect(load, [])
+
+  async function save() {
+    setSaving(true)
+    setMsg('')
+    try {
+      const { data } = await api.patch('/dashboard/scoring-config/', weights)
+      setWeights(data)
+      setMsg('Đã lưu.')
+    } catch (err) {
+      setMsg(err.response?.data?.detail || 'Lưu thất bại.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!weights) return null
+
+  return (
+    <div className="card" style={{ marginTop: 16 }}>
+      <h3 style={{ marginTop: 0 }}>Trọng số Lý thuyết / Thực hành</h3>
+      <p className="muted-note">
+        Điểm 1 năng lực = trọng số Lý thuyết × điểm Lý thuyết (khóa học + thi) + trọng số Thực hành × điểm
+        Thực hành (checklist + đánh giá kỹ năng). Mặc định 50/50. Không bắt buộc tổng = 100 (tự chuẩn hoá).
+      </p>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <label>Lý thuyết (%)
+          <input
+            type="number" value={weights.theory_weight}
+            onChange={(e) => setWeights({ ...weights, theory_weight: e.target.value })}
+            style={{ ...s.input, width: 90, display: 'block' }}
+          />
+        </label>
+        <label>Thực hành (%)
+          <input
+            type="number" value={weights.practice_weight}
+            onChange={(e) => setWeights({ ...weights, practice_weight: e.target.value })}
+            style={{ ...s.input, width: 90, display: 'block' }}
+          />
+        </label>
+        <button onClick={save} disabled={saving} style={{ marginTop: 18 }}>Lưu</button>
+        {msg && <span className="muted-note" style={{ marginTop: 18 }}>{msg}</span>}
+      </div>
+    </div>
+  )
+}
+
 export default function CompetencyFrameworkAdminPage() {
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -199,6 +320,8 @@ export default function CompetencyFrameworkAdminPage() {
       </div>
 
       <PositionLookup />
+      <ScoringWeightCard />
+      <ClsExamMapCard />
     </AppShell>
   )
 }

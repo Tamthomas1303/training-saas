@@ -18,7 +18,15 @@ from collections import defaultdict
 from django.conf import settings
 from django.utils import timezone
 
-from .models import CompetencyGroup, Competency, DashboardIndicator, PositionGroupWeight, PositionTarget
+from .models import (
+    ClsExamCompetencyMap,
+    CompetencyGroup,
+    Competency,
+    CompetencyScoringConfig,
+    DashboardIndicator,
+    PositionGroupWeight,
+    PositionTarget,
+)
 
 
 class ValidationError(Exception):
@@ -391,7 +399,8 @@ def _exam_source_scores(employee, competency):
 
 def _skill_eval_source_scores(employee, competency):
     """Diem EvaluationDetail cua cac tieu chi (EvaluationCriteria) gan nang luc nay, trong cac
-    phieu danh gia DA HOAN THANH (status=done) cua nhan su -> % (score/max_score)."""
+    phieu danh gia DA HOAN THANH (status=done) cua nhan su -> % (score/max_score). Thuoc khoi
+    THUC HANH (danh gia ky nang thuc te tai nha hang)."""
     from evaluation.models import Evaluation, EvaluationCriteria, EvaluationDetail
 
     criteria_ids = list(
@@ -408,15 +417,93 @@ def _skill_eval_source_scores(employee, competency):
     return [float(d.score) / float(d.max_score) * 100 for d in details if d.max_score]
 
 
+def _checklist_source_scores(employee, competency):
+    """Cac muc checklist dao tao khop Brand+Vi tri hien tai cua nhan su va gan nang luc nay ->
+    danh sach diem tung muc (100=da Hoan thanh, 0=chua). Quy trinh checklist LUON co xac nhan
+    truc tiep (anh + 2 chu ky) nen moi status=done deu tinh nhu "offline-confirmed" - khong co
+    khai niem % lam do rieng nhu bai hoc online. Thuoc khoi THUC HANH."""
+    from checklist.models import TrainingProgress
+    from employees.services import matching_checklist_items
+
+    items = [c for c in matching_checklist_items(employee) if c.competency_id == competency.id]
+    if not items:
+        return []
+    done_ids = set(
+        TrainingProgress.objects.filter(
+            employee=employee, checklist_id__in=[c.id for c in items], status=TrainingProgress.Status.DONE,
+        ).values_list('checklist_id', flat=True)
+    )
+    return [100.0 if c.id in done_ids else 0.0 for c in items]
+
+
+def _cls_exam_source_scores(employee, competency):
+    """Cac ExamResult (nguon CLS, de thi ngoai he thong khong co Assessment noi bo) co exam_name
+    da duoc ANH XA (ClsExamCompetencyMap) toi nang luc nay -> % diem (final_score = uu tien diem
+    phuc khao). Chua map -> khong dong gop (bo qua, khong doan). Thuoc khoi LY THUYET."""
+    from cls_sync.models import ExamResult
+
+    exam_names = list(
+        ClsExamCompetencyMap.objects.filter(tenant=employee.tenant, competency=competency)
+        .values_list('exam_name', flat=True)
+    )
+    if not exam_names:
+        return []
+    return [
+        float(r.final_score) for r in ExamResult.objects.filter(employee=employee, exam_name__in=exam_names)
+        if r.final_score is not None
+    ]
+
+
+DEFAULT_THEORY_WEIGHT = 50.0
+DEFAULT_PRACTICE_WEIGHT = 50.0
+
+
+def get_scoring_weights(tenant):
+    """(trong_so_ly_thuyet, trong_so_thuc_hanh) - doc CompetencyScoringConfig cua tenant, mac
+    dinh 50/50 neu tenant CHUA cau hinh (khong tu tao dong - xem views.py::
+    CompetencyScoringConfigView, PATCH moi tao). Luu duoi dang % nhung khong bat buoc tong=100,
+    _combine_theory_practice tu chuan hoa theo ty le."""
+    config = CompetencyScoringConfig.objects.filter(tenant=tenant).first()
+    if not config:
+        return DEFAULT_THEORY_WEIGHT, DEFAULT_PRACTICE_WEIGHT
+    return float(config.theory_weight), float(config.practice_weight)
+
+
+def _combine_theory_practice(theory_score, practice_score, theory_weight, practice_weight):
+    """Ket hop diem Ly thuyet + Thuc hanh theo trong so cau hinh (Prompt_Dashboard_A1_
+    GanNhanNangLuc.md, muc 2). Khoi nao khong co du lieu thi BO KHOI trung binh (khong tinh la
+    0) - vd chi co Ly thuyet thi diem = diem Ly thuyet, khong bi keo xuong boi Thuc hanh=0. Ca 2
+    khoi cung khong co du lieu -> None. Neu trong so cau hinh ca 2 ve 0 (hy huu, cau hinh loi)
+    van fallback trung binh don gian de khong mat du lieu."""
+    pairs = []
+    if theory_score is not None:
+        pairs.append((theory_score, theory_weight))
+    if practice_score is not None:
+        pairs.append((practice_score, practice_weight))
+    if not pairs:
+        return None
+    total_weight = sum(w for _, w in pairs)
+    if total_weight > 0:
+        return sum(s * w for s, w in pairs) / total_weight
+    return sum(s for s, _ in pairs) / len(pairs)
+
+
 def compute_competency_scores(employee):
-    """Dashboard Phan A muc 3 - engine tinh diem nang luc, CHI DOC (khong ghi de gi). Tra ve
-    {'position', 'ci', 'competencies': [...], 'groups': [...]}. Competency/group khong co
-    nguon nao -> score=None ("chưa đủ dữ liệu"), KHONG tinh la 0 (tranh lam hong radar).
-    Employee.position duoc khop CHUAN HOA (bo dau/hoa-thuong/khoang trang) voi vi tri da import
-    trong PositionTarget/PositionGroupWeight de khong bi lech du lieu (Prompt_Fix_
-    ImportKhungNangLuc.md, Loi 3)."""
+    """Dashboard Phan A + A.1 - engine tinh diem nang luc, CHI DOC (khong ghi de gi). Cong don 4
+    NGUON, chia 2 khoi (Prompt_Dashboard_A1_GanNhanNangLuc.md, muc 2):
+      - Ly thuyet: khoa hoc online hoan thanh + diem thi (Assessment noi bo hoac ExamResult CLS
+        theo ClsExamCompetencyMap).
+      - Thuc hanh: checklist dao tao hoan thanh + danh gia ky nang thuc hanh.
+    Diem 1 nang luc = trong_so_LT × diem_LT + trong_so_TH × diem_TH (CompetencyScoringConfig,
+    mac dinh 50/50, cau hinh duoc theo tenant). Nguon/khoi nao khong co du lieu thi BO KHOI trung
+    binh (khong tinh 0); khong khoi nao co du lieu -> score=None ("chưa đủ dữ liệu", khong ve
+    truc, khong keo diem xuong).
+    Tra ve {'position', 'ci', 'competencies': [...], 'groups': [...]}. Employee.position duoc
+    khop CHUAN HOA (bo dau/hoa-thuong/khoang trang) voi vi tri da import trong PositionTarget/
+    PositionGroupWeight de khong bi lech du lieu (Prompt_Fix_ImportKhungNangLuc.md, Loi 3)."""
     position = employee.position or ''
     competencies = Competency.objects.filter(tenant=employee.tenant).select_related('group')
+    theory_weight, practice_weight = get_scoring_weights(employee.tenant)
 
     target_positions = PositionTarget.objects.filter(tenant=employee.tenant).values_list('position', flat=True).distinct()
     resolved_target_position = resolve_position(target_positions, position) or position
@@ -430,17 +517,21 @@ def compute_competency_scores(employee):
     group_targets_data = defaultdict(list)
 
     for comp in competencies:
-        source_scores = (
-            _course_source_scores(employee, comp)
-            + _exam_source_scores(employee, comp)
-            + _skill_eval_source_scores(employee, comp)
-        )
-        score = round(sum(source_scores) / len(source_scores), 1) if source_scores else None
+        theory_sources = _course_source_scores(employee, comp) + _exam_source_scores(employee, comp) + _cls_exam_source_scores(employee, comp)
+        practice_sources = _checklist_source_scores(employee, comp) + _skill_eval_source_scores(employee, comp)
+
+        theory_score = round(sum(theory_sources) / len(theory_sources), 1) if theory_sources else None
+        practice_score = round(sum(practice_sources) / len(practice_sources), 1) if practice_sources else None
+        combined = _combine_theory_practice(theory_score, practice_score, theory_weight, practice_weight)
+        score = round(combined, 1) if combined is not None else None
+
         target = targets.get(comp.id)
         gap = round(target - score, 1) if (score is not None and target is not None) else None
         competency_results.append({
             'id': comp.id, 'name': comp.name, 'group_id': comp.group_id, 'group_code': comp.group.code,
-            'score': score, 'target': target, 'gap': gap, 'source_count': len(source_scores),
+            'score': score, 'target': target, 'gap': gap,
+            'theory_score': theory_score, 'practice_score': practice_score,
+            'source_count': len(theory_sources) + len(practice_sources),
         })
         if score is not None:
             group_scores_data[comp.group_id].append(score)
@@ -475,9 +566,12 @@ def compute_competency_scores(employee):
 
 
 def competency_gaps(employee, scores=None, limit=10):
-    """Bang khoang trong (gap > 0) sap giam dan + goi y khoa (gan nang luc do, chua hoan
-    thanh) - dung y muc 3 cua prompt."""
+    """Bang khoang trong (gap > 0) sap giam dan + goi y khoa/checklist (gan nang luc do, chua
+    hoan thanh) - dung y muc 3 cua Prompt_Dashboard_A_NangLuc_HoSo360.md, mo rong them checklist
+    o Prompt_Dashboard_A1_GanNhanNangLuc.md muc 3."""
+    from checklist.models import TrainingProgress
     from courses.models import Course, Enrollment
+    from employees.services import matching_checklist_items
 
     scores = scores or compute_competency_scores(employee)
     gaps = sorted(
@@ -491,14 +585,27 @@ def competency_gaps(employee, scores=None, limit=10):
         Enrollment.objects.filter(employee=employee, status=Enrollment.Status.COMPLETED)
         .values_list('course_id', flat=True)
     )
+    matching_items = matching_checklist_items(employee)
+    done_checklist_ids = set(
+        TrainingProgress.objects.filter(
+            employee=employee, checklist_id__in=[c.id for c in matching_items],
+            status=TrainingProgress.Status.DONE,
+        ).values_list('checklist_id', flat=True)
+    )
+
     result = []
     for c in gaps:
-        suggested = list(
+        suggested_courses = list(
             Course.objects.filter(tenant=employee.tenant, competency_id=c['id'])
             .exclude(id__in=completed_course_ids)
             .values('id', 'title')[:3]
         )
-        result.append({**c, 'suggested_courses': suggested})
+        suggested_checklist = [
+            {'id': item.id, 'task_name': item.task_name}
+            for item in matching_items
+            if item.competency_id == c['id'] and item.id not in done_checklist_ids
+        ][:3]
+        result.append({**c, 'suggested_courses': suggested_courses, 'suggested_checklist': suggested_checklist})
     return result
 
 

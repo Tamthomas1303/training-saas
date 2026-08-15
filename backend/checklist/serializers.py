@@ -14,11 +14,13 @@ class DocumentSerializer(serializers.ModelSerializer):
 
 
 class ChecklistSerializer(serializers.ModelSerializer):
+    competency_name = serializers.CharField(source='competency.name', read_only=True, default='')
+
     class Meta:
         model = Checklist
         fields = [
             'id', 'brand', 'position', 'day', 'category', 'task_name', 'description',
-            'doc_url', 'level_group', 'order',
+            'doc_url', 'level_group', 'order', 'competency', 'competency_name',
         ]
 
 

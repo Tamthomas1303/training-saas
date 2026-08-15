@@ -18,6 +18,13 @@ class Checklist(models.Model):
     # Ma checklist ben ngoai (CL-xxxxx, sheet "DB_Dao tao"::position_checklists) - cau noi de
     # cac Drive import/ETL (vd import_july_data) tim dung Checklist v2.1 tuong ung.
     code = models.CharField(max_length=20, blank=True, db_index=True)
+    # Nang luc (dashboard.Competency) muc nay dong gop khoi Thuc hanh - ADMIN TU GAN, thuong
+    # gan 1 lan cho CA NHOM (category) qua endpoint bulk-assign-competency thay vi tung dong.
+    # Xem dashboard.services._checklist_source_scores.
+    competency = models.ForeignKey(
+        'dashboard.Competency', on_delete=models.SET_NULL, related_name='checklist_items',
+        null=True, blank=True,
+    )
 
     class Meta:
         ordering = ['order']

@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import AppShell from '../components/AppShell'
+import CompetencySelect from '../components/CompetencySelect'
 import Modal from '../components/Modal'
 import PhotoSlot from '../components/PhotoSlot'
 import api from '../api/client'
 import { usePaginatedList } from '../hooks/usePaginatedList'
+import { useCompetencyOptions } from '../hooks/useCompetencyOptions'
 import * as s from './listPageStyles'
 
 const LESSON_TYPES = [
@@ -571,6 +573,7 @@ function OfflineConfirmModal({ course, open, onClose, onDone }) {
 
 export default function CourseEditPage() {
   const { id } = useParams()
+  const competencyOptions = useCompetencyOptions()
   const [course, setCourse] = useState(null)
   const [error, setError] = useState('')
   const [addingModule, setAddingModule] = useState(false)
@@ -667,6 +670,16 @@ export default function CourseEditPage() {
                 Xác nhận hoàn thành hộ
               </button>
             </div>
+            <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>
+              Năng lực (dùng để tính điểm Hồ sơ 360)
+            </label>
+            <CompetencySelect
+              value={course.competency}
+              onChange={(v) => updateField('competency', v)}
+              options={competencyOptions}
+              disabled={savingField}
+              style={{ width: '100%' }}
+            />
             <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>
               Mã đồng bộ hồ sơ (sync_course_code) — để trống = không đồng bộ CourseResult
             </label>

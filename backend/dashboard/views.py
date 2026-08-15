@@ -8,9 +8,19 @@ from accounts.mixins import TenantScopedViewSetMixin
 from accounts.pagination import DefaultPagination
 from employees.models import Employee
 
-from .models import CompetencyGroup, Competency, DashboardIndicator, PositionGroupWeight, PositionTarget
+from .models import (
+    ClsExamCompetencyMap,
+    CompetencyGroup,
+    Competency,
+    CompetencyScoringConfig,
+    DashboardIndicator,
+    PositionGroupWeight,
+    PositionTarget,
+)
 from .serializers import (
+    ClsExamCompetencyMapSerializer,
     CompetencyGroupSerializer,
+    CompetencyScoringConfigSerializer,
     CompetencySerializer,
     DashboardIndicatorSerializer,
     PositionGroupWeightSerializer,
@@ -19,6 +29,7 @@ from .serializers import (
 from .services import (
     ValidationError,
     employee_360,
+    get_scoring_weights,
     import_position_group_weights,
     import_position_targets,
     resolve_position,
@@ -148,6 +159,44 @@ class DashboardIndicatorViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet)
         super().initial(request, *args, **kwargs)
         _require_dashboard_view(request)
         _require_admin_write(request)
+
+
+class ClsExamCompetencyMapViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
+    """CRUD anh xa ten bai thi CLS (exam_name) -> nang luc (muc 1: 'Bài thi CLS'). Doc:
+    admin/om/bod. Ghi: chi Admin."""
+
+    serializer_class = ClsExamCompetencyMapSerializer
+    queryset = ClsExamCompetencyMap.objects.select_related('competency', 'competency__group').all()
+    pagination_class = DefaultPagination
+    ordering = ['exam_name']
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        _require_dashboard_view(request)
+        _require_admin_write(request)
+
+    def perform_create(self, serializer):
+        serializer.save(tenant=self.request.user.tenant)
+
+
+class CompetencyScoringConfigView(APIView):
+    """GET/PATCH /api/dashboard/scoring-config/ — trọng số Lý thuyết/Thực hành khi cộng dồn
+    điểm 1 năng lực từ 4 nguồn (mục 2). GET trả mặc định 50/50 nếu tenant chưa cấu hình. PATCH:
+    chỉ Admin, tự tạo dòng cấu hình nếu chưa có."""
+
+    def get(self, request):
+        _require_dashboard_view(request)
+        theory, practice = get_scoring_weights(request.user.tenant)
+        return Response({'theory_weight': theory, 'practice_weight': practice})
+
+    def patch(self, request):
+        if (request.user.role or '').lower() != 'admin':
+            return Response({'detail': 'Chỉ Admin được sửa trọng số Lý thuyết/Thực hành.'}, status=403)
+        config, _created = CompetencyScoringConfig.objects.get_or_create(tenant=request.user.tenant)
+        serializer = CompetencyScoringConfigSerializer(config, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
 
 class SeedDefaultsView(APIView):

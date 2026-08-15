@@ -2,6 +2,7 @@
 import django_filters
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
+from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -50,6 +51,30 @@ class CouncilCriteriaViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         self._guard()
         return super().destroy(request, *args, **kwargs)
+
+    @action(detail=False, methods=['post'], url_path='bulk-assign-competency')
+    def bulk_assign_competency(self, request):
+        """POST .../bulk-assign-competency/ {ids: [...]} HOẶC {eval_type/position_group/
+        dept_role/brand/position/level_group: ...} + {competency: <id hoặc null>} - gán 1 năng
+        lực cho cả BỘ tiêu chí/vị trí cùng lúc (Prompt_Dashboard_A1_GanNhanNangLuc.md, mục 1)."""
+        self._guard()
+        ids = request.data.get('ids')
+        filter_fields = ['eval_type', 'position_group', 'dept_role', 'brand', 'position', 'level_group']
+        filters = {f: request.data[f] for f in filter_fields if request.data.get(f)}
+        if not ids and not filters:
+            return Response({'detail': "Cần 'ids' hoặc ít nhất 1 điều kiện lọc (eval_type/vị trí/...)."}, status=400)
+
+        competency_id = request.data.get('competency') or None
+        if competency_id is not None:
+            from dashboard.models import Competency
+
+            if not Competency.objects.filter(tenant=request.user.tenant, pk=competency_id).exists():
+                return Response({'detail': 'Năng lực không hợp lệ.'}, status=400)
+
+        qs = EvaluationCriteria.objects.filter(tenant=request.user.tenant)
+        qs = qs.filter(id__in=ids) if ids else qs.filter(**filters)
+        updated = qs.update(competency_id=competency_id)
+        return Response({'updated': updated})
 
 
 def _b(value):

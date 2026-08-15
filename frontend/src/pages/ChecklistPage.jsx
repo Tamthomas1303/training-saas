@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import AppShell from '../components/AppShell'
+import CompetencySelect from '../components/CompetencySelect'
 import FilterBar from '../components/FilterBar'
 import Modal from '../components/Modal'
 import Pager from '../components/Pager'
 import Table from '../components/Table'
 import api from '../api/client'
 import { useAuth } from '../auth/AuthContext'
+import { useCompetencyOptions } from '../hooks/useCompetencyOptions'
 import { usePaginatedList } from '../hooks/usePaginatedList'
 import * as s from './listPageStyles'
 
@@ -13,29 +15,62 @@ const PAGE_SIZE = 20
 
 const EMPTY_FORM = {
   id: null, brand: '', position: '', day: '', category: '', task_name: '', description: '',
-  doc_url: '', level_group: '', order: 0,
+  doc_url: '', level_group: '', order: 0, competency: null,
 }
 
 export default function ChecklistPage() {
   const { user } = useAuth()
   const isAdmin = (user.role || '').toLowerCase() === 'admin'
+  const competencyOptions = useCompetencyOptions()
 
   const [search, setSearch] = useState('')
   const [brand, setBrand] = useState('')
   const [position, setPosition] = useState('')
+  const [category, setCategory] = useState('')
   const [page, setPage] = useState(1)
   const [refreshKey, setRefreshKey] = useState(0)
   const [form, setForm] = useState(null)
   const [formError, setFormError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [selected, setSelected] = useState(new Set())
+  const [bulkCompetency, setBulkCompetency] = useState('')
+  const [bulkMsg, setBulkMsg] = useState('')
 
-  const params = { search, brand: brand || undefined, position: position || undefined, page, page_size: PAGE_SIZE, refreshKey }
+  const params = {
+    search, brand: brand || undefined, position: position || undefined, category: category || undefined,
+    page, page_size: PAGE_SIZE, refreshKey,
+  }
   const { data, loading, error } = usePaginatedList('/checklist/', params)
 
   function onFilterChange(setter) {
     return (e) => {
       setter(e.target.value)
       setPage(1)
+      setSelected(new Set())
+    }
+  }
+
+  function toggleSelected(id) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function bulkAssign(target) {
+    setBulkMsg('')
+    try {
+      const { data: result } = await api.post('/checklist/bulk-assign-competency/', {
+        ...target, competency: bulkCompetency || null,
+      })
+      setBulkMsg(`Đã gán năng lực cho ${result.updated} mục checklist.`)
+      setBulkCompetency('')
+      setSelected(new Set())
+      setRefreshKey((k) => k + 1)
+    } catch (err) {
+      setBulkMsg(err.response?.data?.detail || 'Gán hàng loạt thất bại.')
     }
   }
 
@@ -49,6 +84,7 @@ export default function ChecklistPage() {
       id: c.id, brand: c.brand || '', position: c.position || '', day: c.day ?? '',
       category: c.category || '', task_name: c.task_name, description: c.description || '',
       doc_url: c.doc_url || '', level_group: c.level_group || '', order: c.order ?? 0,
+      competency: c.competency,
     })
     setFormError('')
   }
@@ -60,6 +96,7 @@ export default function ChecklistPage() {
       brand: form.brand, position: form.position, day: form.day === '' ? null : Number(form.day),
       category: form.category, task_name: form.task_name, description: form.description,
       doc_url: form.doc_url, level_group: form.level_group, order: Number(form.order) || 0,
+      competency: form.competency,
     }
     try {
       if (form.id) {
@@ -101,7 +138,34 @@ export default function ChecklistPage() {
           value={position}
           onChange={onFilterChange(setPosition)}
         />
+        <input
+          style={s.input}
+          placeholder="Lọc theo danh mục (nhóm)"
+          value={category}
+          onChange={onFilterChange(setCategory)}
+        />
       </FilterBar>
+
+      {isAdmin && (
+        <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+          <span style={{ fontSize: 13, color: 'var(--muted)' }}>Gán hàng loạt năng lực:</span>
+          <CompetencySelect value={bulkCompetency} onChange={(v) => setBulkCompetency(v || '')} options={competencyOptions} />
+          <button
+            className="btn-sm btn-outline" disabled={selected.size === 0}
+            onClick={() => bulkAssign({ ids: [...selected] })}
+          >
+            Gán cho {selected.size} mục đã chọn
+          </button>
+          <button
+            className="btn-sm btn-outline" disabled={!category}
+            onClick={() => bulkAssign({ category })}
+            title={!category ? 'Nhập tên danh mục ở ô lọc để gán cho cả nhóm' : ''}
+          >
+            Gán cho cả danh mục "{category || '...'}"
+          </button>
+          {bulkMsg && <span className="muted-note">{bulkMsg}</span>}
+        </div>
+      )}
 
       {loading && <p className="muted-note">Đang tải...</p>}
       {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
@@ -111,6 +175,19 @@ export default function ChecklistPage() {
           <Table>
             <thead>
               <tr>
+                {isAdmin && (
+                  <th style={{ width: 30 }}>
+                    <input
+                      type="checkbox"
+                      checked={data.results.length > 0 && data.results.every((c) => selected.has(c.id))}
+                      onChange={(e) => {
+                        const next = new Set(selected)
+                        data.results.forEach((c) => (e.target.checked ? next.add(c.id) : next.delete(c.id)))
+                        setSelected(next)
+                      }}
+                    />
+                  </th>
+                )}
                 <th>#</th>
                 <th>Brand</th>
                 <th>Vị trí</th>
@@ -118,6 +195,7 @@ export default function ChecklistPage() {
                 <th>Danh mục</th>
                 <th>Đầu việc</th>
                 <th>Cấp</th>
+                <th>Năng lực</th>
                 <th>Tài liệu</th>
                 {isAdmin && <th></th>}
               </tr>
@@ -125,6 +203,9 @@ export default function ChecklistPage() {
             <tbody>
               {data.results.map((c) => (
                 <tr key={c.id}>
+                  {isAdmin && (
+                    <td><input type="checkbox" checked={selected.has(c.id)} onChange={() => toggleSelected(c.id)} /></td>
+                  )}
                   <td>{c.order}</td>
                   <td>{c.brand}</td>
                   <td>{c.position}</td>
@@ -132,6 +213,7 @@ export default function ChecklistPage() {
                   <td>{c.category}</td>
                   <td>{c.task_name}</td>
                   <td>{c.level_group}</td>
+                  <td className="muted-note">{c.competency_name || '—'}</td>
                   <td>
                     {c.doc_url ? (
                       <a href={c.doc_url} target="_blank" rel="noreferrer">
@@ -152,7 +234,7 @@ export default function ChecklistPage() {
               ))}
               {data.results.length === 0 && (
                 <tr>
-                  <td colSpan={isAdmin ? 9 : 8} className="muted-note">
+                  <td colSpan={isAdmin ? 11 : 9} className="muted-note">
                     Không có dữ liệu.
                   </td>
                 </tr>
@@ -227,6 +309,15 @@ export default function ChecklistPage() {
                 style={{ display: 'block', width: '100%' }}
                 value={form.category}
                 onChange={(e) => setForm({ ...form, category: e.target.value })}
+              />
+            </label>
+            <label>
+              Năng lực (dùng để tính điểm Hồ sơ 360)
+              <CompetencySelect
+                value={form.competency}
+                onChange={(v) => setForm({ ...form, competency: v })}
+                options={competencyOptions}
+                style={{ display: 'block', width: '100%', marginTop: 4 }}
               />
             </label>
             <label>
