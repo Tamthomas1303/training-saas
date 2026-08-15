@@ -114,6 +114,7 @@ function PositionLookup() {
   const [targets, setTargets] = useState([])
   const [weights, setWeights] = useState([])
   const [loading, setLoading] = useState(false)
+  const [searched, setSearched] = useState(false)
 
   async function search() {
     if (!position.trim()) return
@@ -125,6 +126,7 @@ function PositionLookup() {
       ])
       setTargets(t.data.results)
       setWeights(w.data.results)
+      setSearched(true)
     } finally {
       setLoading(false)
     }
@@ -154,6 +156,11 @@ function PositionLookup() {
             ))}
           </tbody>
         </Table>
+      )}
+      {searched && !loading && targets.length === 0 && weights.length === 0 && (
+        <p className="muted-note">
+          Không tìm thấy vị trí phù hợp. Kiểm tra lại tên vị trí đã import (không phân biệt hoa/thường/dấu cách).
+        </p>
       )}
     </div>
   )

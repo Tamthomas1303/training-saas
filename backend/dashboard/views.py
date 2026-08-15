@@ -21,6 +21,7 @@ from .services import (
     employee_360,
     import_position_group_weights,
     import_position_targets,
+    resolve_position,
     seed_competency_framework,
     seed_dashboard_indicators,
 )
@@ -76,38 +77,56 @@ class CompetencyViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
         serializer.save(tenant=self.request.user.tenant)
 
 
+def _filter_by_position(qs, raw_position):
+    """Loc queryset theo query param 'position' voi khop CHUAN HOA (bo dau/hoa-thuong/khoang
+    trang) thay vi so khop chuoi tho - de 'NV Phục vụ' go tay van khop dung du lech hoa/thuong/
+    khoang trang voi file da import (Prompt_Fix_ImportKhungNangLuc.md, Loi 3)."""
+    if not raw_position:
+        return qs
+    all_positions = qs.values_list('position', flat=True).distinct()
+    resolved = resolve_position(all_positions, raw_position)
+    return qs.filter(position=resolved) if resolved else qs.none()
+
+
 class PositionTargetViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
-    """CRUD diem muc tieu theo vi tri. Loc theo position=, competency=. Doc: admin/om/bod.
-    Ghi: chi Admin (thuong dung Import CSV, CRUD tung dong chi de sua nhanh 1 o)."""
+    """CRUD diem muc tieu theo vi tri. Loc theo position= (khop chuan hoa), competency=. Doc:
+    admin/om/bod. Ghi: chi Admin (thuong dung Import CSV, CRUD tung dong chi de sua nhanh 1 o)."""
 
     serializer_class = PositionTargetSerializer
     queryset = PositionTarget.objects.select_related('competency', 'competency__group').all()
     pagination_class = DefaultPagination
-    filterset_fields = ['position', 'competency']
+    filterset_fields = ['competency']
     ordering = ['position']
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
         _require_dashboard_view(request)
         _require_admin_write(request)
+
+    def get_queryset(self):
+        return _filter_by_position(super().get_queryset(), self.request.query_params.get('position'))
 
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.user.tenant)
 
 
 class PositionGroupWeightViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
-    """CRUD trong so nhom theo vi tri. Doc: admin/om/bod. Ghi: chi Admin."""
+    """CRUD trong so nhom theo vi tri. Loc theo position= (khop chuan hoa). Doc: admin/om/bod.
+    Ghi: chi Admin."""
 
     serializer_class = PositionGroupWeightSerializer
     queryset = PositionGroupWeight.objects.select_related('group').all()
     pagination_class = DefaultPagination
-    filterset_fields = ['position', 'group']
+    filterset_fields = ['group']
     ordering = ['position']
 
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
         _require_dashboard_view(request)
         _require_admin_write(request)
+
+    def get_queryset(self):
+        return _filter_by_position(super().get_queryset(), self.request.query_params.get('position'))
 
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.user.tenant)

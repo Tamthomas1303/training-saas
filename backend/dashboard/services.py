@@ -12,6 +12,7 @@ import csv
 import datetime
 import io
 import re
+import unicodedata
 from collections import defaultdict
 
 from django.conf import settings
@@ -22,6 +23,41 @@ from .models import CompetencyGroup, Competency, DashboardIndicator, PositionGro
 
 class ValidationError(Exception):
     pass
+
+
+# ==================================================================== Chuan hoa ten (khop mo,
+# khong phan biet hoa/thuong, dau, khoang trang thua) - dung cho import + tra cuu theo vi tri
+# (Prompt_Fix_ImportKhungNangLuc.md: import lech tao nhom/nang luc rac vi so khop chuoi tho).
+
+def _deburr_lower(text):
+    """Bo dau tieng Viet + ha chu thuong + gom khoang trang - dung khop VI TRI va MA NHOM
+    (khong dung cho ten nang luc vi can xu ly them ngoac/dau '/', xem _normalize_competency_name)."""
+    text = unicodedata.normalize('NFKD', text or '')
+    text = ''.join(ch for ch in text if not unicodedata.combining(ch))
+    text = text.replace('Đ', 'D').replace('đ', 'd')
+    return re.sub(r'\s+', ' ', text).strip().lower()
+
+
+def _normalize_competency_name(text):
+    """Chuan hoa ten nang luc de khop file import voi khung da seed du chenh nhau khoang trang,
+    hoa/thuong, dau, hoac hau to trong ngoac (vd '(upsell)') - tranh tao nang luc trung
+    (Prompt_Fix_ImportKhungNangLuc.md, Loi 2)."""
+    text = re.sub(r'\([^)]*\)', '', text or '')
+    text = re.sub(r'\s*/\s*', '/', text)
+    return _deburr_lower(text)
+
+
+def resolve_position(position_values, raw_position):
+    """Tra ve gia tri vi tri CHINH XAC nhu da luu (trong position_values) khop voi raw_position
+    sau khi chuan hoa - dung cho engine + 'Xem cau hinh theo vi tri' de khong lech hoa/thuong/dau
+    cach voi Employee.position (Prompt_Fix_ImportKhungNangLuc.md, Loi 3). Khong khop -> None."""
+    target = _deburr_lower(raw_position)
+    if not target:
+        return None
+    for value in position_values:
+        if _deburr_lower(value) == target:
+            return value
+    return None
 
 
 # ==================================================================== Seed khung nang luc
@@ -42,7 +78,7 @@ COMPETENCY_FRAMEWORK_SEED = [
     ]),
     ('A2', 'Chuyên môn Phục vụ', [
         'Quy trình phục vụ chuẩn',
-        'Kiến thức món & đồ uống/menu',
+        'Kiến thức món & đồ uống / menu (upsell)',
         'Xử lý order & POS',
         'Chăm sóc khách & xử lý phàn nàn',
         'Vệ sinh, set-up & đóng đồ mang về',
@@ -67,6 +103,10 @@ COMPETENCY_FRAMEWORK_SEED = [
         'Ra quyết định & xử lý sự cố',
     ]),
 ]
+
+# 6 ma nhom he thong dung khung - dung de dep rac (nhom nao ngoai danh sach nay la du lieu loi
+# import, xem quan ly lenh cleanup_competency_data) va de importer tu choi tao nhom moi.
+VALID_GROUP_CODES = {code for code, _name, _competencies in COMPETENCY_FRAMEWORK_SEED}
 
 
 def seed_competency_framework(tenant):
@@ -93,20 +133,33 @@ def _read_csv_rows(csv_text):
 
 
 def _parse_number(raw):
+    """So thap phan, chap nhan ca dang '15%' (Excel xuat CSV tu o dinh dang %) -> 0.15 (chia
+    100), dung chung cho ca sheet muc tieu (0-100, khong dau %) lan trong so nhom (0-1)."""
     raw = (raw or '').strip()
     if not raw or raw == '—' or raw == '-':
         return None
+    is_percent = raw.endswith('%')
+    if is_percent:
+        raw = raw[:-1].strip()
     try:
-        return float(raw.replace(',', '.'))
+        value = float(raw.replace(',', '.'))
     except ValueError:
         return None
+    return value / 100 if is_percent else value
 
 
 def import_position_targets(tenant, csv_text):
     """Import sheet 'Muc tieu theo vi tri' (xuat CSV tu KhungNangLuc_MucTieu_TheoViTri_v0.5.xlsx).
     Dong 1 = tieu de (bo qua), dong 2 = ten vi tri tu cot C, dong 3+ = 'Nhóm,Năng lực,<điểm theo
-    từng vị trí>'. Nhom dang 'AT · An toàn & Tuân thủ' - tach ma truoc dau '·'. Tu tao Competency
-    neu chua co (khong doan sai, chi mo rong khung). '—'/rong = khong ap dung, bo qua."""
+    từng vị trí>'. Nhom dang 'AT · An toàn & Tuân thủ' - tach ma truoc dau '·'. '—'/rong = khong
+    ap dung, bo qua.
+
+    TUYET DOI KHONG tao CompetencyGroup/Competency moi tu du lieu import (Prompt_Fix_
+    ImportKhungNangLuc.md, Loi 2) - CHI khop vao khung da co (get_or_create -> filter), khop
+    nhom theo MA (khong phan biet hoa/thuong) va khop nang luc theo TEN DA CHUAN HOA (bo dau,
+    ha chu thuong, bo phan trong ngoac, chuan hoa dau '/') de khong tao nang luc trung khi file
+    ghi ten hoi khac seed (vd them hau to '(upsell)'). Nhom/nang luc la la (khong khop duoc)
+    -> bo qua dong + ghi canh bao, khong doan/tao moi."""
     rows = _read_csv_rows(csv_text)
     if len(rows) < 3:
         raise ValidationError('File thiếu dữ liệu (cần dòng tiêu đề vị trí + ít nhất 1 dòng năng lực).')
@@ -118,6 +171,16 @@ def import_position_targets(tenant, csv_text):
     if not positions:
         raise ValidationError('Không đọc được danh sách vị trí ở dòng 2 (từ cột C).')
 
+    groups_by_code = {g.code.upper(): g for g in CompetencyGroup.objects.filter(tenant=tenant)}
+    competencies_by_group = {}
+
+    def _competencies_of(group):
+        if group.id not in competencies_by_group:
+            competencies_by_group[group.id] = {
+                _normalize_competency_name(c.name): c for c in group.competencies.all()
+            }
+        return competencies_by_group[group.id]
+
     written = 0
     warnings = []
     for row in rows[2:]:
@@ -127,14 +190,19 @@ def import_position_targets(tenant, csv_text):
         comp_name = (row[1] or '').strip()
         if not comp_name:
             continue
-        code, _, name = group_raw.partition('·')
-        code = code.strip()
-        name = name.strip() or code
+        code, _, _name = group_raw.partition('·')
+        code = code.strip().upper()
         if not code:
             warnings.append(f'Bỏ qua dòng không đọc được nhóm năng lực: "{group_raw}"')
             continue
-        group, _ = CompetencyGroup.objects.get_or_create(tenant=tenant, code=code, defaults={'name': name})
-        competency, _ = Competency.objects.get_or_create(tenant=tenant, group=group, name=comp_name)
+        group = groups_by_code.get(code)
+        if not group:
+            warnings.append(f'Bỏ qua: chưa có nhóm năng lực "{group_raw}" trong khung hiện tại.')
+            continue
+        competency = _competencies_of(group).get(_normalize_competency_name(comp_name))
+        if not competency:
+            warnings.append(f'Bỏ qua: chưa có năng lực "{comp_name}" trong nhóm {group.code}.')
+            continue
 
         for i, position in enumerate(positions):
             col = i + 2
@@ -159,9 +227,14 @@ _HEADER_CODE_RE = re.compile(r'\(([A-Za-z0-9]+)\)\s*$')
 
 
 def import_position_group_weights(tenant, csv_text):
-    """Import sheet 'Trong so nhom'. Cot 1 = Vi tri, cac cot sau = trong so (0-1) cua tung
-    nhom, nhan dien qua ma trong ngoac o cuoi ten cot (vd 'Chuyên môn (A)' -> A). Bo qua cot
-    khong co ma (vd TỔNG). Luu lai thanh % (0-100) dung field PositionGroupWeight.weight."""
+    """Import sheet 'Trong so nhom'. Cot 1 = Vi tri, cac cot sau = trong so (0-1, hoac '15%')
+    cua tung nhom, nhan dien qua ma trong ngoac o cuoi ten cot (vd 'Chuyên môn (A)' -> A). Bo
+    qua cot khong co ma (vd TỔNG). Luu lai thanh % (0-100) dung field PositionGroupWeight.weight.
+
+    Cot 'Chuyên môn (A)' (gop chung, file khong tach A1/A2) duoc ap CUNG trong so cho CA hai
+    nhom A1 va A2 (_GROUP_WEIGHT_CODE_ALIASES) - 1 nguoi chi thuoc 1 tuyen bep/phuc vu nen
+    khong xung dot. TUYET DOI KHONG tao CompetencyGroup moi (Prompt_Fix_ImportKhungNangLuc.md,
+    Loi 1): ma khong khop nhom nao da co -> bo qua + ghi canh bao."""
     rows = _read_csv_rows(csv_text)
     if len(rows) < 2:
         raise ValidationError('File thiếu dữ liệu (cần dòng tiêu đề + ít nhất 1 dòng vị trí).')
@@ -174,6 +247,8 @@ def import_position_group_weights(tenant, csv_text):
             continue
         code = m.group(1).upper()
         col_codes[idx] = _GROUP_WEIGHT_CODE_ALIASES.get(code, [code])
+
+    groups_by_code = {g.code.upper(): g for g in CompetencyGroup.objects.filter(tenant=tenant)}
 
     written = 0
     warnings = []
@@ -189,7 +264,7 @@ def import_position_group_weights(tenant, csv_text):
                 continue
             weight_percent = round(value * 100, 2)
             for code in codes:
-                group = CompetencyGroup.objects.filter(tenant=tenant, code=code).first()
+                group = groups_by_code.get(code)
                 if not group:
                     warnings.append(f'Bỏ qua: chưa có nhóm năng lực "{code}" (vị trí "{position}").')
                     continue
@@ -336,12 +411,18 @@ def _skill_eval_source_scores(employee, competency):
 def compute_competency_scores(employee):
     """Dashboard Phan A muc 3 - engine tinh diem nang luc, CHI DOC (khong ghi de gi). Tra ve
     {'position', 'ci', 'competencies': [...], 'groups': [...]}. Competency/group khong co
-    nguon nao -> score=None ("chưa đủ dữ liệu"), KHONG tinh la 0 (tranh lam hong radar)."""
+    nguon nao -> score=None ("chưa đủ dữ liệu"), KHONG tinh la 0 (tranh lam hong radar).
+    Employee.position duoc khop CHUAN HOA (bo dau/hoa-thuong/khoang trang) voi vi tri da import
+    trong PositionTarget/PositionGroupWeight de khong bi lech du lieu (Prompt_Fix_
+    ImportKhungNangLuc.md, Loi 3)."""
     position = employee.position or ''
     competencies = Competency.objects.filter(tenant=employee.tenant).select_related('group')
+
+    target_positions = PositionTarget.objects.filter(tenant=employee.tenant).values_list('position', flat=True).distinct()
+    resolved_target_position = resolve_position(target_positions, position) or position
     targets = {
         pt.competency_id: pt.target_score
-        for pt in PositionTarget.objects.filter(tenant=employee.tenant, position=position)
+        for pt in PositionTarget.objects.filter(tenant=employee.tenant, position=resolved_target_position)
     }
 
     competency_results = []
@@ -366,9 +447,11 @@ def compute_competency_scores(employee):
         if target is not None:
             group_targets_data[comp.group_id].append(target)
 
+    weight_positions = PositionGroupWeight.objects.filter(tenant=employee.tenant).values_list('position', flat=True).distinct()
+    resolved_weight_position = resolve_position(weight_positions, position) or position
     weights = {
         w.group_id: float(w.weight)
-        for w in PositionGroupWeight.objects.filter(tenant=employee.tenant, position=position)
+        for w in PositionGroupWeight.objects.filter(tenant=employee.tenant, position=resolved_weight_position)
     }
     group_results = []
     for g in CompetencyGroup.objects.filter(tenant=employee.tenant):

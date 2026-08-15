@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.core.management import call_command
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
@@ -19,6 +20,7 @@ from .services import (
     import_position_group_weights,
     import_position_targets,
     indicator_color,
+    resolve_position,
     seed_competency_framework,
     seed_dashboard_indicators,
 )
@@ -38,6 +40,23 @@ SAMPLE_WEIGHTS_CSV = (
     '﻿Vị trí,An toàn & Tuân thủ (AT),Chuyên môn (A),Kỹ năng mềm (B),Thái độ (C),Quản lý (D),TỔNG\r\n'
     'TTS / Phụ bếp,0.15,0.45,0.15,0.25,0,1\r\n'
     'Bếp trưởng,0.1,0.3,0.15,0.15,0.3,1\r\n'
+)
+
+# Bien the CSV trong so voi gia tri dinh dang '%' (Excel xuat tu o dinh dang phan tram) - tai
+# hien dung loi thuc te lam PositionGroupWeight rong toan bo truoc khi sua _parse_number.
+SAMPLE_WEIGHTS_CSV_PERCENT = (
+    '﻿Vị trí,An toàn & Tuân thủ (AT),Chuyên môn (A),Kỹ năng mềm (B),Thái độ (C),Quản lý (D),TỔNG\r\n'
+    'TTS / Phụ bếp,15%,45%,15%,25%,0%,100%\r\n'
+)
+
+# CSV "trong so nhom" bi doc lech qua importer muc tieu (dung nguyen nhan Loi 1 trong prompt):
+# moi dong la 1 VI TRI (khong phai nhom nang luc) - importer muc tieu phai BO QUA, KHONG tao
+# CompetencyGroup "Bếp thớt"/"Bếp chảo" tu day.
+MISROUTED_WEIGHTS_AS_TARGETS_CSV = (
+    '﻿Nhóm,Năng lực,ĐIỂM MỤC TIÊU THEO VỊ TRÍ (0–100),\r\n'
+    ',,X,\r\n'
+    'Bếp thớt,15%,1,\r\n'
+    'Bếp chảo,15%,1,\r\n'
 )
 
 
@@ -61,18 +80,24 @@ class SeedCompetencyFrameworkTests(TestCase):
 
 
 class ImportPositionTargetsTests(TestCase):
+    """Importer muc tieu PHAI khop vao khung nang luc da co (khong tao nhom/nang luc moi) -
+    Prompt_Fix_ImportKhungNangLuc.md, Loi 2."""
+
     def setUp(self):
         self.tenant = Tenant.objects.create(name='Demo Tenant')
+        seed_competency_framework(self.tenant)
 
-    def test_imports_targets_creates_groups_and_competencies(self):
+    def test_imports_targets_matches_existing_framework_no_creation(self):
         result = import_position_targets(self.tenant, SAMPLE_TARGETS_CSV)
         self.assertEqual(result['positions'], 2)
         # 3 dong co gia tri that (AT, A1, B) x 2 vi tri = 6; dong D chi co 1 gia tri (Bep truong,
         # TTS/Phu bep la '—' bo qua) = 1. Tong = 7.
         self.assertEqual(result['targets_written'], 7)
+        # Khung khong doi: van 6 nhom / 24 nang luc, khong tao them gi.
+        self.assertEqual(CompetencyGroup.objects.filter(tenant=self.tenant).count(), 6)
+        self.assertEqual(Competency.objects.filter(tenant=self.tenant).count(), 24)
 
         group_at = CompetencyGroup.objects.get(tenant=self.tenant, code='AT')
-        self.assertEqual(group_at.name, 'An toàn & Tuân thủ')
         comp = Competency.objects.get(tenant=self.tenant, group=group_at, name='An toàn thực phẩm & vệ sinh (HACCP/5S)')
         target = PositionTarget.objects.get(tenant=self.tenant, position='TTS / Phụ bếp', competency=comp)
         self.assertEqual(target.target_score, 72)
@@ -82,7 +107,7 @@ class ImportPositionTargetsTests(TestCase):
     def test_dash_value_skipped(self):
         import_position_targets(self.tenant, SAMPLE_TARGETS_CSV)
         group_d = CompetencyGroup.objects.get(tenant=self.tenant, code='D')
-        comp = Competency.objects.get(tenant=self.tenant, group=group_d)
+        comp = Competency.objects.get(tenant=self.tenant, group=group_d, name='Điều phối ca & phân công')
         self.assertFalse(PositionTarget.objects.filter(tenant=self.tenant, position='TTS / Phụ bếp', competency=comp).exists())
         self.assertTrue(PositionTarget.objects.filter(tenant=self.tenant, position='Bếp trưởng', competency=comp).exists())
 
@@ -90,10 +115,49 @@ class ImportPositionTargetsTests(TestCase):
         import_position_targets(self.tenant, SAMPLE_TARGETS_CSV)
         import_position_targets(self.tenant, SAMPLE_TARGETS_CSV)
         self.assertEqual(PositionTarget.objects.filter(tenant=self.tenant).count(), 7)
+        self.assertEqual(Competency.objects.filter(tenant=self.tenant).count(), 24)
 
     def test_too_short_file_raises(self):
         with self.assertRaises(ValidationError):
             import_position_targets(self.tenant, 'chỉ 1 dòng')
+
+    def test_unknown_group_row_skipped_no_group_created(self):
+        """Tai hien dung Loi 1 that xay ra: file trong so nhom (moi dong la 1 VI TRI) bi nap
+        nham qua importer muc tieu -> phai bo qua + canh bao, KHONG tao nhom 'Bếp thớt'/'Bếp
+        chảo'."""
+        result = import_position_targets(self.tenant, MISROUTED_WEIGHTS_AS_TARGETS_CSV)
+        self.assertEqual(result['targets_written'], 0)
+        self.assertTrue(result['warnings'])
+        self.assertEqual(CompetencyGroup.objects.filter(tenant=self.tenant).count(), 6)
+        self.assertFalse(CompetencyGroup.objects.filter(tenant=self.tenant, code__in=['Bếp thớt', 'Bếp chảo']).exists())
+
+    def test_unknown_competency_name_skipped_no_duplicate(self):
+        csv_text = (
+            '﻿Nhóm,Năng lực,ĐIỂM MỤC TIÊU THEO VỊ TRÍ (0–100),\r\n'
+            ',,TTS / Phụ bếp,\r\n'
+            'AT · An toàn & Tuân thủ,Năng lực lạ không có trong khung,72,\r\n'
+        )
+        result = import_position_targets(self.tenant, csv_text)
+        self.assertEqual(result['targets_written'], 0)
+        self.assertTrue(result['warnings'])
+        self.assertEqual(Competency.objects.filter(tenant=self.tenant).count(), 24)
+
+    def test_matches_competency_by_normalized_name_variant(self):
+        """Ten trong file lech chut it (hoa/thuong, khoang trang, hau to '(upsell)') voi ten da
+        seed van phai khop vao CUNG 1 Competency, khong tao ban trung (Loi 2)."""
+        csv_text = (
+            '﻿Nhóm,Năng lực,ĐIỂM MỤC TIÊU THEO VỊ TRÍ (0–100),\r\n'
+            ',,NV Phục vụ,\r\n'
+            'A2 · Chuyên môn Phục vụ,kiến thức món & đồ uống/menu   (upsell),85,\r\n'
+        )
+        before = Competency.objects.filter(tenant=self.tenant).count()
+        result = import_position_targets(self.tenant, csv_text)
+        self.assertEqual(result['targets_written'], 1)
+        self.assertEqual(Competency.objects.filter(tenant=self.tenant).count(), before)
+        comp = Competency.objects.get(
+            tenant=self.tenant, group__code='A2', name='Kiến thức món & đồ uống / menu (upsell)',
+        )
+        self.assertTrue(PositionTarget.objects.filter(tenant=self.tenant, position='NV Phục vụ', competency=comp, target_score=85).exists())
 
 
 class ImportPositionGroupWeightsTests(TestCase):
@@ -116,6 +180,29 @@ class ImportPositionGroupWeightsTests(TestCase):
         at = CompetencyGroup.objects.get(tenant=self.tenant, code='AT')
         w_at = PositionGroupWeight.objects.get(tenant=self.tenant, position='Bếp trưởng', group=at)
         self.assertEqual(w_at.weight, Decimal('10.00'))
+
+    def test_percent_formatted_values_parsed(self):
+        """Excel xuat CSV tu o dinh dang % ('15%') - truoc khi sua _parse_number, gia tri nay bi
+        bo qua toan bo (float('15%') loi) khien PositionGroupWeight rong (nguyen nhan that cua
+        Loi 1/Loi 3 tren production)."""
+        result = import_position_group_weights(self.tenant, SAMPLE_WEIGHTS_CSV_PERCENT)
+        self.assertEqual(result['weights_written'], 6)  # AT, A->A1+A2, B, C, D (1 vi tri x 6, A tach 2)
+        at = CompetencyGroup.objects.get(tenant=self.tenant, code='AT')
+        w_at = PositionGroupWeight.objects.get(tenant=self.tenant, position='TTS / Phụ bếp', group=at)
+        self.assertEqual(w_at.weight, Decimal('15.00'))
+        a1 = CompetencyGroup.objects.get(tenant=self.tenant, code='A1')
+        w_a1 = PositionGroupWeight.objects.get(tenant=self.tenant, position='TTS / Phụ bếp', group=a1)
+        self.assertEqual(w_a1.weight, Decimal('45.00'))
+
+    def test_unknown_group_code_skipped_no_group_created(self):
+        csv_text = (
+            '﻿Vị trí,An toàn & Tuân thủ (AT),Ngoại ngữ (Z),TỔNG\r\n'
+            'TTS / Phụ bếp,0.15,0.2,1\r\n'
+        )
+        result = import_position_group_weights(self.tenant, csv_text)
+        self.assertTrue(result['warnings'])
+        self.assertEqual(CompetencyGroup.objects.filter(tenant=self.tenant).count(), 6)
+        self.assertFalse(CompetencyGroup.objects.filter(tenant=self.tenant, code='Z').exists())
 
 
 class ComputeCompetencyScoresTests(TestCase):
@@ -216,6 +303,31 @@ class ComputeCompetencyScoresTests(TestCase):
         group_result = next(g for g in scores['groups'] if g['id'] == self.group.id)
         self.assertEqual(group_result['score'], 100.0)
         self.assertEqual(scores['ci'], 100.0)
+
+    def test_target_matched_despite_position_case_and_spacing_mismatch(self):
+        """Prompt_Fix_ImportKhungNangLuc.md, Loi 3: Employee.position ghi khac hoa/thuong/
+        khoang trang so voi PositionTarget/PositionGroupWeight da import van phai khop duoc
+        (deburr) de radar co duong 'Muc tieu'."""
+        self.employee.position = '  nv   phục vụ '
+        self.employee.save(update_fields=['position'])
+        scores = compute_competency_scores(self.employee)
+        comp_result = next(c for c in scores['competencies'] if c['id'] == self.comp_a.id)
+        self.assertEqual(comp_result['target'], 80)
+        group_result = next(g for g in scores['groups'] if g['id'] == self.group.id)
+        self.assertEqual(group_result['weight'], 100.0)
+
+
+class ResolvePositionTests(TestCase):
+    def test_matches_ignoring_case_diacritics_and_spacing(self):
+        values = ['NV Phục vụ', 'Bếp trưởng']
+        self.assertEqual(resolve_position(values, 'nv   phuc vu'), 'NV Phục vụ')
+        self.assertEqual(resolve_position(values, 'BẾP TRƯỞNG'), 'Bếp trưởng')
+
+    def test_no_match_returns_none(self):
+        self.assertIsNone(resolve_position(['NV Phục vụ'], 'Quản lý vùng'))
+
+    def test_empty_input_returns_none(self):
+        self.assertIsNone(resolve_position(['NV Phục vụ'], ''))
 
 
 class CompetencyGapsTests(TestCase):
@@ -423,6 +535,7 @@ class CompetencyFrameworkCrudApiTests(TestCase):
     def test_import_targets_via_api(self):
         from django.core.files.uploadedfile import SimpleUploadedFile
 
+        seed_competency_framework(self.tenant)
         self.client.force_authenticate(self.admin)
         f = SimpleUploadedFile('targets.csv', SAMPLE_TARGETS_CSV.encode('utf-8'), content_type='text/csv')
         resp = self.client.post(reverse('dashboard-import-targets'), {'file': f}, format='multipart')
@@ -435,3 +548,83 @@ class CompetencyFrameworkCrudApiTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data['groups_created'], 6)
         self.assertEqual(resp.data['indicators_created'], 29)
+
+
+class PositionLookupNormalizedTests(TestCase):
+    """'Xem cấu hình theo vị trí' phai khop du go sai hoa/thuong/dau cach so voi du lieu da
+    import (Prompt_Fix_ImportKhungNangLuc.md, Loi 3)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        seed_competency_framework(self.tenant)
+        import_position_targets(self.tenant, SAMPLE_TARGETS_CSV)
+        import_position_group_weights(self.tenant, SAMPLE_WEIGHTS_CSV)
+        self.client = APIClient()
+        self.client.force_authenticate(self.admin)
+
+    def test_position_targets_matches_case_and_spacing_variant(self):
+        resp = self.client.get(reverse('position-target-list'), {'position': '  tts / phụ bếp  '})
+        self.assertEqual(resp.status_code, 200)
+        self.assertGreater(resp.data['count'], 0)
+        self.assertTrue(all(r['position'] == 'TTS / Phụ bếp' for r in resp.data['results']))
+
+    def test_position_weights_matches_diacritic_variant(self):
+        resp = self.client.get(reverse('position-weight-list'), {'position': 'bep truong'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertGreater(resp.data['count'], 0)
+        self.assertTrue(all(r['position'] == 'Bếp trưởng' for r in resp.data['results']))
+
+    def test_unknown_position_returns_empty(self):
+        resp = self.client.get(reverse('position-target-list'), {'position': 'Vị trí không tồn tại'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['count'], 0)
+
+
+class CleanupCompetencyDataCommandTests(TestCase):
+    """Lenh don rac + gop trung (Prompt_Fix_ImportKhungNangLuc.md) - idempotent."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        seed_competency_framework(self.tenant)
+
+    def test_removes_stray_group_created_by_misrouted_import(self):
+        rac_group = CompetencyGroup.objects.create(tenant=self.tenant, code='Bếp thớt', name='Bếp thớt')
+        Competency.objects.create(tenant=self.tenant, group=rac_group, name='15%')
+
+        call_command('cleanup_competency_data', tenant='Demo Tenant')
+
+        self.assertEqual(CompetencyGroup.objects.filter(tenant=self.tenant).count(), 6)
+        self.assertFalse(CompetencyGroup.objects.filter(tenant=self.tenant, code='Bếp thớt').exists())
+        self.assertEqual(Competency.objects.filter(tenant=self.tenant).count(), 24)
+
+    def test_merges_duplicate_competency_and_reassigns_targets(self):
+        """Ban ghi giu lai la ban co NHIEU PositionTarget hon (uu tien du lieu that da import,
+        dung nhu tinh huong that tren production: id co 9 PositionTarget duoc giu, ban 0 target
+        bi xoa) - khong dua theo ten nao 'dung chinh ta' hon."""
+        a2 = CompetencyGroup.objects.get(tenant=self.tenant, code='A2')
+        keeper = Competency.objects.get(tenant=self.tenant, group=a2, name='Kiến thức món & đồ uống / menu (upsell)')
+        dupe = Competency.objects.create(tenant=self.tenant, group=a2, name='Kiến thức món & đồ uống/menu')
+        PositionTarget.objects.create(tenant=self.tenant, position='Bếp trưởng', competency=keeper, target_score=90)
+        PositionTarget.objects.create(tenant=self.tenant, position='Bếp phó', competency=keeper, target_score=88)
+        PositionTarget.objects.create(tenant=self.tenant, position='NV Phục vụ', competency=dupe, target_score=85)
+        course = Course.objects.create(tenant=self.tenant, title='Khóa cũ', competency=dupe)
+
+        call_command('cleanup_competency_data', tenant='Demo Tenant')
+
+        self.assertEqual(Competency.objects.filter(tenant=self.tenant).count(), 24)
+        self.assertFalse(Competency.objects.filter(id=dupe.id).exists())
+        self.assertTrue(
+            PositionTarget.objects.filter(tenant=self.tenant, position='NV Phục vụ', competency=keeper, target_score=85).exists()
+        )
+        self.assertTrue(
+            PositionTarget.objects.filter(tenant=self.tenant, position='Bếp trưởng', competency=keeper, target_score=90).exists()
+        )
+        course.refresh_from_db()
+        self.assertEqual(course.competency_id, keeper.id)
+
+    def test_idempotent_second_run_changes_nothing(self):
+        call_command('cleanup_competency_data', tenant='Demo Tenant')
+        call_command('cleanup_competency_data', tenant='Demo Tenant')
+        self.assertEqual(CompetencyGroup.objects.filter(tenant=self.tenant).count(), 6)
+        self.assertEqual(Competency.objects.filter(tenant=self.tenant).count(), 24)
