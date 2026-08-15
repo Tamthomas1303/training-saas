@@ -106,8 +106,14 @@ class Assessment(models.Model):
     # (tu chon, MVP): {"bank_id": <id>, "count": <n>, "difficulty": "<easy|medium|hard>"?}.
     # difficulty bo trong = khong loc do kho. rong/None = dung cau chon tay (AssessmentQuestion).
     random_pool_config = models.JSONField(null=True, blank=True)
-    # Forward-compat Dot 3.
+    # Forward-compat Dot 3. Dashboard Phan A dung FK ben duoi thay the (uu tien FK) - giu lai
+    # truong chu de khong pha du lieu cu, khong con dung trong engine tinh diem nang luc.
     competency_tag = models.CharField(max_length=100, blank=True)
+    # Dashboard Phan A: gan de thi vao 1 nang luc trong khung - xem
+    # dashboard.services.compute_competency_scores. Null = chua gan.
+    competency = models.ForeignKey(
+        'dashboard.Competency', on_delete=models.SET_NULL, related_name='assessments', null=True, blank=True,
+    )
     # Dot 3 phan A: ma dinh danh bai thi nay ben he cu (ExamResult.exam_name) - ADMIN TU GAN
     # TAY. Rong = KHONG dong bo (bo qua, log canh bao) - tranh doan bua anh huong pass thu viec.
     # Xem integration.services.sync_result_to_profile.

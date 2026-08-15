@@ -44,6 +44,12 @@ class EvaluationCriteria(models.Model):
     # Cấp O: nhóm vị trí (FOH/BOH) + vai người chấm trong phỏng vấn (HCNS/DaoTao/VanHanh/QC).
     position_group = models.CharField(max_length=10, blank=True)
     dept_role = models.CharField(max_length=20, blank=True)
+    # Dashboard Phan A: gan tieu chi vao 1 nang luc trong khung - diem EvaluationDetail cua tieu
+    # chi nay se "nuoi" nang luc do (xem dashboard.services.compute_competency_scores). Null =
+    # chua gan, khong tinh vao nang luc nao.
+    competency = models.ForeignKey(
+        'dashboard.Competency', on_delete=models.SET_NULL, related_name='criteria', null=True, blank=True,
+    )
 
     class Meta:
         ordering = ['order']

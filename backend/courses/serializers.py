@@ -42,13 +42,15 @@ class CourseSerializer(serializers.ModelSerializer):
     lessons_count = serializers.SerializerMethodField()
     enrolled_count = serializers.SerializerMethodField()
 
+    competency_name = serializers.CharField(source='competency.name', read_only=True, default='')
+
     class Meta:
         model = Course
         fields = [
             'id', 'title', 'description', 'cover_url', 'objective', 'target_audience',
             'est_minutes', 'status', 'status_display', 'created_by', 'created_by_name',
-            'competency_tag', 'sync_course_code', 'modules_count', 'lessons_count',
-            'enrolled_count', 'created_at', 'updated_at',
+            'competency_tag', 'competency', 'competency_name', 'sync_course_code',
+            'modules_count', 'lessons_count', 'enrolled_count', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_by', 'created_at', 'updated_at']
 

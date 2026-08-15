@@ -30,8 +30,16 @@ class Course(models.Model):
     created_by = models.ForeignKey(
         User, on_delete=models.SET_NULL, related_name='courses_created', null=True, blank=True,
     )
-    # Forward-compat Dot 2/3: gan nhan nang luc cho khoa hoc. CHUA co logic gi dung den o Dot 1.
+    # Forward-compat Dot 2/3: gan nhan nang luc cho khoa hoc (chu, chua dung logic gi). Dashboard
+    # Phan A dung FK ben duoi thay the (uu tien FK theo dung prompt) - GIU LAI truong chu nay de
+    # khong pha du lieu cu, khong con doc trong engine tinh diem nang luc.
     competency_tag = models.CharField(max_length=100, blank=True)
+    # Dashboard Phan A: gan khoa hoc vao 1 nang luc trong khung (dashboard.Competency) - dung de
+    # engine tinh diem nang luc (dashboard.services.compute_competency_scores) biet khoa nay
+    # "nuoi" nang luc nao. Null = chua gan, khong tinh vao nang luc nao.
+    competency = models.ForeignKey(
+        'dashboard.Competency', on_delete=models.SET_NULL, related_name='courses', null=True, blank=True,
+    )
     # Dot 3 phan A: ma dinh danh khoa nay ben he cu (CourseResult.course_name) - ADMIN TU GAN
     # TAY. Rong = KHONG dong bo (bo qua, log canh bao) - tranh doan bua anh huong pass thu viec.
     # Xem integration.services.sync_result_to_profile.

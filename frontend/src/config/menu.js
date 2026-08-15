@@ -28,6 +28,9 @@ export const MENU_ITEMS = {
   certPrograms: { label: 'Chương trình chứng chỉ', icon: '🏆', path: '/cert-programs' },
   certificates: { label: 'Chứng chỉ đã cấp', icon: '📜', path: '/certificates' },
   myCertificates: { label: 'Chứng chỉ của tôi', icon: '📜', path: '/my-certificates' },
+  employee360: { label: 'Hồ sơ 360', icon: '🧭', path: '/employee-360' },
+  dashboardConfig: { label: 'Cấu hình Dashboard', icon: '⚙️', path: '/dashboard-config' },
+  competencyFramework: { label: 'Khung năng lực', icon: '🕸️', path: '/competency-framework' },
 }
 
 // Vai tro "toan he thong" -> shell desktop (topbar); con lai -> shell mobile (bottom-nav).
@@ -42,10 +45,13 @@ const ROLE_MENU = {
   admin: [
     'hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'users', 'reports',
     'coursesAdmin', 'examBanks', 'examsAdmin', 'examGrading', 'certTemplates', 'certPrograms',
-    'certificates',
+    'certificates', 'employee360', 'dashboardConfig', 'competencyFramework',
   ],
-  om: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'reports', 'examGrading'],
-  bod: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents'],
+  om: [
+    'hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'reports', 'examGrading',
+    'employee360',
+  ],
+  bod: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'employee360'],
   am: ['hub', 'home', 'kpi', 'documents', 'examGrading'],
   kcs: ['hub', 'home', 'kpi', 'documents', 'examGrading'],
   bql: ['hub', 'home', 'kpi', 'documents', 'examGrading'],

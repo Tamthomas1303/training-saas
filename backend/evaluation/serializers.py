@@ -4,12 +4,14 @@ from .models import Evaluation, EvaluationCriteria, EvaluationDetail
 
 
 class EvaluationCriteriaSerializer(serializers.ModelSerializer):
+    competency_name = serializers.CharField(source='competency.name', read_only=True, default='')
+
     class Meta:
         model = EvaluationCriteria
         fields = [
             'id', 'brand', 'position', 'level_group', 'eval_type', 'section',
             'content', 'max_score', 'is_mandatory', 'require_photo', 'order',
-            'position_group', 'dept_role',
+            'position_group', 'dept_role', 'competency', 'competency_name',
         ]
 
 

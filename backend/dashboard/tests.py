@@ -1,0 +1,437 @@
+from decimal import Decimal
+
+from django.test import TestCase
+from django.urls import reverse
+from rest_framework.test import APIClient
+
+from accounts.models import Tenant, User
+from courses.models import Course, CourseModule, Enrollment, Lesson, LessonProgress
+from employees.models import Employee
+from evaluation.models import Evaluation, EvaluationCriteria, EvaluationDetail
+from exams.models import Assessment, Attempt
+
+from .models import CompetencyGroup, Competency, DashboardIndicator, PositionGroupWeight, PositionTarget
+from .services import (
+    ValidationError,
+    compute_competency_scores,
+    competency_gaps,
+    employee_360,
+    import_position_group_weights,
+    import_position_targets,
+    indicator_color,
+    seed_competency_framework,
+    seed_dashboard_indicators,
+)
+
+# Mau CSV thuc te (trich tu KhungNangLuc_MucTieu_TheoViTri_v0.5.xlsx, xuat CSV) - dung y he
+# BOM utf-8-sig + dau '·' nhu file that.
+SAMPLE_TARGETS_CSV = (
+    '﻿Nhóm,Năng lực,ĐIỂM MỤC TIÊU THEO VỊ TRÍ (0–100),,\r\n'
+    ',,TTS / Phụ bếp,Bếp trưởng\r\n'
+    'AT · An toàn & Tuân thủ,An toàn thực phẩm & vệ sinh (HACCP/5S),72,88\r\n'
+    'A1 · Chuyên môn Bếp,Sơ chế & bảo quản nguyên liệu,65,89\r\n'
+    'B · Kỹ năng mềm,Giao tiếp,58,80\r\n'
+    'D · Quản lý,Điều phối ca & phân công,—,83\r\n'
+)
+
+SAMPLE_WEIGHTS_CSV = (
+    '﻿Vị trí,An toàn & Tuân thủ (AT),Chuyên môn (A),Kỹ năng mềm (B),Thái độ (C),Quản lý (D),TỔNG\r\n'
+    'TTS / Phụ bếp,0.15,0.45,0.15,0.25,0,1\r\n'
+    'Bếp trưởng,0.1,0.3,0.15,0.15,0.3,1\r\n'
+)
+
+
+class SeedCompetencyFrameworkTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+
+    def test_creates_6_groups_24_competencies(self):
+        result = seed_competency_framework(self.tenant)
+        self.assertEqual(result['groups_created'], 6)
+        self.assertEqual(result['competencies_created'], 24)
+        self.assertEqual(CompetencyGroup.objects.filter(tenant=self.tenant).count(), 6)
+        self.assertEqual(Competency.objects.filter(tenant=self.tenant).count(), 24)
+
+    def test_idempotent(self):
+        seed_competency_framework(self.tenant)
+        result = seed_competency_framework(self.tenant)
+        self.assertEqual(result['groups_created'], 0)
+        self.assertEqual(result['competencies_created'], 0)
+        self.assertEqual(CompetencyGroup.objects.filter(tenant=self.tenant).count(), 6)
+
+
+class ImportPositionTargetsTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+
+    def test_imports_targets_creates_groups_and_competencies(self):
+        result = import_position_targets(self.tenant, SAMPLE_TARGETS_CSV)
+        self.assertEqual(result['positions'], 2)
+        # 3 dong co gia tri that (AT, A1, B) x 2 vi tri = 6; dong D chi co 1 gia tri (Bep truong,
+        # TTS/Phu bep la '—' bo qua) = 1. Tong = 7.
+        self.assertEqual(result['targets_written'], 7)
+
+        group_at = CompetencyGroup.objects.get(tenant=self.tenant, code='AT')
+        self.assertEqual(group_at.name, 'An toàn & Tuân thủ')
+        comp = Competency.objects.get(tenant=self.tenant, group=group_at, name='An toàn thực phẩm & vệ sinh (HACCP/5S)')
+        target = PositionTarget.objects.get(tenant=self.tenant, position='TTS / Phụ bếp', competency=comp)
+        self.assertEqual(target.target_score, 72)
+        target2 = PositionTarget.objects.get(tenant=self.tenant, position='Bếp trưởng', competency=comp)
+        self.assertEqual(target2.target_score, 88)
+
+    def test_dash_value_skipped(self):
+        import_position_targets(self.tenant, SAMPLE_TARGETS_CSV)
+        group_d = CompetencyGroup.objects.get(tenant=self.tenant, code='D')
+        comp = Competency.objects.get(tenant=self.tenant, group=group_d)
+        self.assertFalse(PositionTarget.objects.filter(tenant=self.tenant, position='TTS / Phụ bếp', competency=comp).exists())
+        self.assertTrue(PositionTarget.objects.filter(tenant=self.tenant, position='Bếp trưởng', competency=comp).exists())
+
+    def test_reimport_updates_not_duplicates(self):
+        import_position_targets(self.tenant, SAMPLE_TARGETS_CSV)
+        import_position_targets(self.tenant, SAMPLE_TARGETS_CSV)
+        self.assertEqual(PositionTarget.objects.filter(tenant=self.tenant).count(), 7)
+
+    def test_too_short_file_raises(self):
+        with self.assertRaises(ValidationError):
+            import_position_targets(self.tenant, 'chỉ 1 dòng')
+
+
+class ImportPositionGroupWeightsTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        seed_competency_framework(self.tenant)
+
+    def test_imports_weights_duplicates_combined_a_into_a1_a2(self):
+        result = import_position_group_weights(self.tenant, SAMPLE_WEIGHTS_CSV)
+        # 5 cot (AT, A->A1+A2, B, C, D) x 2 vi tri = 12 dong ghi (A tach thanh 2).
+        self.assertEqual(result['weights_written'], 12)
+
+        a1 = CompetencyGroup.objects.get(tenant=self.tenant, code='A1')
+        a2 = CompetencyGroup.objects.get(tenant=self.tenant, code='A2')
+        w1 = PositionGroupWeight.objects.get(tenant=self.tenant, position='TTS / Phụ bếp', group=a1)
+        w2 = PositionGroupWeight.objects.get(tenant=self.tenant, position='TTS / Phụ bếp', group=a2)
+        self.assertEqual(w1.weight, Decimal('45.00'))
+        self.assertEqual(w2.weight, Decimal('45.00'))
+
+        at = CompetencyGroup.objects.get(tenant=self.tenant, code='AT')
+        w_at = PositionGroupWeight.objects.get(tenant=self.tenant, position='Bếp trưởng', group=at)
+        self.assertEqual(w_at.weight, Decimal('10.00'))
+
+
+class ComputeCompetencyScoresTests(TestCase):
+    """Test B (Phan A muc 3/7): engine tinh diem nang luc - co nguon / khong nguon (N/A) /
+    nhieu nguon trung binh / gap so muc tieu."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.employee = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='NV1', position='NV Phục vụ',
+        )
+        self.group = CompetencyGroup.objects.create(tenant=self.tenant, code='A2', name='Chuyên môn Phục vụ')
+        self.comp_a = Competency.objects.create(tenant=self.tenant, group=self.group, name='Quy trình phục vụ chuẩn')
+        self.comp_b = Competency.objects.create(tenant=self.tenant, group=self.group, name='Xử lý order & POS')
+        PositionTarget.objects.create(tenant=self.tenant, position='NV Phục vụ', competency=self.comp_a, target_score=80)
+        PositionGroupWeight.objects.create(tenant=self.tenant, position='NV Phục vụ', group=self.group, weight=Decimal('100'))
+
+    def test_competency_without_source_is_na_not_zero(self):
+        scores = compute_competency_scores(self.employee)
+        comp_result = next(c for c in scores['competencies'] if c['id'] == self.comp_a.id)
+        self.assertIsNone(comp_result['score'])
+        self.assertIsNone(comp_result['gap'])
+        self.assertIsNone(scores['ci'])  # khong nhom nao co du lieu -> CI cung N/A
+
+    def test_course_source_completed_gives_100(self):
+        course = Course.objects.create(tenant=self.tenant, title='Khóa phục vụ', competency=self.comp_a)
+        Enrollment.objects.create(
+            tenant=self.tenant, course=course, employee=self.employee, status=Enrollment.Status.COMPLETED,
+        )
+        scores = compute_competency_scores(self.employee)
+        comp_result = next(c for c in scores['competencies'] if c['id'] == self.comp_a.id)
+        self.assertEqual(comp_result['score'], 100.0)
+        self.assertEqual(comp_result['target'], 80)
+        self.assertEqual(comp_result['gap'], -20.0)  # vuot muc tieu -> gap am, khong hien trong bang gap
+
+    def test_course_source_in_progress_gives_partial_percent(self):
+        course = Course.objects.create(tenant=self.tenant, title='Khóa phục vụ', competency=self.comp_a)
+        module = CourseModule.objects.create(tenant=self.tenant, course=course, title='Chương 1')
+        lesson1 = Lesson.objects.create(tenant=self.tenant, module=module, title='Bài 1', order=0)
+        Lesson.objects.create(tenant=self.tenant, module=module, title='Bài 2', order=1)
+        enrollment = Enrollment.objects.create(
+            tenant=self.tenant, course=course, employee=self.employee, status=Enrollment.Status.IN_PROGRESS,
+        )
+        LessonProgress.objects.create(
+            tenant=self.tenant, enrollment=enrollment, lesson=lesson1, status=LessonProgress.Status.DONE,
+        )
+        scores = compute_competency_scores(self.employee)
+        comp_result = next(c for c in scores['competencies'] if c['id'] == self.comp_a.id)
+        self.assertEqual(comp_result['score'], 50.0)  # 1/2 bai
+        self.assertEqual(comp_result['gap'], 30.0)  # thieu 30 diem so voi muc tieu 80
+
+    def test_exam_source_score(self):
+        assessment = Assessment.objects.create(tenant=self.tenant, title='Đề phục vụ', competency=self.comp_a)
+        Attempt.objects.create(
+            tenant=self.tenant, assessment=assessment, employee=self.employee, attempt_no=1,
+            status=Attempt.Status.GRADED, percent=Decimal('90.00'),
+        )
+        scores = compute_competency_scores(self.employee)
+        comp_result = next(c for c in scores['competencies'] if c['id'] == self.comp_a.id)
+        self.assertEqual(comp_result['score'], 90.0)
+
+    def test_skill_evaluation_source_score(self):
+        criteria = EvaluationCriteria.objects.create(
+            tenant=self.tenant, content='Phục vụ chuẩn', max_score=100, competency=self.comp_a,
+        )
+        evaluation = Evaluation.objects.create(
+            tenant=self.tenant, employee=self.employee, eval_type='Skill_BQL', status=Evaluation.Status.DONE,
+        )
+        EvaluationDetail.objects.create(
+            tenant=self.tenant, evaluation=evaluation, criteria_id=str(criteria.id),
+            content=criteria.content, max_score=100, score=Decimal('70'),
+        )
+        scores = compute_competency_scores(self.employee)
+        comp_result = next(c for c in scores['competencies'] if c['id'] == self.comp_a.id)
+        self.assertEqual(comp_result['score'], 70.0)
+
+    def test_multiple_sources_averaged(self):
+        course = Course.objects.create(tenant=self.tenant, title='Khóa phục vụ', competency=self.comp_a)
+        Enrollment.objects.create(
+            tenant=self.tenant, course=course, employee=self.employee, status=Enrollment.Status.COMPLETED,
+        )
+        assessment = Assessment.objects.create(tenant=self.tenant, title='Đề phục vụ', competency=self.comp_a)
+        Attempt.objects.create(
+            tenant=self.tenant, assessment=assessment, employee=self.employee, attempt_no=1,
+            status=Attempt.Status.GRADED, percent=Decimal('60.00'),
+        )
+        scores = compute_competency_scores(self.employee)
+        comp_result = next(c for c in scores['competencies'] if c['id'] == self.comp_a.id)
+        self.assertEqual(comp_result['score'], 80.0)  # (100 + 60) / 2
+
+    def test_group_score_only_averages_competencies_with_data(self):
+        course = Course.objects.create(tenant=self.tenant, title='Khóa phục vụ', competency=self.comp_a)
+        Enrollment.objects.create(
+            tenant=self.tenant, course=course, employee=self.employee, status=Enrollment.Status.COMPLETED,
+        )
+        # comp_b khong co nguon -> khong duoc tinh vao trung binh nhom (chi comp_a).
+        scores = compute_competency_scores(self.employee)
+        group_result = next(g for g in scores['groups'] if g['id'] == self.group.id)
+        self.assertEqual(group_result['score'], 100.0)
+        self.assertEqual(scores['ci'], 100.0)
+
+
+class CompetencyGapsTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.employee = Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1', position='NV Phục vụ')
+        self.group = CompetencyGroup.objects.create(tenant=self.tenant, code='A2', name='Chuyên môn Phục vụ')
+        self.comp = Competency.objects.create(tenant=self.tenant, group=self.group, name='Quy trình phục vụ chuẩn')
+        PositionTarget.objects.create(tenant=self.tenant, position='NV Phục vụ', competency=self.comp, target_score=90)
+
+    def test_gap_suggests_uncompleted_course_with_same_competency(self):
+        course_done = Course.objects.create(tenant=self.tenant, title='Khóa đã xong', competency=self.comp)
+        Enrollment.objects.create(
+            tenant=self.tenant, course=course_done, employee=self.employee, status=Enrollment.Status.COMPLETED,
+        )
+        course_todo = Course.objects.create(tenant=self.tenant, title='Khóa nâng cao', competency=self.comp)
+
+        # Diem hien tai = 100 (da hoan thanh course_done) nhung muc tieu 90 -> khong con gap.
+        # Ha diem bang cach them 1 khoa dang do de trung binh < 90.
+        course_partial = Course.objects.create(tenant=self.tenant, title='Khóa dở dang', competency=self.comp)
+        module = CourseModule.objects.create(tenant=self.tenant, course=course_partial, title='Chương 1')
+        Lesson.objects.create(tenant=self.tenant, module=module, title='Bài 1', order=0)
+        Enrollment.objects.create(
+            tenant=self.tenant, course=course_partial, employee=self.employee, status=Enrollment.Status.IN_PROGRESS,
+        )
+
+        gaps = competency_gaps(self.employee)
+        self.assertEqual(len(gaps), 1)
+        self.assertEqual(gaps[0]['id'], self.comp.id)
+        suggested_ids = {c['id'] for c in gaps[0]['suggested_courses']}
+        self.assertIn(course_todo.id, suggested_ids)
+        self.assertNotIn(course_done.id, suggested_ids)  # da hoan thanh, khong goi y lai
+
+
+class IndicatorColorTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+
+    def test_higher_better(self):
+        ind = DashboardIndicator.objects.create(
+            tenant=self.tenant, key='k1', label='L1', direction=DashboardIndicator.Direction.HIGHER_BETTER,
+            green_threshold=90, yellow_threshold=80,
+        )
+        self.assertEqual(indicator_color(ind, 95), 'green')
+        self.assertEqual(indicator_color(ind, 85), 'yellow')
+        self.assertEqual(indicator_color(ind, 70), 'red')
+
+    def test_lower_better(self):
+        ind = DashboardIndicator.objects.create(
+            tenant=self.tenant, key='k2', label='L2', direction=DashboardIndicator.Direction.LOWER_BETTER,
+            green_threshold=10, yellow_threshold=20,
+        )
+        self.assertEqual(indicator_color(ind, 5), 'green')
+        self.assertEqual(indicator_color(ind, 15), 'yellow')
+        self.assertEqual(indicator_color(ind, 30), 'red')
+
+    def test_no_threshold_or_none_direction_returns_none(self):
+        ind = DashboardIndicator.objects.create(
+            tenant=self.tenant, key='k3', label='L3', direction=DashboardIndicator.Direction.NONE,
+        )
+        self.assertIsNone(indicator_color(ind, 50))
+        ind2 = DashboardIndicator.objects.create(
+            tenant=self.tenant, key='k4', label='L4', direction=DashboardIndicator.Direction.HIGHER_BETTER,
+        )
+        self.assertIsNone(indicator_color(ind2, 50))
+
+    def test_none_value_returns_none(self):
+        ind = DashboardIndicator.objects.create(
+            tenant=self.tenant, key='k5', label='L5', direction=DashboardIndicator.Direction.HIGHER_BETTER,
+            green_threshold=90, yellow_threshold=80,
+        )
+        self.assertIsNone(indicator_color(ind, None))
+
+
+class SeedDashboardIndicatorsTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+
+    def test_seeds_selected_indicators(self):
+        result = seed_dashboard_indicators(self.tenant)
+        # Danh sach seed CHI gom cac dong CHỌN='x' trong ChiSo_Dashboard_ChonLua_v0.2.xlsx (29
+        # / 34 dong - 5 dong khong chon nhu 'Phễu onboarding', 'Tỷ lệ thi lại' bi loai).
+        self.assertEqual(result['indicators_created'], 29)
+        self.assertEqual(DashboardIndicator.objects.filter(tenant=self.tenant).count(), 29)
+        self.assertTrue(DashboardIndicator.objects.filter(tenant=self.tenant, key='ci_tong_hop').exists())
+
+    def test_idempotent_does_not_overwrite_admin_changes(self):
+        seed_dashboard_indicators(self.tenant)
+        ind = DashboardIndicator.objects.get(tenant=self.tenant, key='ci_tong_hop')
+        ind.enabled = False
+        ind.green_threshold = 95
+        ind.save()
+        seed_dashboard_indicators(self.tenant)
+        ind.refresh_from_db()
+        self.assertFalse(ind.enabled)
+        self.assertEqual(ind.green_threshold, 95)
+
+
+class Employee360ApiTests(TestCase):
+    """Test C (Phan A muc 4/7): API Ho so 360 + bat/tat chi so."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.om = User.objects.create_user(username='om1', password='x', tenant=self.tenant, role='om')
+        self.trainer = User.objects.create_user(username='trainer1', password='x', tenant=self.tenant, role='trainer')
+        self.employee = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='Nguyễn Văn A', position='NV Phục vụ',
+        )
+        seed_competency_framework(self.tenant)
+        seed_dashboard_indicators(self.tenant)
+        self.client = APIClient()
+
+    def test_admin_can_view_360_by_id(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(reverse('dashboard-employee-360', args=[self.employee.id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['employee']['code'], 'NV1')
+        self.assertIn('competencies', resp.data)
+        self.assertIn('indicators', resp.data)
+
+    def test_view_by_code(self):
+        self.client.force_authenticate(self.om)
+        resp = self.client.get(reverse('dashboard-employee-360', args=['NV1']))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['employee']['id'], self.employee.id)
+
+    def test_not_found(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(reverse('dashboard-employee-360', args=['KHONGTONTAI']))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_trainer_role_blocked(self):
+        self.client.force_authenticate(self.trainer)
+        resp = self.client.get(reverse('dashboard-employee-360', args=[self.employee.id]))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_search_employees(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(reverse('dashboard-employee-search'), {'q': 'Nguyễn'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data), 1)
+        self.assertEqual(resp.data[0]['code'], 'NV1')
+
+    def test_disabled_indicator_is_excluded_from_360(self):
+        ind = DashboardIndicator.objects.get(tenant=self.tenant, key='ci_tong_hop')
+        self.client.force_authenticate(self.admin)
+
+        resp = self.client.get(reverse('dashboard-employee-360', args=[self.employee.id]))
+        self.assertTrue(any(i['key'] == 'ci_tong_hop' for i in resp.data['indicators']))
+
+        patch_resp = self.client.patch(
+            reverse('dashboard-indicator-detail', args=[ind.id]), {'enabled': False}, format='json',
+        )
+        self.assertEqual(patch_resp.status_code, 200)
+
+        resp2 = self.client.get(reverse('dashboard-employee-360', args=[self.employee.id]))
+        self.assertFalse(any(i['key'] == 'ci_tong_hop' for i in resp2.data['indicators']))
+
+    def test_pending_indicator_marked_when_no_data(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(reverse('dashboard-employee-360', args=[self.employee.id]))
+        ci_indicator = next(i for i in resp.data['indicators'] if i['key'] == 'ci_tong_hop')
+        self.assertTrue(ci_indicator['pending'])
+        self.assertIsNone(ci_indicator['value'])
+
+    def test_non_admin_cannot_toggle_indicator(self):
+        ind = DashboardIndicator.objects.get(tenant=self.tenant, key='ci_tong_hop')
+        self.client.force_authenticate(self.om)
+        resp = self.client.patch(
+            reverse('dashboard-indicator-detail', args=[ind.id]), {'enabled': False}, format='json',
+        )
+        self.assertEqual(resp.status_code, 403)
+
+
+class CompetencyFrameworkCrudApiTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.trainer = User.objects.create_user(username='trainer1', password='x', tenant=self.tenant, role='trainer')
+        self.client = APIClient()
+
+    def test_admin_creates_group_and_competency(self):
+        self.client.force_authenticate(self.admin)
+        g_resp = self.client.post(reverse('competency-group-list'), {'code': 'X', 'name': 'Nhóm X', 'order': 0})
+        self.assertEqual(g_resp.status_code, 201)
+        c_resp = self.client.post(
+            reverse('competency-list'), {'group': g_resp.data['id'], 'name': 'Năng lực X', 'order': 0},
+        )
+        self.assertEqual(c_resp.status_code, 201)
+
+    def test_non_admin_cannot_write(self):
+        self.client.force_authenticate(self.trainer)
+        resp = self.client.post(reverse('competency-group-list'), {'code': 'X', 'name': 'Nhóm X'})
+        self.assertEqual(resp.status_code, 403)
+
+    def test_import_csv_endpoints_admin_only(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_authenticate(self.trainer)
+        f = SimpleUploadedFile('targets.csv', SAMPLE_TARGETS_CSV.encode('utf-8'), content_type='text/csv')
+        resp = self.client.post(reverse('dashboard-import-targets'), {'file': f}, format='multipart')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_import_targets_via_api(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_authenticate(self.admin)
+        f = SimpleUploadedFile('targets.csv', SAMPLE_TARGETS_CSV.encode('utf-8'), content_type='text/csv')
+        resp = self.client.post(reverse('dashboard-import-targets'), {'file': f}, format='multipart')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['targets_written'], 7)
+
+    def test_seed_defaults_via_api(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(reverse('dashboard-seed-defaults'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['groups_created'], 6)
+        self.assertEqual(resp.data['indicators_created'], 29)
