@@ -44,6 +44,7 @@ import MyCertificatesPage from './pages/MyCertificatesPage'
 import Employee360Page from './pages/Employee360Page'
 import DashboardConfigPage from './pages/DashboardConfigPage'
 import CompetencyFrameworkAdminPage from './pages/CompetencyFrameworkAdminPage'
+import DashboardOverviewPage from './pages/DashboardOverviewPage'
 import api from './api/client'
 import { isMobileRole } from './config/menu'
 import { flushQueue, initOfflineSync } from './utils/offlineQueue'
@@ -394,6 +395,14 @@ function App() {
             element={
               <ProtectedRoute roles={['admin']}>
                 <CompetencyFrameworkAdminPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard-overview"
+            element={
+              <ProtectedRoute roles={['admin', 'om', 'bod']}>
+                <DashboardOverviewPage />
               </ProtectedRoute>
             }
           />

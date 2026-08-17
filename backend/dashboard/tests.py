@@ -22,19 +22,26 @@ from .models import (
     DashboardIndicator,
     PositionGroupWeight,
     PositionTarget,
+    TrainingCost,
+    TrainingCostSource,
 )
 from .services import (
     ValidationError,
+    compute_aggregate_dashboard,
     compute_competency_scores,
     competency_gaps,
+    cost_per_passed_employee,
     employee_360,
     get_scoring_weights,
     import_position_group_weights,
     import_position_targets,
+    import_training_costs,
     indicator_color,
     resolve_position,
     seed_competency_framework,
     seed_dashboard_indicators,
+    sync_training_costs,
+    training_cost_total,
 )
 
 # Mau CSV thuc te (trich tu KhungNangLuc_MucTieu_TheoViTri_v0.5.xlsx, xuat CSV) - dung y he
@@ -803,3 +810,361 @@ class ClsExamCompetencyMapApiTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data['count'], 1)
         self.assertEqual(resp.data['results'][0]['competency_name'], self.comp.name)
+
+
+class ImportTrainingCostsTests(TestCase):
+    """Prompt_Dashboard_B_ManTongHop.md, muc 4 - import CSV chi phi dao tao (co che nhu
+    RecruitmentSource/CLS)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+
+    def test_imports_rows_and_normalizes_cost_type_scope(self):
+        rows = [
+            {
+                'Tháng': '7', 'Năm': '2026', 'Loại chi phí': 'Lương & phụ cấp trainer',
+                'Đơn vị áp dụng': 'Toàn hệ thống', 'Mã đơn vị': '', 'Số tiền (VND)': '15000000',
+                'Ghi chú': 'Ví dụ',
+            },
+            {
+                'Tháng': '7', 'Năm': '2026', 'Loại chi phí': 'Tài liệu & in ấn',
+                'Đơn vị áp dụng': 'Nhà hàng', 'Mã đơn vị': 'KMP-HNO-HBT', 'Số tiền (VND)': '1200000',
+                'Ghi chú': '',
+            },
+        ]
+        result = import_training_costs(self.tenant, rows)
+        self.assertEqual(result['written'], 2)
+        self.assertEqual(result['warnings'], [])
+        c1 = TrainingCost.objects.get(tenant=self.tenant, cost_type=TrainingCost.CostType.TRAINER_SALARY)
+        self.assertEqual(c1.scope, TrainingCost.Scope.SYSTEM)
+        self.assertEqual(c1.amount, 15000000)
+        c2 = TrainingCost.objects.get(tenant=self.tenant, cost_type=TrainingCost.CostType.MATERIALS)
+        self.assertEqual(c2.scope, TrainingCost.Scope.RESTAURANT)
+        self.assertEqual(c2.unit_code, 'KMP-HNO-HBT')
+
+    def test_reimport_updates_not_duplicates(self):
+        rows = [{
+            'Tháng': '7', 'Năm': '2026', 'Loại chi phí': 'Khác', 'Đơn vị áp dụng': 'Toàn hệ thống',
+            'Mã đơn vị': '', 'Số tiền (VND)': '500000', 'Ghi chú': '',
+        }]
+        import_training_costs(self.tenant, rows)
+        rows[0]['Số tiền (VND)'] = '700000'
+        import_training_costs(self.tenant, rows)
+        self.assertEqual(TrainingCost.objects.filter(tenant=self.tenant).count(), 1)
+        self.assertEqual(TrainingCost.objects.get(tenant=self.tenant).amount, 700000)
+
+    def test_unknown_cost_type_skipped_with_warning(self):
+        rows = [{
+            'Tháng': '7', 'Năm': '2026', 'Loại chi phí': 'Không rõ', 'Đơn vị áp dụng': 'Toàn hệ thống',
+            'Số tiền (VND)': '1', 'Ghi chú': '',
+        }]
+        result = import_training_costs(self.tenant, rows)
+        self.assertEqual(result['written'], 0)
+        self.assertTrue(result['warnings'])
+        self.assertEqual(TrainingCost.objects.filter(tenant=self.tenant).count(), 0)
+
+    def test_restaurant_scope_without_unit_code_skipped(self):
+        rows = [{
+            'Tháng': '7', 'Năm': '2026', 'Loại chi phí': 'Khác', 'Đơn vị áp dụng': 'Nhà hàng',
+            'Mã đơn vị': '', 'Số tiền (VND)': '1', 'Ghi chú': '',
+        }]
+        result = import_training_costs(self.tenant, rows)
+        self.assertEqual(result['written'], 0)
+        self.assertTrue(result['warnings'])
+
+    def test_missing_required_fields_skipped(self):
+        rows = [{'Tháng': '', 'Năm': '2026', 'Loại chi phí': 'Khác', 'Số tiền (VND)': '1'}]
+        result = import_training_costs(self.tenant, rows)
+        self.assertEqual(result['written'], 0)
+        self.assertTrue(result['warnings'])
+
+    def test_blank_row_skipped_silently(self):
+        rows = [{
+            'Tháng': '', 'Năm': '', 'Loại chi phí': '', 'Đơn vị áp dụng': '', 'Mã đơn vị': '',
+            'Số tiền (VND)': '', 'Ghi chú': '',
+        }]
+        result = import_training_costs(self.tenant, rows)
+        self.assertEqual(result['written'], 0)
+        self.assertEqual(result['warnings'], [])
+
+
+class TrainingCostAggregateTests(TestCase):
+    """training_cost_total / cost_per_passed_employee - 'Chờ dữ liệu' khi chưa import."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.restaurant = Restaurant.objects.create(
+            tenant=self.tenant, code='KMP-HNO-HBT', name='NH HBT', brand='Kampong', region='Hà Nội',
+        )
+
+    def test_no_data_returns_none(self):
+        self.assertIsNone(training_cost_total(self.tenant, 7, 2026))
+        self.assertIsNone(cost_per_passed_employee(self.tenant, 7, 2026))
+
+    def test_total_sums_all_scopes_when_no_restaurant_filter(self):
+        TrainingCost.objects.create(
+            tenant=self.tenant, month=7, year=2026, cost_type='trainer_salary', scope='system',
+            amount=Decimal('1000000'),
+        )
+        TrainingCost.objects.create(
+            tenant=self.tenant, month=7, year=2026, cost_type='materials', scope='restaurant',
+            unit_code='KMP-HNO-HBT', amount=Decimal('200000'),
+        )
+        self.assertEqual(training_cost_total(self.tenant, 7, 2026), 1200000.0)
+
+    def test_restaurant_filter_includes_system_and_matching_restaurant_only(self):
+        other = Restaurant.objects.create(tenant=self.tenant, code='OTHER', name='NH khác', brand='Kampong')
+        TrainingCost.objects.create(
+            tenant=self.tenant, month=7, year=2026, cost_type='trainer_salary', scope='system',
+            amount=Decimal('1000000'),
+        )
+        TrainingCost.objects.create(
+            tenant=self.tenant, month=7, year=2026, cost_type='materials', scope='restaurant',
+            unit_code='KMP-HNO-HBT', amount=Decimal('200000'),
+        )
+        TrainingCost.objects.create(
+            tenant=self.tenant, month=7, year=2026, cost_type='software', scope='restaurant',
+            unit_code='OTHER', amount=Decimal('50000'),
+        )
+        self.assertEqual(training_cost_total(self.tenant, 7, 2026, restaurant=self.restaurant), 1200000.0)
+        self.assertEqual(training_cost_total(self.tenant, 7, 2026, restaurant=other), 1050000.0)
+
+    def test_region_scope_matches_restaurant_region(self):
+        TrainingCost.objects.create(
+            tenant=self.tenant, month=7, year=2026, cost_type='travel', scope='region',
+            unit_code='Hà Nội', amount=Decimal('300000'),
+        )
+        self.assertEqual(training_cost_total(self.tenant, 7, 2026, restaurant=self.restaurant), 300000.0)
+
+    def test_cost_per_passed_employee(self):
+        import datetime
+
+        TrainingCost.objects.create(
+            tenant=self.tenant, month=7, year=2026, cost_type='trainer_salary', scope='system',
+            amount=Decimal('1000000'),
+        )
+        Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1', pass_date=datetime.date(2026, 7, 15))
+        Employee.objects.create(tenant=self.tenant, code='NV2', name='NV2', pass_date=datetime.date(2026, 7, 20))
+        self.assertEqual(cost_per_passed_employee(self.tenant, 7, 2026), 500000.0)
+
+    def test_cost_per_passed_employee_none_when_nobody_passed(self):
+        TrainingCost.objects.create(
+            tenant=self.tenant, month=7, year=2026, cost_type='trainer_salary', scope='system',
+            amount=Decimal('1000000'),
+        )
+        self.assertIsNone(cost_per_passed_employee(self.tenant, 7, 2026))
+
+
+class AggregateDashboardEngineTests(TestCase):
+    """Prompt_Dashboard_B_ManTongHop.md, muc 1-2: compute_aggregate_dashboard render dong theo
+    DashboardIndicator (bat/tat + scope + nguong mau) + bo loc thang/nha hang."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        seed_dashboard_indicators(self.tenant)
+        self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='R1', name='NH 1', brand='Kampong')
+
+    def test_scope_filters_indicators_by_role_scope(self):
+        result_ceo = compute_aggregate_dashboard(self.admin, 'ceo', 7, 2026)
+        result_gdt = compute_aggregate_dashboard(self.admin, 'gdt', 7, 2026)
+        ceo_keys = {i['key'] for i in result_ceo['indicators']}
+        gdt_keys = {i['key'] for i in result_gdt['indicators']}
+        self.assertIn('ty_le_pass_thu_viec', ceo_keys)  # role_scope=['ceo']
+        self.assertNotIn('ty_le_pass_thu_viec', gdt_keys)
+        self.assertIn('ty_le_hoan_thanh_khoa', gdt_keys)  # role_scope=['gdt']
+        self.assertNotIn('ty_le_hoan_thanh_khoa', ceo_keys)
+
+    def test_disabled_indicator_excluded(self):
+        DashboardIndicator.objects.filter(tenant=self.tenant, key='ty_le_pass_thu_viec').update(enabled=False)
+        result = compute_aggregate_dashboard(self.admin, 'ceo', 7, 2026)
+        keys = {i['key'] for i in result['indicators']}
+        self.assertNotIn('ty_le_pass_thu_viec', keys)
+
+    def test_pending_when_no_data(self):
+        result = compute_aggregate_dashboard(self.admin, 'ceo', 7, 2026)
+        by_key = {i['key']: i for i in result['indicators']}
+        self.assertTrue(by_key['ty_le_pass_thu_viec']['pending'])
+        self.assertIsNone(by_key['ty_le_pass_thu_viec']['value'])
+
+    def test_color_applied_from_threshold(self):
+        import datetime
+
+        Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='NV1', restaurant=self.restaurant,
+            operation_unit='restaurant', start_date=datetime.date(2026, 7, 1),
+            pass_date=datetime.date(2026, 7, 10), employee_status='active',
+        )
+        result = compute_aggregate_dashboard(self.admin, 'ceo', 7, 2026)
+        by_key = {i['key']: i for i in result['indicators']}
+        self.assertEqual(by_key['ty_le_pass_thu_viec']['value'], 100.0)
+        self.assertEqual(by_key['ty_le_pass_thu_viec']['color'], 'green')
+
+    def test_restaurant_filter_changes_indicator_value(self):
+        import datetime
+
+        other = Restaurant.objects.create(tenant=self.tenant, code='R2', name='NH 2', brand='Kampong')
+        Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='NV1', restaurant=self.restaurant,
+            operation_unit='restaurant', start_date=datetime.date(2026, 7, 1),
+            pass_date=datetime.date(2026, 7, 10), employee_status='active',
+        )
+        Employee.objects.create(
+            tenant=self.tenant, code='NV2', name='NV2', restaurant=other,
+            operation_unit='restaurant', start_date=datetime.date(2026, 7, 1), employee_status='probation',
+        )
+        result_r1 = compute_aggregate_dashboard(self.admin, 'ceo', 7, 2026, restaurant_id=self.restaurant.id)
+        result_r2 = compute_aggregate_dashboard(self.admin, 'ceo', 7, 2026, restaurant_id=other.id)
+        by_key_r1 = {i['key']: i for i in result_r1['indicators']}
+        by_key_r2 = {i['key']: i for i in result_r2['indicators']}
+        self.assertEqual(by_key_r1['ty_le_pass_thu_viec']['value'], 100.0)
+        self.assertEqual(by_key_r2['ty_le_pass_thu_viec']['value'], 0.0)
+
+    def test_month_filter_changes_indicator_value(self):
+        import datetime
+
+        Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='NV1', restaurant=self.restaurant,
+            operation_unit='restaurant', start_date=datetime.date(2026, 7, 1),
+            pass_date=datetime.date(2026, 7, 10), employee_status='active',
+        )
+        result_july = compute_aggregate_dashboard(self.admin, 'ceo', 7, 2026)
+        result_aug = compute_aggregate_dashboard(self.admin, 'ceo', 8, 2026)
+        by_key_july = {i['key']: i for i in result_july['indicators']}
+        by_key_aug = {i['key']: i for i in result_aug['indicators']}
+        self.assertEqual(by_key_july['ty_le_pass_thu_viec']['value'], 100.0)
+        self.assertIsNone(by_key_aug['ty_le_pass_thu_viec']['value'])
+
+
+class AggregateDashboardApiTests(TestCase):
+    """GET /api/dashboard/overview/ - man tong hop CEO/GDDT."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.bod = User.objects.create_user(username='bod1', password='x', tenant=self.tenant, role='bod')
+        self.trainer = User.objects.create_user(username='trainer1', password='x', tenant=self.tenant, role='trainer')
+        seed_dashboard_indicators(self.tenant)
+        self.client = APIClient()
+
+    def test_admin_can_view_ceo_overview(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(reverse('dashboard-overview'), {'scope': 'ceo', 'month': 7, 'year': 2026})
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('indicators', resp.data)
+        self.assertIn('restaurant_ranking', resp.data)
+        self.assertIn('trend', resp.data)
+
+    def test_bod_can_view_gdt(self):
+        self.client.force_authenticate(self.bod)
+        resp = self.client.get(reverse('dashboard-overview'), {'scope': 'gdt', 'month': 7, 'year': 2026})
+        self.assertEqual(resp.status_code, 200)
+
+    def test_trainer_forbidden(self):
+        self.client.force_authenticate(self.trainer)
+        resp = self.client.get(reverse('dashboard-overview'), {'scope': 'ceo'})
+        self.assertEqual(resp.status_code, 403)
+
+    def test_invalid_scope_rejected(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(reverse('dashboard-overview'), {'scope': 'xyz'})
+        self.assertEqual(resp.status_code, 400)
+
+    def test_defaults_to_current_month_when_not_given(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(reverse('dashboard-overview'), {'scope': 'ceo'})
+        self.assertEqual(resp.status_code, 200)
+
+
+class TrainingCostSourceApiTests(TestCase):
+    """GET/PUT /api/dashboard/training-cost-source/ + POST .../sync/ (co che nhu RecruitmentSource)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.om = User.objects.create_user(username='om1', password='x', tenant=self.tenant, role='om')
+        self.client = APIClient()
+
+    def test_get_empty_by_default(self):
+        self.client.force_authenticate(self.om)
+        resp = self.client.get(reverse('training-cost-source'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['csv_url'], '')
+
+    def test_admin_can_set_url(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.put(reverse('training-cost-source'), {'csv_url': 'https://example.com/costs.csv'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(
+            TrainingCostSource.objects.filter(tenant=self.tenant, csv_url='https://example.com/costs.csv').exists()
+        )
+
+    def test_om_cannot_set_url(self):
+        self.client.force_authenticate(self.om)
+        resp = self.client.put(reverse('training-cost-source'), {'csv_url': 'https://example.com/costs.csv'}, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_sync_without_url_returns_400(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(reverse('training-cost-sync'))
+        self.assertEqual(resp.status_code, 400)
+
+    def test_sync_service_raises_without_url(self):
+        with self.assertRaises(ValidationError):
+            sync_training_costs(self.tenant)
+
+    def test_om_cannot_sync(self):
+        self.client.force_authenticate(self.om)
+        resp = self.client.post(reverse('training-cost-sync'))
+        self.assertEqual(resp.status_code, 403)
+
+
+class TrainingCostImportFileApiTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.client = APIClient()
+
+    def test_admin_imports_csv_file(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        csv_content = (
+            'Tháng,Năm,Loại chi phí,Đơn vị áp dụng,Mã đơn vị,Số tiền (VND),Ghi chú\r\n'
+            '7,2026,Khác,Toàn hệ thống,,500000,\r\n'
+        )
+        f = SimpleUploadedFile('costs.csv', csv_content.encode('utf-8'), content_type='text/csv')
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(reverse('training-cost-import-file'), {'file': f}, format='multipart')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['written'], 1)
+
+
+class TrainingCostCrudApiTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.om = User.objects.create_user(username='om1', password='x', tenant=self.tenant, role='om')
+        self.client = APIClient()
+
+    def test_admin_can_create(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(reverse('training-cost-list'), {
+            'month': 7, 'year': 2026, 'cost_type': 'other', 'scope': 'system', 'amount': '1000',
+        })
+        self.assertEqual(resp.status_code, 201)
+
+    def test_om_cannot_create(self):
+        self.client.force_authenticate(self.om)
+        resp = self.client.post(reverse('training-cost-list'), {
+            'month': 7, 'year': 2026, 'cost_type': 'other', 'scope': 'system', 'amount': '1000',
+        })
+        self.assertEqual(resp.status_code, 403)
+
+    def test_om_can_list(self):
+        TrainingCost.objects.create(
+            tenant=self.tenant, month=7, year=2026, cost_type='other', scope='system', amount=Decimal('1000'),
+        )
+        self.client.force_authenticate(self.om)
+        resp = self.client.get(reverse('training-cost-list'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['count'], 1)

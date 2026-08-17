@@ -319,6 +319,7 @@ def _bql_cohort_stats(employees, month, year):
     def _row(e):
         rid = e.restaurant_id or 0
         return by_restaurant.setdefault(rid, {
+            'restaurant_id': rid,
             'restaurant': e.restaurant.name if e.restaurant else 'Khác',
             'brand': e.restaurant.brand if e.restaurant else '',
             'on_num': 0, 'on_den': 0, 'skill_pass': 0, 'skill_total': 0,
@@ -379,6 +380,14 @@ def _bql_person_totals(employees, month, year):
     totals['on_rate'] = round(totals['on_num'] / totals['on_den'] * 100) if totals['on_den'] else 0
     totals['skill_rate'] = round(totals['skill_pass'] / totals['skill_total'] * 100) if totals['skill_total'] else 0
     return totals
+
+
+def kpi_bql_totals(user, month, year):
+    """Nhu kpi_bql_report_data nhung CHI tra ve totals on_rate/skill_rate toan he thong (bo qua
+    rows chi tiet tung nha hang + khoi 'Thong ke theo AM/KCS/OM') - nhe hon, dung cho bieu do xu
+    huong nhieu thang (Dashboard Phan B) de tranh goi lai _kpi_bql_am_kcs_om_stats khong can
+    thiet cho tung thang trong chuoi xu huong."""
+    return _bql_person_totals(scoped_employees(user), month, year)
 
 
 def _kpi_bql_am_kcs_om_stats(tenant, month, year):

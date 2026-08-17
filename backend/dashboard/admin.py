@@ -8,6 +8,8 @@ from .models import (
     DashboardIndicator,
     PositionGroupWeight,
     PositionTarget,
+    TrainingCost,
+    TrainingCostSource,
 )
 
 
@@ -50,3 +52,14 @@ class ClsExamCompetencyMapAdmin(admin.ModelAdmin):
 @admin.register(CompetencyScoringConfig)
 class CompetencyScoringConfigAdmin(admin.ModelAdmin):
     list_display = ('tenant', 'theory_weight', 'practice_weight')
+
+
+@admin.register(TrainingCost)
+class TrainingCostAdmin(admin.ModelAdmin):
+    list_display = ('month', 'year', 'cost_type', 'scope', 'unit_code', 'amount', 'tenant')
+    list_filter = ('tenant', 'cost_type', 'scope', 'year')
+
+
+@admin.register(TrainingCostSource)
+class TrainingCostSourceAdmin(admin.ModelAdmin):
+    list_display = ('tenant', 'csv_url', 'updated_at')

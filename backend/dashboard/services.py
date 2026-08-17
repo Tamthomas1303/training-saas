@@ -26,6 +26,8 @@ from .models import (
     DashboardIndicator,
     PositionGroupWeight,
     PositionTarget,
+    TrainingCost,
+    TrainingCostSource,
 )
 
 
@@ -749,4 +751,512 @@ def employee_360(employee):
         'timeline': _build_timeline(employee, enrollments, attempts),
         'warnings': warnings,
         'indicators': indicators,
+    }
+
+
+# ==================================================================== Phan B: Man tong hop CEO/GDDT
+#
+# TAI DUNG service da co (kpi/employees/courses/exams/integration) - KHONG tinh lai logic pass
+# thu viec/hoa hong/CI da co san. 2 chi so KHONG the tinh voi du lieu hien co (chua co model
+# theo doi): 'tuan_thu_dao_tao_bat_buoc' (chua co khai niem khoa/chung trinh BAT BUOC trong he
+# thong) va 'nha_hang_do_nhieu_ky' (can luu snapshot nhieu ky lien tiep, chua co bang luu tru) -
+# 2 chi so nay LUON tra ve None ("Chờ dữ liệu") cho toi khi co du lieu nguon tuong ung.
+
+def _month_bounds(year, month):
+    from reports.period import _last_day_of_month
+
+    start = datetime.date(year, month, 1)
+    return start, _last_day_of_month(start)
+
+
+def _restaurant_matches_cost_row(restaurant, scope, unit_code):
+    """1 dong TrainingCost (scope+unit_code) co ap dung cho 1 Restaurant cu the khong."""
+    if scope == TrainingCost.Scope.SYSTEM:
+        return True
+    if not restaurant:
+        return False
+    if scope == TrainingCost.Scope.REGION:
+        return bool(unit_code) and _deburr_lower(unit_code) == _deburr_lower(restaurant.region or '')
+    if scope == TrainingCost.Scope.RESTAURANT:
+        return bool(unit_code) and _deburr_lower(unit_code) == _deburr_lower(restaurant.code or '')
+    return False
+
+
+def training_cost_total(tenant, month, year, restaurant=None):
+    """Tong chi phi dao tao cua 1 ky (thang/nam). restaurant=None -> cong tat ca dong bat ke
+    pham vi; restaurant=<Restaurant> -> chi cong dong SYSTEM + REGION/RESTAURANT khop nha hang
+    do. None (khac 0.0) neu tenant CHUA IMPORT dong chi phi nao cho ky nay - "Chờ dữ liệu"."""
+    costs = list(TrainingCost.objects.filter(tenant=tenant, month=month, year=year))
+    if not costs:
+        return None
+    if restaurant is None:
+        return float(sum(c.amount for c in costs))
+    return float(sum(
+        c.amount for c in costs if _restaurant_matches_cost_row(restaurant, c.scope, c.unit_code)
+    ))
+
+
+def cost_per_passed_employee(tenant, month, year, restaurant=None):
+    """Chi phi / nhan su pass = tong chi phi ky / so NV Pass thu viec trong ky (pass_date trong
+    thang, doc Employee.pass_date co san - khong tinh lai pass/fail). None neu chua co chi phi
+    HOAC chua co ai pass trong ky (tranh chia 0)."""
+    from employees.models import Employee
+
+    total = training_cost_total(tenant, month, year, restaurant)
+    if total is None:
+        return None
+    start, end = _month_bounds(year, month)
+    qs = Employee.objects.filter(tenant=tenant, pass_date__range=(start, end))
+    if restaurant is not None:
+        qs = qs.filter(restaurant=restaurant)
+    passed = qs.count()
+    if not passed:
+        return None
+    return round(total / passed, 1)
+
+
+_COST_TYPE_ALIASES = {
+    TrainingCost.CostType.TRAINER_SALARY: ['luong', 'phu cap trainer', 'luong & phu cap trainer'],
+    TrainingCost.CostType.MATERIALS: ['tai lieu', 'in an', 'tai lieu & in an'],
+    TrainingCost.CostType.SOFTWARE: ['phan mem', 'lms', 'phan mem / lms'],
+    TrainingCost.CostType.FACILITIES: ['co so vat chat', 'csvc'],
+    TrainingCost.CostType.TRAVEL: ['an o', 'di lai', 'an o & di lai'],
+    TrainingCost.CostType.OTHER: ['khac'],
+}
+_SCOPE_ALIASES = {
+    TrainingCost.Scope.SYSTEM: ['toan he thong'],
+    TrainingCost.Scope.REGION: ['vung'],
+    TrainingCost.Scope.RESTAURANT: ['nha hang'],
+}
+
+
+def _match_choice(raw, aliases):
+    norm = _deburr_lower(raw)
+    if not norm:
+        return None
+    for key, keywords in aliases.items():
+        if norm == _deburr_lower(key) or any(_deburr_lower(kw) in norm for kw in keywords):
+            return key
+    return None
+
+
+def import_training_costs(tenant, rows):
+    """Nap chi phi dao tao tu danh sach dong CSV da doc san (list[dict], xem config.csv_source.
+    load_csv_rows - dung chung co che voi RecruitmentSource/HrSyncSource) theo dung cau truc
+    File_HachToan_ChiPhiDaoTao_MAU.xlsx: Tháng, Năm, Loại chi phí, Đơn vị áp dụng, Mã đơn vị, Số
+    tiền (VND), Ghi chú. Idempotent - update_or_create theo (thang, nam, loai, pham vi, ma don
+    vi); dong thieu du lieu/khong nhan dien duoc loai chi phi -> bo qua + canh bao, khong doan."""
+    from config.csv_source import pick
+
+    written = 0
+    warnings = []
+    for i, row in enumerate(rows, start=2):  # dong 1 la tieu de
+        month_raw = pick(row, 'Tháng', 'Thang', 'month')
+        year_raw = pick(row, 'Năm', 'Nam', 'year')
+        cost_type_raw = pick(row, 'Loại chi phí', 'Loai chi phi', 'cost_type')
+        scope_raw = pick(row, 'Đơn vị áp dụng', 'Don vi ap dung', 'scope')
+        unit_code = pick(row, 'Mã đơn vị', 'Ma don vi', 'unit_code')
+        amount_raw = pick(row, 'Số tiền (VND)', 'So tien (VND)', 'So tien', 'amount')
+        note = pick(row, 'Ghi chú', 'Ghi chu', 'note')
+
+        if not any([month_raw, year_raw, cost_type_raw, amount_raw]):
+            continue  # dong trong hoan toan - bo qua am tham
+        if not (month_raw and year_raw and cost_type_raw and amount_raw):
+            warnings.append(f'Dòng {i}: thiếu tháng/năm/loại chi phí/số tiền, đã bỏ qua.')
+            continue
+        try:
+            month, year = int(month_raw), int(year_raw)
+            amount = float(str(amount_raw).replace(',', '').replace(' ', ''))
+        except ValueError:
+            warnings.append(f'Dòng {i}: tháng/năm/số tiền không hợp lệ, đã bỏ qua.')
+            continue
+
+        cost_type = _match_choice(cost_type_raw, _COST_TYPE_ALIASES)
+        if not cost_type:
+            warnings.append(f'Dòng {i}: không nhận diện được loại chi phí "{cost_type_raw}", đã bỏ qua.')
+            continue
+        scope = _match_choice(scope_raw, _SCOPE_ALIASES) or TrainingCost.Scope.SYSTEM
+        if scope != TrainingCost.Scope.SYSTEM and not unit_code:
+            warnings.append(f'Dòng {i}: phạm vi "{scope_raw}" cần "Mã đơn vị", đã bỏ qua.')
+            continue
+
+        TrainingCost.objects.update_or_create(
+            tenant=tenant, month=month, year=year, cost_type=cost_type,
+            scope=scope, unit_code=unit_code if scope != TrainingCost.Scope.SYSTEM else '',
+            defaults={'amount': amount, 'note': note},
+        )
+        written += 1
+
+    return {'written': written, 'warnings': warnings}
+
+
+def sync_training_costs(tenant):
+    """Doc link CSV da cau hinh (TrainingCostSource) va nap qua import_training_costs. Rong ->
+    ValidationError (giong RecruitmentSourceView khi chua co link)."""
+    from config.csv_source import load_csv_rows
+
+    source = TrainingCostSource.objects.filter(tenant=tenant).first()
+    csv_url = source.csv_url if source else ''
+    if not csv_url:
+        raise ValidationError('Chưa cấu hình link CSV nguồn chi phí đào tạo.')
+    rows = load_csv_rows(csv_url)
+    return import_training_costs(tenant, rows)
+
+
+def _competency_aggregate(employees):
+    """1 lan duyet compute_competency_scores(e) (engine da co, Phan A/A.1) cho tung nhan su -
+    dung chung cho cac chi so nang luc cap he thong: CI trung binh, % dat muc tieu, san sang
+    nhan luc (CI >= 80 - nguong toi thieu, dong bo voi nguong xanh/vang 90/80 mac dinh cua cac
+    chi so "higher_better" khac), top skill gap toan he thong, va diem trung binh THEO NHOM (cho
+    'Radar CI trung bình' - muc 3 cua prompt, dung lai RadarChart hien co o Ho so 360)."""
+    ci_values = []
+    comp_hit = comp_total = 0
+    ready = total_scored = 0
+    gap_sum = defaultdict(float)
+    gap_count = defaultdict(int)
+    group_sum = defaultdict(float)
+    group_count = defaultdict(int)
+    group_label = {}
+
+    for e in employees:
+        scores = compute_competency_scores(e)
+        if scores['ci'] is not None:
+            ci_values.append(scores['ci'])
+            total_scored += 1
+            if scores['ci'] >= 80:
+                ready += 1
+        for c in scores['competencies']:
+            if c['score'] is not None and c['target'] is not None:
+                comp_total += 1
+                if c['score'] >= c['target']:
+                    comp_hit += 1
+                gap = c['target'] - c['score']
+                if gap > 0:
+                    gap_sum[c['name']] += gap
+                    gap_count[c['name']] += 1
+        for g in scores['groups']:
+            if g['score'] is not None:
+                group_sum[g['code']] += g['score']
+                group_count[g['code']] += 1
+                group_label[g['code']] = g['name']
+
+    top_gaps = sorted(
+        (
+            {'name': name, 'avg_gap': round(gap_sum[name] / gap_count[name], 1), 'count': gap_count[name]}
+            for name in gap_sum
+        ),
+        key=lambda g: -g['avg_gap'],
+    )[:10]
+
+    group_avg = sorted(
+        (
+            {
+                'code': code, 'name': group_label[code],
+                'avg_score': round(group_sum[code] / group_count[code], 1),
+            }
+            for code in group_sum
+        ),
+        key=lambda g: g['code'],
+    )
+
+    return {
+        'ci_avg': round(sum(ci_values) / len(ci_values), 1) if ci_values else None,
+        'target_rate': round(comp_hit / comp_total * 100, 1) if comp_total else None,
+        'ready_rate': round(ready / total_scored * 100, 1) if total_scored else None,
+        'top_gaps': top_gaps,
+        'group_avg': group_avg,
+    }
+
+
+def _dung_lo_trinh_trend(user, month, year, months=6):
+    """Xu huong '% dung lo trinh'/'% dat ky nang lan dau' toan he thong theo N thang gan nhat
+    (mac dinh 6), goi lai kpi.services.kpi_bql_totals (ban nhe, bo qua khoi AM/KCS/OM khong can
+    cho bieu do) cho tung thang - khong luu snapshot rieng, tinh truc tiep tu du lieu hien co."""
+    from kpi.services import kpi_bql_totals
+
+    trend = []
+    y, m = year, month
+    for _ in range(months):
+        totals = kpi_bql_totals(user, m, y)
+        trend.append({'month': m, 'year': y, 'on_rate': totals['on_rate'], 'skill_rate': totals['skill_rate']})
+        m -= 1
+        if m == 0:
+            m, y = 12, y - 1
+    trend.reverse()
+    return trend
+
+
+def _aggregate_context(user, month, year, restaurant):
+    """Xay du lieu dung chung cho toan bo chi so CEO/GDDT trong 1 lan goi (tranh tinh lai N lan
+    cho tung chi so trong 29 chi so). CHI DOC - khong ghi gi vao bat ky model nguon nao."""
+    from courses.models import Enrollment
+    from employees.career import talent_pool_employees
+    from employees.models import Employee
+    from exams.models import Attempt
+    from integration.models import CertificateIssued
+    from kpi.models import KpiParticipant, KpiSession
+    from kpi.services import allowance_report_data, kpi_bql_report_data
+    from reports.metrics_training import exam_block
+
+    tenant = user.tenant
+    month_start, month_end = _month_bounds(year, month)
+
+    # --- Onboarding: dung lo trinh + dat ky nang lan dau (tai dung kpi.services co san) ---
+    kpi_data = kpi_bql_report_data(user, month, year)
+    kpi_rows = kpi_data['rows']
+    if restaurant:
+        matched = next((r for r in kpi_rows if r.get('restaurant_id') == restaurant.id), None)
+        kpi_totals = matched or {'on_num': 0, 'on_den': 0, 'skill_pass': 0, 'skill_total': 0, 'on_rate': 0, 'skill_rate': 0}
+    else:
+        kpi_totals = kpi_data['totals']
+
+    # --- Nhan su: pass thu viec / nghi viec (Employee.pass_date/resigned_at, khong tinh lai) ---
+    cohort_qs = Employee.objects.filter(tenant=tenant, is_legacy=False, start_date__range=(month_start, month_end))
+    if restaurant:
+        cohort_qs = cohort_qs.filter(restaurant=restaurant)
+    cohort = list(cohort_qs)
+    resigned_cohort = [e for e in cohort if e.employee_status == 'resigned']
+    pass_count = sum(1 for e in cohort if e.pass_date)
+    pass_rate = round(pass_count / len(cohort) * 100, 1) if cohort else None
+    resign_rate = round(len(resigned_cohort) / len(cohort) * 100, 1) if cohort else None
+    pass_days = [(e.pass_date - e.start_date).days for e in cohort if e.pass_date and e.start_date]
+    avg_days_to_pass = round(sum(pass_days) / len(pass_days), 1) if pass_days else None
+    early_leavers = [
+        e for e in resigned_cohort
+        if e.resigned_at and e.start_date and (e.resigned_at - e.start_date).days < 60
+    ]
+    with_trainer = [e for e in cohort if e.trainer_id]
+    trainer_pass_rate = (
+        round(sum(1 for e in with_trainer if e.pass_date) / len(with_trainer) * 100, 1) if with_trainer else None
+    )
+
+    # --- Nang luc (CI/muc tieu/san sang nhan luc/skill gap - engine Phan A/A.1) ---
+    active_qs = Employee.objects.filter(tenant=tenant, is_legacy=False).exclude(employee_status='resigned')
+    if restaurant:
+        active_qs = active_qs.filter(restaurant=restaurant)
+    competency = _competency_aggregate(list(active_qs))
+
+    # --- San sang ke can (tai dung employees.career.talent_pool_employees) ---
+    talent_pool = talent_pool_employees(tenant)
+    if restaurant:
+        talent_pool = [e for e in talent_pool if e.restaurant_id == restaurant.id]
+
+    # --- Hoc & thi: hoan thanh khoa (courses.Enrollment), dat lan dau (exams.Attempt), thi dat/
+    #     diem TB (reports.metrics_training.exam_block - da co san, chi them loc nha hang) ---
+    enroll_qs = Enrollment.objects.filter(tenant=tenant, created_at__date__range=(month_start, month_end))
+    if restaurant:
+        enroll_qs = enroll_qs.filter(employee__restaurant=restaurant)
+    enroll_total = enroll_qs.count()
+    completed_qs = enroll_qs.filter(status=Enrollment.Status.COMPLETED)
+    enroll_completed = completed_qs.count()
+    course_completion_rate = round(enroll_completed / enroll_total * 100, 1) if enroll_total else None
+    with_due = list(completed_qs.filter(due_date__isnull=False))
+    on_time = sum(1 for e in with_due if e.updated_at.date() <= e.due_date)
+    on_time_rate = round(on_time / len(with_due) * 100, 1) if with_due else None
+
+    attempt_qs = Attempt.objects.filter(
+        tenant=tenant, attempt_no=1, status=Attempt.Status.GRADED, submitted_at__date__range=(month_start, month_end),
+    )
+    if restaurant:
+        attempt_qs = attempt_qs.filter(employee__restaurant=restaurant)
+    first_attempt_total = attempt_qs.count()
+    first_attempt_pass = attempt_qs.filter(passed=True).count()
+    first_pass_rate = round(first_attempt_pass / first_attempt_total * 100, 1) if first_attempt_total else None
+
+    exam = exam_block(tenant, month_start, month_end, restaurant_id=restaurant.id if restaurant else None)
+
+    # --- Chung chi (integration.CertificateIssued) ---
+    cert_qs = CertificateIssued.objects.filter(tenant=tenant, issue_date__range=(month_start, month_end))
+    if restaurant:
+        cert_qs = cert_qs.filter(employee__restaurant=restaurant)
+    cert_count = cert_qs.count()
+
+    # --- Trainer & don vi: buoi kem (kpi.KpiSession) + phu cap (kpi.services.allowance_report_data) ---
+    session_qs = KpiSession.objects.filter(tenant=tenant, date__range=(month_start, month_end))
+    if restaurant:
+        session_qs = session_qs.filter(restaurant=restaurant)
+    session_count = session_qs.count()
+    participant_count = KpiParticipant.objects.filter(session__in=session_qs).values('employee').distinct().count()
+
+    allowance = allowance_report_data(user, month, year)
+    if restaurant:
+        allowance_total = sum(r['amount'] for r in allowance['rows'] if r['trainer_restaurant'] == restaurant.name)
+    else:
+        allowance_total = allowance['total_amount']
+    trainer_amounts = defaultdict(lambda: {'amount': 0.0, 'count': 0})
+    for r in allowance['rows']:
+        key = r['trainer'] or '(Chưa gán trainer)'
+        trainer_amounts[key]['amount'] += r['amount']
+        trainer_amounts[key]['count'] += 1
+    trainer_breakdown = sorted(
+        ({'trainer': t, **v} for t, v in trainer_amounts.items()), key=lambda x: -x['amount'],
+    )
+
+    # --- Xep hang nha hang + nha hang duoi nguong (tu kpi_rows, luon toan he thong) - to mau
+    #     tung dong theo DUNG nguong da cau hinh cua chi so 'dung_lo_trinh' (khong bia nguong
+    #     rieng cho bieu do, dong bo voi Cau hinh Dashboard). ---
+    dlt_indicator = DashboardIndicator.objects.filter(tenant=tenant, key='dung_lo_trinh').first()
+    green_threshold = float(dlt_indicator.green_threshold) if dlt_indicator and dlt_indicator.green_threshold is not None else 90.0
+    low_threshold = float(dlt_indicator.yellow_threshold) if dlt_indicator and dlt_indicator.yellow_threshold is not None else 80.0
+
+    restaurant_ranking = sorted(kpi_rows, key=lambda r: -r['on_rate'])
+    for row in restaurant_ranking:
+        if row['on_den'] == 0:
+            row['color'] = None
+        elif row['on_rate'] >= green_threshold:
+            row['color'] = 'green'
+        elif row['on_rate'] >= low_threshold:
+            row['color'] = 'yellow'
+        else:
+            row['color'] = 'red'
+    below_threshold_restaurants = [r for r in kpi_rows if r['on_den'] > 0 and r['on_rate'] < low_threshold]
+
+    # --- Canh bao (tai dung _probation_deadline_days_left da co san, khong tinh lai) ---
+    overdue_count, at_risk_count, warnings_table = _employee_warning_rows(list(active_qs))
+
+    # --- Cong chi phi (muc 4) ---
+    cost_total = training_cost_total(tenant, month, year, restaurant)
+    cost_per_pass = cost_per_passed_employee(tenant, month, year, restaurant)
+
+    return {
+        'kpi_totals': kpi_totals,
+        'pass_rate': pass_rate, 'resign_rate': resign_rate, 'avg_days_to_pass': avg_days_to_pass,
+        'early_leavers_count': len(early_leavers), 'trainer_pass_rate': trainer_pass_rate,
+        'competency': competency, 'talent_pool_count': len(talent_pool),
+        'course_completion_rate': course_completion_rate, 'on_time_rate': on_time_rate,
+        'first_pass_rate': first_pass_rate, 'exam': exam, 'cert_count': cert_count,
+        'session_count': session_count, 'participant_count': participant_count,
+        'allowance_total': allowance_total, 'trainer_breakdown': trainer_breakdown,
+        'restaurant_ranking': restaurant_ranking, 'below_threshold_restaurants': below_threshold_restaurants,
+        'overdue_count': overdue_count, 'at_risk_count': at_risk_count, 'warnings_table': warnings_table,
+        'cost_total': cost_total, 'cost_per_pass': cost_per_pass,
+        'trend': _dung_lo_trinh_trend(user, month, year),
+    }
+
+
+def _employee_warning_rows(employees, today=None):
+    """1 lan duyet: (so qua han, so nguy co khong pass, danh sach dong) - tai dung
+    _probation_deadline_days_left da co (khong tinh lai logic pass thu viec)."""
+    today = today or timezone.now().date()
+    overdue = at_risk = 0
+    rows = []
+    for e in employees:
+        if e.employee_status == 'resigned' or e.pass_date:
+            continue
+        days_left = _probation_deadline_days_left(e)
+        if days_left is None:
+            continue
+        if days_left < 0:
+            overdue += 1
+            kind = 'overdue'
+        elif days_left <= 7:
+            at_risk += 1
+            kind = 'at_risk'
+        else:
+            continue
+        rows.append({
+            'employee_id': e.id, 'code': e.code, 'name': e.name,
+            'restaurant': e.restaurant.name if e.restaurant_id else '', 'days_left': days_left, 'type': kind,
+        })
+    rows.sort(key=lambda r: r['days_left'])
+    return overdue, at_risk, rows
+
+
+def _resolve_aggregate_indicator_value(key, c):
+    """Gia tri 1 chi so tren man tong hop CEO/GDDT tu context da build (_aggregate_context).
+    Chi so nao hien thi rieng thanh bang/danh sach (khong phai 1 con so) tra ve None (khong
+    'Chờ dữ liệu' sai nghia - frontend biet chi nay render bang rieng qua field khac cua
+    payload). Chi so chua co nguon du lieu (tuan_thu_dao_tao_bat_buoc, nha_hang_do_nhieu_ky)
+    LUON None - xem ghi chu dau file."""
+    if key == 'ci_tong_hop':
+        return c['competency']['ci_avg']
+    if key == 'ty_le_dat_muc_tieu_nang_luc':
+        return c['competency']['target_rate']
+    if key == 'top_skill_gap':
+        return None
+    if key == 'dung_lo_trinh':
+        return float(c['kpi_totals']['on_rate']) if c['kpi_totals']['on_den'] else None
+    if key == 'dat_ky_nang_lan_dau':
+        return float(c['kpi_totals']['skill_rate']) if c['kpi_totals']['skill_total'] else None
+    if key == 'ty_le_pass_thu_viec':
+        return c['pass_rate']
+    if key == 'thoi_gian_tb_den_pass':
+        return c['avg_days_to_pass']
+    if key == 'ty_le_hoan_thanh_khoa':
+        return c['course_completion_rate']
+    if key == 'hoan_thanh_dung_han':
+        return c['on_time_rate']
+    if key == 'ty_le_thi_dat':
+        return c['exam']['pass_rate']
+    if key == 'ty_le_dat_lan_dau':
+        return c['first_pass_rate']
+    if key == 'diem_thi_trung_binh':
+        return c['exam']['avg_score']
+    if key == 'ty_le_nghi_viec_thu_viec':
+        return c['resign_rate']
+    if key == 'nghi_viec_som':
+        return float(c['early_leavers_count'])
+    if key == 'san_sang_nhan_luc':
+        return c['competency']['ready_rate']
+    if key == 'san_sang_ke_can':
+        return float(c['talent_pool_count'])
+    if key == 'so_buoi_kem_theo_trainer':
+        return float(c['session_count'])
+    if key == 'ty_le_pass_theo_trainer':
+        return c['trainer_pass_rate']
+    if key == 'phu_cap_dao_tao':
+        return float(c['allowance_total'])
+    if key == 'xep_hang_nha_hang':
+        return None
+    if key == 'nha_hang_duoi_nguong':
+        return float(len(c['below_threshold_restaurants']))
+    if key == 'so_chung_chi_da_cap':
+        return float(c['cert_count'])
+    if key == 'tuan_thu_dao_tao_bat_buoc':
+        return None
+    if key == 'tong_chi_phi_dao_tao':
+        return c['cost_total']
+    if key == 'chi_phi_moi_nhan_su_pass':
+        return c['cost_per_pass']
+    if key == 'nv_qua_han':
+        return float(c['overdue_count'])
+    if key == 'nv_nguy_co_khong_pass':
+        return float(c['at_risk_count'])
+    if key == 'nha_hang_do_nhieu_ky':
+        return None
+    return None
+
+
+def compute_aggregate_dashboard(user, scope, month, year, restaurant_id=None):
+    """Dashboard Phan B - man tong hop CEO/GDDT (Prompt_Dashboard_B_ManTongHop.md). Render DONG
+    theo DashboardIndicator: chi tra ve chi so dang BAT va co scope ('ceo'/'gdt') trong
+    role_scope, mau theo nguong da cau hinh (indicator_color, Phan A). TAI DUNG toan bo service
+    da co (kpi/employees/courses/exams/integration) - KHONG tinh lai logic pass thu viec/hoa
+    hong/engine nang luc."""
+    from restaurants.models import Restaurant
+
+    tenant = user.tenant
+    restaurant = Restaurant.objects.filter(tenant=tenant, pk=restaurant_id).first() if restaurant_id else None
+    context = _aggregate_context(user, month, year, restaurant)
+
+    indicators = []
+    for ind in DashboardIndicator.objects.filter(tenant=tenant, enabled=True).order_by('order'):
+        if scope not in (ind.role_scope or []):
+            continue
+        value = _resolve_aggregate_indicator_value(ind.key, context)
+        indicators.append({
+            'key': ind.key, 'label': ind.label, 'group_label': ind.group_label,
+            'value': value, 'color': indicator_color(ind, value), 'pending': value is None,
+        })
+
+    return {
+        'scope': scope, 'month': month, 'year': year,
+        'restaurant': {'id': restaurant.id, 'name': restaurant.name} if restaurant else None,
+        'indicators': indicators,
+        'restaurant_ranking': context['restaurant_ranking'],
+        'trend': context['trend'],
+        'warnings_table': context['warnings_table'],
+        'top_skill_gap': context['competency']['top_gaps'],
+        'competency_group_avg': context['competency']['group_avg'],
+        'trainer_breakdown': context['trainer_breakdown'],
     }

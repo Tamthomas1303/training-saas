@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import AppShell from '../components/AppShell'
 import Badge from '../components/Badge'
 import ProgressBar from '../components/ProgressBar'
@@ -25,6 +26,7 @@ function IndicatorPill({ indicator }) {
 }
 
 export default function Employee360Page() {
+  const [searchParams] = useSearchParams()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [profile, setProfile] = useState(null)
@@ -51,6 +53,14 @@ export default function Employee360Page() {
       .catch((err) => setError(err.response?.data?.detail || 'Không tải được hồ sơ.'))
       .finally(() => setLoading(false))
   }
+
+  // Drill-down tu man tong hop CEO/GDDT (Prompt_Dashboard_B_ManTongHop.md, muc 3):
+  // /employee-360?employee=<id|code> -> tu dong mo ho so, khong can go tim lai.
+  useEffect(() => {
+    const target = searchParams.get('employee')
+    if (target) loadEmployee(target)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   const groups = profile?.groups || []
   const radarLabels = groups.map((g) => g.name)

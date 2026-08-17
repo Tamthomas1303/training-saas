@@ -99,6 +99,28 @@ class ExamBlockTests(TestCase):
         tb = next(c for c in result['classification'] if c['key'] == 'trung_binh')
         self.assertEqual(tb['count'], 1)  # diem 82
 
+    def test_restaurant_id_filters_to_matching_employees_only(self):
+        """Dashboard Phan B loc theo nha hang - restaurant_id (tuy chon) khong pha vo cach goi
+        cu (khong truyen gi van dung nhu truoc)."""
+        r1 = Restaurant.objects.create(tenant=self.tenant, code='R1', name='NH1', brand='Kampong')
+        r2 = Restaurant.objects.create(tenant=self.tenant, code='R2', name='NH2', brand='Kampong')
+        self.employee.restaurant = r1
+        self.employee.save(update_fields=['restaurant'])
+        other = Employee.objects.create(tenant=self.tenant, code='NV2', name='B', restaurant=r2)
+        ExamResult.objects.create(
+            tenant=self.tenant, employee=self.employee, exam_name='15N', attempt=1,
+            score=Decimal('90.00'), exam_date=datetime.date(2026, 7, 10),
+        )
+        ExamResult.objects.create(
+            tenant=self.tenant, employee=other, exam_name='15N', attempt=1,
+            score=Decimal('50.00'), exam_date=datetime.date(2026, 7, 12),
+        )
+        result = exam_block(
+            self.tenant, datetime.date(2026, 7, 1), datetime.date(2026, 7, 31), restaurant_id=r1.id,
+        )
+        self.assertEqual(result['total_attempts'], 1)
+        self.assertEqual(result['avg_score'], 90.0)
+
 
 class CsvStatusHeuristicTests(TestCase):
     def test_assigned_status(self):

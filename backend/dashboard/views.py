@@ -1,4 +1,5 @@
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework import viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
@@ -16,6 +17,8 @@ from .models import (
     DashboardIndicator,
     PositionGroupWeight,
     PositionTarget,
+    TrainingCost,
+    TrainingCostSource,
 )
 from .serializers import (
     ClsExamCompetencyMapSerializer,
@@ -25,16 +28,20 @@ from .serializers import (
     DashboardIndicatorSerializer,
     PositionGroupWeightSerializer,
     PositionTargetSerializer,
+    TrainingCostSerializer,
 )
 from .services import (
     ValidationError,
+    compute_aggregate_dashboard,
     employee_360,
     get_scoring_weights,
     import_position_group_weights,
     import_position_targets,
+    import_training_costs,
     resolve_position,
     seed_competency_framework,
     seed_dashboard_indicators,
+    sync_training_costs,
 )
 
 # "CEO/GĐĐT/HR" (prompt) anh xa sang vai tro co san cua he thong nay: admin, bod (Ban giam
@@ -287,3 +294,95 @@ class Employee360View(APIView):
         if not employee:
             return Response({'detail': 'Không tìm thấy nhân sự.'}, status=404)
         return Response(employee_360(employee))
+
+
+class AggregateDashboardView(APIView):
+    """GET /api/dashboard/overview/?scope=ceo|gdt&month=&year=&restaurant=<id> — màn tổng hợp
+    CEO/GĐĐT (Prompt_Dashboard_B_ManTongHop.md). Render động theo DashboardIndicator đang bật +
+    scope. Admin/om/bod."""
+
+    def get(self, request):
+        _require_dashboard_view(request)
+        scope = (request.query_params.get('scope') or 'ceo').strip().lower()
+        if scope not in ('ceo', 'gdt'):
+            return Response({'detail': "scope phải là 'ceo' hoặc 'gdt'."}, status=400)
+
+        today = timezone.now().date()
+        try:
+            month = int(request.query_params.get('month') or today.month)
+            year = int(request.query_params.get('year') or today.year)
+        except ValueError:
+            return Response({'detail': 'month/year không hợp lệ.'}, status=400)
+
+        restaurant_id = request.query_params.get('restaurant') or None
+        return Response(compute_aggregate_dashboard(request.user, scope, month, year, restaurant_id))
+
+
+class TrainingCostViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
+    """CRUD chi phí đào tạo (mục 4) - thường nhập qua import CSV, cho sửa tay từng dòng nếu cần.
+    Doc: admin/om/bod. Ghi: chỉ Admin."""
+
+    serializer_class = TrainingCostSerializer
+    queryset = TrainingCost.objects.all()
+    pagination_class = DefaultPagination
+    filterset_fields = ['month', 'year', 'cost_type', 'scope']
+    ordering = ['-year', '-month']
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        _require_dashboard_view(request)
+        _require_admin_write(request)
+
+    def perform_create(self, serializer):
+        serializer.save(tenant=self.request.user.tenant)
+
+
+class TrainingCostSourceView(APIView):
+    """GET/PUT /api/dashboard/training-cost-source/ — xem & đặt link CSV chi phí đào tạo tự
+    đồng bộ (cùng cơ chế RecruitmentSource). Admin/om/bod xem, chỉ Admin sửa."""
+
+    def get(self, request):
+        _require_dashboard_view(request)
+        src = TrainingCostSource.objects.filter(tenant=request.user.tenant).first()
+        return Response({'csv_url': src.csv_url if src else ''})
+
+    def put(self, request):
+        if (request.user.role or '').lower() != 'admin':
+            return Response({'detail': 'Chỉ Admin được cấu hình nguồn chi phí đào tạo.'}, status=403)
+        url = (request.data.get('csv_url') or '').strip()
+        TrainingCostSource.objects.update_or_create(tenant=request.user.tenant, defaults={'csv_url': url})
+        return Response({'csv_url': url})
+
+
+class TrainingCostSyncNowView(APIView):
+    """POST /api/dashboard/training-cost-source/sync/ — kéo dữ liệu ngay từ link đã lưu. Chỉ Admin."""
+
+    def post(self, request):
+        if (request.user.role or '').lower() != 'admin':
+            return Response({'detail': 'Chỉ Admin được đồng bộ chi phí đào tạo.'}, status=403)
+        try:
+            result = sync_training_costs(request.user.tenant)
+        except ValidationError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        except Exception as exc:  # noqa: BLE001
+            return Response({'detail': f'Không đọc được nguồn: {exc}'}, status=400)
+        return Response(result)
+
+
+class TrainingCostImportFileView(APIView):
+    """POST /api/dashboard/training-cost-source/import-file/ (multipart 'file') — nhập chi phí
+    từ file CSV/Excel tải lên trực tiếp (không cần Google Sheet công khai). Chỉ Admin."""
+
+    def post(self, request):
+        if (request.user.role or '').lower() != 'admin':
+            return Response({'detail': 'Chỉ Admin được nhập chi phí đào tạo.'}, status=403)
+        upload = request.FILES.get('file')
+        if not upload:
+            return Response({'detail': "Cần file ('file')."}, status=400)
+        from employees.recruitment import load_rows_from_upload
+
+        try:
+            rows = load_rows_from_upload(upload)
+        except Exception as exc:  # noqa: BLE001
+            return Response({'detail': f'Không đọc được file: {exc}'}, status=400)
+        return Response(import_training_costs(request.user.tenant, rows))

@@ -31,6 +31,7 @@ export const MENU_ITEMS = {
   employee360: { label: 'Hồ sơ 360', icon: '🧭', path: '/employee-360' },
   dashboardConfig: { label: 'Cấu hình Dashboard', icon: '⚙️', path: '/dashboard-config' },
   competencyFramework: { label: 'Khung năng lực', icon: '🕸️', path: '/competency-framework' },
+  dashboardOverview: { label: 'Tổng hợp CEO/GĐĐT', icon: '📈', path: '/dashboard-overview' },
 }
 
 // Vai tro "toan he thong" -> shell desktop (topbar); con lai -> shell mobile (bottom-nav).
@@ -45,13 +46,13 @@ const ROLE_MENU = {
   admin: [
     'hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'users', 'reports',
     'coursesAdmin', 'examBanks', 'examsAdmin', 'examGrading', 'certTemplates', 'certPrograms',
-    'certificates', 'employee360', 'dashboardConfig', 'competencyFramework',
+    'certificates', 'employee360', 'dashboardConfig', 'competencyFramework', 'dashboardOverview',
   ],
   om: [
     'hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'reports', 'examGrading',
-    'employee360',
+    'employee360', 'dashboardOverview',
   ],
-  bod: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'employee360'],
+  bod: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'employee360', 'dashboardOverview'],
   am: ['hub', 'home', 'kpi', 'documents', 'examGrading'],
   kcs: ['hub', 'home', 'kpi', 'documents', 'examGrading'],
   bql: ['hub', 'home', 'kpi', 'documents', 'examGrading'],

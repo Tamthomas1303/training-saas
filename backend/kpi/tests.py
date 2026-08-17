@@ -18,6 +18,7 @@ from .services import (
     generate_kpi_report_pdf,
     get_exported_report_url,
     kpi_bql_report_data,
+    kpi_bql_totals,
     recompute_commission,
 )
 
@@ -139,6 +140,16 @@ class BqlCohortStatsTests(TestCase):
         row = by_restaurant[self.restaurant.id]
         self.assertEqual(row['on_den'], 1)
         self.assertEqual(row['on_num'], 1)
+
+    def test_row_includes_restaurant_id(self):
+        """Dashboard Phan B can restaurant_id trong tung dong de loc/rank theo nha hang
+        (compute_aggregate_dashboard) - them field khong pha vo cac field cu."""
+        self._employee('NV1', start_date=datetime.date(2026, 7, 20), pass_date=datetime.date(2026, 8, 1))
+
+        by_restaurant = _bql_cohort_stats(Employee.objects.filter(tenant=self.tenant), self.month, self.year)
+
+        row = by_restaurant[self.restaurant.id]
+        self.assertEqual(row['restaurant_id'], self.restaurant.id)
 
     def test_no_pass_date_not_on_track(self):
         e = self._employee('NV1', start_date=datetime.date(2026, 7, 20), pass_date=None)
@@ -309,6 +320,34 @@ class KpiBqlReportDataTests(TestCase):
 
         kcs_row = next(r for r in data['am_kcs'] if r['role'] == 'KCS')
         self.assertEqual(kcs_row['on_den'], 1)
+
+
+class KpiBqlTotalsTests(TestCase):
+    """kpi_bql_totals - ban nhe cua kpi_bql_report_data (bo qua rows chi tiet + khoi AM/KCS/OM),
+    dung cho bieu do xu huong nhieu thang o Dashboard Phan B."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='NH1', name='NH Demo', brand='Kampong')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+
+    def test_matches_full_report_totals(self):
+        Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='NV1', restaurant=self.restaurant, position='Phục vụ',
+            operation_unit=Employee.OperationUnit.RESTAURANT,
+            start_date=datetime.date(2026, 7, 20), pass_date=datetime.date(2026, 8, 1),
+        )
+        full = kpi_bql_report_data(self.admin, 8, 2026)
+        light = kpi_bql_totals(self.admin, 8, 2026)
+        self.assertEqual(light['on_rate'], full['totals']['on_rate'])
+        self.assertEqual(light['on_num'], full['totals']['on_num'])
+        self.assertEqual(light['on_den'], full['totals']['on_den'])
+        self.assertNotIn('am_kcs', light)
+
+    def test_zero_when_no_cohort(self):
+        result = kpi_bql_totals(self.admin, 1, 2020)
+        self.assertEqual(result['on_rate'], 0)
+        self.assertEqual(result['on_den'], 0)
 
 
 class AllowanceReportDataTests(TestCase):

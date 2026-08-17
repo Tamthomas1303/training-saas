@@ -109,6 +109,57 @@ class CompetencyScoringConfig(models.Model):
         return f'{self.tenant_id} - LT {self.theory_weight}% / TH {self.practice_weight}%'
 
 
+class TrainingCost(models.Model):
+    """1 dong chi phi dao tao theo ky (Prompt_Dashboard_B_ManTongHop.md, muc 4) - nhap qua import
+    CSV (xem services.py::import_training_costs) tu file mau File_HachToan_ChiPhiDaoTao_MAU.xlsx.
+    Idempotent theo (thang, nam, loai chi phi, pham vi, ma don vi)."""
+
+    class CostType(models.TextChoices):
+        TRAINER_SALARY = 'trainer_salary', 'Lương & phụ cấp trainer'
+        MATERIALS = 'materials', 'Tài liệu & in ấn'
+        SOFTWARE = 'software', 'Phần mềm / LMS'
+        FACILITIES = 'facilities', 'Cơ sở vật chất'
+        TRAVEL = 'travel', 'Ăn ở & đi lại'
+        OTHER = 'other', 'Khác'
+
+    class Scope(models.TextChoices):
+        SYSTEM = 'system', 'Toàn hệ thống'
+        REGION = 'region', 'Vùng'
+        RESTAURANT = 'restaurant', 'Nhà hàng'
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='training_costs')
+    month = models.IntegerField()
+    year = models.IntegerField()
+    cost_type = models.CharField(max_length=20, choices=CostType.choices)
+    scope = models.CharField(max_length=20, choices=Scope.choices, default=Scope.SYSTEM)
+    # restaurants.Restaurant.code (scope=restaurant) hoac ten Vung (scope=region), rong neu
+    # scope=system. Khong dung FK toi Restaurant vi "Vung" khong phai 1 model rieng trong he
+    # thong nay (dung quy uoc chuoi tu do, giong Checklist.position/PositionTarget.position).
+    unit_code = models.CharField(max_length=100, blank=True)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    note = models.TextField(blank=True)
+
+    class Meta:
+        unique_together = ('tenant', 'month', 'year', 'cost_type', 'scope', 'unit_code')
+        ordering = ['-year', '-month']
+
+    def __str__(self):
+        return f'{self.month}/{self.year} - {self.cost_type} - {self.scope}:{self.unit_code} - {self.amount}'
+
+
+class TrainingCostSource(models.Model):
+    """Link CSV nguon chi phi dao tao (Google Sheet Publish to web > CSV), cau hinh tren giao
+    dien - 1 dong/tenant, cung co che voi employees.RecruitmentSource. Rong = chua dung (cong
+    cho chi phi hien 'Cho du lieu')."""
+
+    tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name='training_cost_source')
+    csv_url = models.URLField(max_length=1000, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'TrainingCostSource({self.tenant_id})'
+
+
 class DashboardIndicator(models.Model):
     """Cau hinh 1 chi so tren dashboard (Phan A muc 5+6) - admin bat/tat + chinh nguong mau.
     Seed tu file ChiSo_Dashboard_ChonLua_v0.2.xlsx (cac dong CHON='x') qua management command

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import AppShell from '../components/AppShell'
 import Table from '../components/Table'
 import api from '../api/client'
@@ -88,6 +88,87 @@ function IndicatorRow({ indicator, onSaved }) {
   )
 }
 
+function TrainingCostSourceCard() {
+  const [csvUrl, setCsvUrl] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [msg, setMsg] = useState('')
+  const fileRef = useRef(null)
+
+  function load() {
+    api.get('/dashboard/training-cost-source/').then(({ data }) => setCsvUrl(data.csv_url || ''))
+  }
+  useEffect(load, [])
+
+  async function save() {
+    setSaving(true)
+    setMsg('')
+    try {
+      await api.put('/dashboard/training-cost-source/', { csv_url: csvUrl })
+      setMsg('Đã lưu link.')
+    } catch (err) {
+      setMsg(err.response?.data?.detail || 'Lưu thất bại.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function syncNow() {
+    setSyncing(true)
+    setMsg('')
+    try {
+      const { data } = await api.post('/dashboard/training-cost-source/sync/')
+      setMsg(`Đã ghi ${data.written} dòng chi phí${data.warnings?.length ? `, ${data.warnings.length} cảnh báo` : ''}.`)
+    } catch (err) {
+      setMsg(err.response?.data?.detail || 'Đồng bộ thất bại.')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  async function importFile(file) {
+    if (!file) return
+    setMsg('')
+    const fd = new FormData()
+    fd.append('file', file)
+    try {
+      const { data } = await api.post('/dashboard/training-cost-source/import-file/', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      setMsg(`Đã nhập ${data.written} dòng chi phí${data.warnings?.length ? `, ${data.warnings.length} cảnh báo` : ''}.`)
+    } catch (err) {
+      setMsg(err.response?.data?.detail || 'Nhập file thất bại.')
+    } finally {
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  return (
+    <div className="card" style={{ marginBottom: 20 }}>
+      <h3 style={{ marginTop: 0 }}>Cổng chờ chi phí đào tạo</h3>
+      <p className="muted-note">
+        Dán link CSV xuất bản từ Google Sheet (theo mẫu File_HachToan_ChiPhiDaoTao_MAU.xlsx) rồi bấm "Đồng bộ
+        ngay", hoặc tải file CSV/Excel lên trực tiếp. Chưa có dữ liệu, các thẻ chi phí trên CEO sẽ hiện
+        "Chờ dữ liệu".
+      </p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input
+          value={csvUrl} onChange={(e) => setCsvUrl(e.target.value)}
+          placeholder="https://docs.google.com/.../pub?output=csv" style={{ ...s.input, flex: 1, minWidth: 260 }}
+        />
+        <button onClick={save} disabled={saving}>Lưu link</button>
+        <button className="btn-outline" onClick={syncNow} disabled={syncing || !csvUrl}>Đồng bộ ngay</button>
+        <input
+          ref={fileRef} type="file" accept=".csv,.xlsx,.xlsm" style={{ display: 'none' }}
+          onChange={(e) => importFile(e.target.files[0])}
+        />
+        <button className="btn-outline" onClick={() => fileRef.current?.click()}>Tải file lên</button>
+      </div>
+      {msg && <p className="muted-note" style={{ marginTop: 8 }}>{msg}</p>}
+    </div>
+  )
+}
+
 export default function DashboardConfigPage() {
   const [indicators, setIndicators] = useState([])
   const [loading, setLoading] = useState(true)
@@ -140,6 +221,8 @@ export default function DashboardConfigPage() {
         <button onClick={seedDefaults} disabled={seeding}>Khởi tạo khung năng lực + danh sách chỉ số mặc định</button>
         {seedMsg && <span className="muted-note">{seedMsg}</span>}
       </div>
+
+      <TrainingCostSourceCard />
 
       {loading && <p className="muted-note">Đang tải...</p>}
       {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}

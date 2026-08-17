@@ -149,17 +149,20 @@ EXAM_BUCKETS = (
 )
 
 
-def exam_block(tenant, start, end):
+def exam_block(tenant, start, end, restaurant_id=None):
     """Loc ExamResult theo exam_date (ngay thi that su, xem sync_cls.py::_parse_exam_date)
     trong ky, dung final_score (uu tien diem phuc khao). Phan loai + ty le dat tinh theo
-    LUOT THI (attempt), khong phai theo nguoi."""
+    LUOT THI (attempt), khong phai theo nguoi. restaurant_id (tuy chon) - loc them theo
+    Employee.restaurant cua nguoi thi (dung cho man tong hop CEO/GDDT loc theo nha hang)."""
     from django.db.models.functions import Coalesce
 
     from cls_sync.models import ExamResult
 
+    qs = ExamResult.objects.filter(tenant=tenant, exam_date__range=(start, end))
+    if restaurant_id:
+        qs = qs.filter(employee__restaurant_id=restaurant_id)
     scores = list(
-        ExamResult.objects.filter(tenant=tenant, exam_date__range=(start, end))
-        .annotate(computed_score=Coalesce('score_adjusted', 'score'))
+        qs.annotate(computed_score=Coalesce('score_adjusted', 'score'))
         .exclude(computed_score__isnull=True)
         .values_list('employee_id', 'computed_score')
     )

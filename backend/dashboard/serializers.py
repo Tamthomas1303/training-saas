@@ -8,6 +8,7 @@ from .models import (
     DashboardIndicator,
     PositionGroupWeight,
     PositionTarget,
+    TrainingCost,
 )
 
 
@@ -67,6 +68,19 @@ class CompetencyScoringConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = CompetencyScoringConfig
         fields = ['theory_weight', 'practice_weight']
+
+
+class TrainingCostSerializer(serializers.ModelSerializer):
+    cost_type_display = serializers.CharField(source='get_cost_type_display', read_only=True)
+    scope_display = serializers.CharField(source='get_scope_display', read_only=True)
+
+    class Meta:
+        model = TrainingCost
+        fields = [
+            'id', 'month', 'year', 'cost_type', 'cost_type_display', 'scope', 'scope_display',
+            'unit_code', 'amount', 'note',
+        ]
+        read_only_fields = ['id']
 
 
 class DashboardIndicatorSerializer(serializers.ModelSerializer):
