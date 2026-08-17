@@ -4,7 +4,9 @@ from .models import (
     ClsExamCompetencyMap,
     CompetencyGroup,
     Competency,
+    CompetencyScoreSnapshot,
     CompetencyScoringConfig,
+    CompetencySnapshot,
     DashboardIndicator,
     PositionGroupWeight,
     PositionTarget,
@@ -63,3 +65,15 @@ class TrainingCostAdmin(admin.ModelAdmin):
 @admin.register(TrainingCostSource)
 class TrainingCostSourceAdmin(admin.ModelAdmin):
     list_display = ('tenant', 'csv_url', 'updated_at')
+
+
+@admin.register(CompetencySnapshot)
+class CompetencySnapshotAdmin(admin.ModelAdmin):
+    list_display = ('employee', 'restaurant', 'ci', 'computed_at', 'tenant')
+    list_filter = ('tenant', 'restaurant')
+
+
+@admin.register(CompetencyScoreSnapshot)
+class CompetencyScoreSnapshotAdmin(admin.ModelAdmin):
+    list_display = ('employee', 'competency', 'group', 'score', 'target', 'gap', 'tenant')
+    list_filter = ('tenant', 'group')

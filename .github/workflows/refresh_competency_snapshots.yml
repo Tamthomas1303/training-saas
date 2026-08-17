@@ -1,0 +1,28 @@
+name: Refresh Competency Snapshots
+
+# Tinh nen diem nang luc (CompetencySnapshot) cho man tong hop CEO/GDDT (Prompt_Fix_OOM_
+# DashboardTongHop.md) - chay o day (khong phai tren Render web worker) de tranh OOM tren goi
+# free 512MB voi tenant nhieu nhan su. Dung chung secrets voi sync_cls.yml (khong can them gi).
+on:
+  schedule:
+    # Moi 4 gio (00, 04, 08, 12, 16, 20 gio UTC = 07, 11, 15, 19, 23, 03 gio VN).
+    - cron: '0 */4 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
+      DJANGO_DEBUG: 'False'
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python manage.py refresh_competency_snapshots

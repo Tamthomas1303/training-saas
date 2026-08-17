@@ -13,7 +13,7 @@ Dán cho Claude Code:
 > - Thêm `gunicorn` và `whitenoise` vào `requirements.txt`.
 > - Trong `config/settings.py`: thêm `STATIC_ROOT = BASE_DIR / 'staticfiles'`; thêm `whitenoise.middleware.WhiteNoiseMiddleware` ngay sau `SecurityMiddleware`; cấu hình `STORAGES` static dùng WhiteNoise; đọc `CSRF_TRUSTED_ORIGINS` từ biến môi trường (danh sách, phân tách dấu phẩy); đảm bảo `ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`, `DEBUG` đều đọc từ env (đã có phần lớn).
 > - Tạo file `backend/build.sh` (hoặc ghi rõ trong README) chạy: `pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate`.
-> - Start command dùng: `gunicorn config.wsgi:application`.
+> - Start command dùng: `gunicorn config.wsgi:application --workers 2 --threads 2 --timeout 60 --max-requests 200 --max-requests-jitter 50` (`--max-requests` để gunicorn tự "recycle" worker định kỳ, tránh rò rỉ/đỉnh bộ nhớ tích tụ trên gói free 512MB — xem Prompt_Fix_OOM_DashboardTongHop.md).
 > - Frontend: xác nhận `VITE_API_BASE_URL` đọc từ env (đã đúng), không hard-code localhost.
 > - Cập nhật `.env.example` (backend + frontend) liệt kê đủ biến cần cho production. KHÔNG commit `.env` thật.
 > Chạy thử `python manage.py collectstatic --noinput` ở máy để chắc không lỗi, rồi commit."
@@ -43,8 +43,10 @@ Dán cho Claude Code:
    - **Root Directory**: `backend`
    - **Runtime**: Python 3
    - **Build Command**: `pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate`
-   - **Start Command**: `gunicorn config.wsgi:application`
+   - **Start Command**: `gunicorn config.wsgi:application --workers 2 --threads 2 --timeout 60 --max-requests 200 --max-requests-jitter 50`
    - **Instance Type**: **Free**
+
+   > **Nếu backend đã deploy từ trước** (Start Command đang chỉ là `gunicorn config.wsgi:application`): vào **Render → service → Settings → Start Command**, sửa lại thành dòng trên rồi **Save Changes** (Render tự deploy lại). `--max-requests 200 --max-requests-jitter 50` giúp worker tự khởi động lại sau ~175–250 request để giải phóng bộ nhớ tích tụ, tránh bị hệ điều hành SIGKILL ("Out of memory") trên gói free 512MB.
 4. Mục **Environment Variables** — thêm lần lượt (Add Environment Variable):
    - `DJANGO_SECRET_KEY` = (một chuỗi ngẫu nhiên dài, khác bản dev)
    - `DJANGO_DEBUG` = `False`
@@ -92,6 +94,7 @@ Dán cho Claude Code:
 - **Cập nhật code sau này:** chỉ cần `git push` lên `main` → Render và Vercel **tự deploy lại**. Rất tiện.
 - **Tài khoản thật:** đăng nhập admin → tạo user thật cho từng vai trò; hoặc chạy seed.
 - **Đồng bộ CLS tự động:** đẩy repo lên GitHub rồi vào **repo → Settings → Secrets and variables → Actions** thêm `DATABASE_URL`, `CLS_SECRET_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `RECRUITMENT_SOURCE_CSV_URL`, `DJANGO_SECRET_KEY` để workflow `sync_cls.yml` tự chạy theo lịch.
+- **Tính nền chỉ số năng lực (Dashboard tổng hợp CEO/GĐĐT):** dùng CHUNG các secrets ở trên (không cần thêm) — workflow `refresh_competency_snapshots.yml` tự chạy mỗi 4 giờ để tính sẵn điểm năng lực, tránh màn `/dashboard-overview` phải tính cho toàn bộ nhân sự ngay trong request (gây OOM trên Render free 512MB — xem `Prompt_Fix_OOM_DashboardTongHop.md`). Muốn chạy ngay: tab **Actions** trên GitHub → chọn workflow này → **Run workflow**.
 - **Bảo mật:** mọi khóa bí mật chỉ đặt trong Environment Variables của Render / Secrets của GitHub — KHÔNG bao giờ trong code hay frontend.
 
 ---

@@ -1,7 +1,9 @@
 from decimal import Decimal
 
 from django.core.management import call_command
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -18,7 +20,9 @@ from .models import (
     ClsExamCompetencyMap,
     CompetencyGroup,
     Competency,
+    CompetencyScoreSnapshot,
     CompetencyScoringConfig,
+    CompetencySnapshot,
     DashboardIndicator,
     PositionGroupWeight,
     PositionTarget,
@@ -27,6 +31,7 @@ from .models import (
 )
 from .services import (
     ValidationError,
+    _competency_aggregate_from_snapshot,
     compute_aggregate_dashboard,
     compute_competency_scores,
     competency_gaps,
@@ -37,6 +42,7 @@ from .services import (
     import_position_targets,
     import_training_costs,
     indicator_color,
+    refresh_competency_snapshots,
     resolve_position,
     seed_competency_framework,
     seed_dashboard_indicators,
@@ -1034,6 +1040,189 @@ class AggregateDashboardEngineTests(TestCase):
         by_key_aug = {i['key']: i for i in result_aug['indicators']}
         self.assertEqual(by_key_july['ty_le_pass_thu_viec']['value'], 100.0)
         self.assertIsNone(by_key_aug['ty_le_pass_thu_viec']['value'])
+
+
+class RefreshCompetencySnapshotsTests(TestCase):
+    """Prompt_Fix_OOM_DashboardTongHop.md: tinh nen CompetencySnapshot/CompetencyScoreSnapshot
+    dung LAI DUNG engine compute_competency_scores (khong doi cong thuc), chi doi CHO tinh
+    (background/cron) - chay qua management command, khong phai trong request man tong hop."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='R1', name='NH 1', brand='Kampong')
+        seed_competency_framework(self.tenant)
+        self.group = CompetencyGroup.objects.get(tenant=self.tenant, code='A2')
+        self.comp = Competency.objects.get(tenant=self.tenant, group=self.group, name='Quy trình phục vụ chuẩn')
+        PositionGroupWeight.objects.create(tenant=self.tenant, position='NV Phục vụ', group=self.group, weight=Decimal('100'))
+        self.employee = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='NV1', position='NV Phục vụ', restaurant=self.restaurant,
+            employee_status='active',
+        )
+        course = Course.objects.create(tenant=self.tenant, title='Khóa phục vụ', competency=self.comp)
+        Enrollment.objects.create(tenant=self.tenant, course=course, employee=self.employee, status=Enrollment.Status.COMPLETED)
+
+    def test_snapshot_matches_live_engine_exactly(self):
+        """Khong doi y nghia so lieu - snapshot phai khop CHINH XAC voi compute_competency_scores
+        (chi khac THOI DIEM tinh, khong khac CONG THUC)."""
+        live = compute_competency_scores(self.employee)
+        refresh_competency_snapshots(self.tenant)
+        snap = CompetencySnapshot.objects.get(tenant=self.tenant, employee=self.employee)
+        self.assertEqual(float(snap.ci), live['ci'])
+        self.assertEqual(snap.restaurant_id, self.restaurant.id)
+
+        live_comp = next(c for c in live['competencies'] if c['id'] == self.comp.id)
+        score_snap = CompetencyScoreSnapshot.objects.get(employee=self.employee, competency=self.comp)
+        self.assertEqual(float(score_snap.score), live_comp['score'])
+        self.assertEqual(score_snap.target, live_comp['target'])
+
+    def test_creates_one_score_row_per_competency(self):
+        refresh_competency_snapshots(self.tenant)
+        self.assertEqual(CompetencyScoreSnapshot.objects.filter(employee=self.employee).count(), 24)
+
+    def test_resigned_employee_excluded(self):
+        self.employee.employee_status = 'resigned'
+        self.employee.save(update_fields=['employee_status'])
+        refresh_competency_snapshots(self.tenant)
+        self.assertFalse(CompetencySnapshot.objects.filter(employee=self.employee).exists())
+
+    def test_rerun_updates_not_duplicates(self):
+        refresh_competency_snapshots(self.tenant)
+        refresh_competency_snapshots(self.tenant)
+        self.assertEqual(CompetencySnapshot.objects.filter(tenant=self.tenant).count(), 1)
+        self.assertEqual(CompetencyScoreSnapshot.objects.filter(tenant=self.tenant).count(), 24)
+
+    def test_stale_snapshot_removed_when_employee_leaves_scope(self):
+        refresh_competency_snapshots(self.tenant)
+        self.assertTrue(CompetencySnapshot.objects.filter(employee=self.employee).exists())
+        self.employee.employee_status = 'resigned'
+        self.employee.save(update_fields=['employee_status'])
+        refresh_competency_snapshots(self.tenant)
+        self.assertFalse(CompetencySnapshot.objects.filter(employee=self.employee).exists())
+        self.assertFalse(CompetencyScoreSnapshot.objects.filter(employee=self.employee).exists())
+
+    def test_management_command_runs(self):
+        call_command('refresh_competency_snapshots', tenant='Demo Tenant')
+        self.assertTrue(CompetencySnapshot.objects.filter(tenant=self.tenant, employee=self.employee).exists())
+
+
+class CompetencyAggregateFromSnapshotTests(TestCase):
+    """_competency_aggregate_from_snapshot - DOC snapshot bang truy van aggregate (Avg/Count),
+    khong lap Python qua tung nhan su."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='R1', name='NH 1', brand='Kampong')
+        self.other_restaurant = Restaurant.objects.create(tenant=self.tenant, code='R2', name='NH 2', brand='Kampong')
+        seed_competency_framework(self.tenant)
+        self.group = CompetencyGroup.objects.get(tenant=self.tenant, code='A2')
+        self.comp_a = Competency.objects.get(tenant=self.tenant, group=self.group, name='Quy trình phục vụ chuẩn')
+        self.comp_b = Competency.objects.get(tenant=self.tenant, group=self.group, name='Xử lý order & POS')
+
+    def _snapshot(self, code, ci, restaurant=None):
+        e = Employee.objects.create(tenant=self.tenant, code=code, name=code, employee_status='active')
+        CompetencySnapshot.objects.create(tenant=self.tenant, employee=e, restaurant=restaurant, ci=Decimal(str(ci)))
+        return e
+
+    def test_no_snapshot_returns_none(self):
+        result = _competency_aggregate_from_snapshot(self.tenant)
+        self.assertIsNone(result['ci_avg'])
+        self.assertIsNone(result['ready_rate'])
+        self.assertEqual(result['top_gaps'], [])
+        self.assertEqual(result['group_avg'], [])
+
+    def test_ci_avg_and_ready_rate(self):
+        self._snapshot('NV1', 90)  # >= 80 -> ready
+        self._snapshot('NV2', 60)  # < 80 -> khong ready
+        result = _competency_aggregate_from_snapshot(self.tenant)
+        self.assertEqual(result['ci_avg'], 75.0)
+        self.assertEqual(result['ready_rate'], 50.0)
+
+    def test_restaurant_filter(self):
+        self._snapshot('NV1', 90, restaurant=self.restaurant)
+        self._snapshot('NV2', 50, restaurant=self.other_restaurant)
+        result = _competency_aggregate_from_snapshot(self.tenant, restaurant=self.restaurant)
+        self.assertEqual(result['ci_avg'], 90.0)
+
+    def test_target_rate_and_top_gaps_and_group_avg_from_score_snapshot(self):
+        e = self._snapshot('NV1', 80)
+        CompetencyScoreSnapshot.objects.create(
+            tenant=self.tenant, employee=e, competency=self.comp_a, group=self.group,
+            score=Decimal('90'), target=80, gap=Decimal('-10'),
+        )
+        CompetencyScoreSnapshot.objects.create(
+            tenant=self.tenant, employee=e, competency=self.comp_b, group=self.group,
+            score=Decimal('50'), target=80, gap=Decimal('30'),
+        )
+        result = _competency_aggregate_from_snapshot(self.tenant)
+        self.assertEqual(result['target_rate'], 50.0)  # 1/2 dat muc tieu (gap<=0)
+        self.assertEqual(len(result['top_gaps']), 1)
+        self.assertEqual(result['top_gaps'][0]['name'], self.comp_b.name)
+        self.assertEqual(result['top_gaps'][0]['avg_gap'], 30.0)
+        group_row = next(g for g in result['group_avg'] if g['code'] == 'A2')
+        self.assertEqual(group_row['avg_score'], 70.0)  # (90+50)/2
+
+    def test_query_count_fixed_regardless_of_employee_count(self):
+        """Nguyen nhan OOM cu: goi compute_competency_scores() cho TUNG nhan su (24 nang luc x 5
+        nguon = 120 truy van/nhan su). Sau khi sua, so truy van phai LA HANG SO du bao nhieu
+        nhan su co snapshot."""
+        self._snapshot('NV1', 90)
+        with self.assertNumQueries(5):
+            _competency_aggregate_from_snapshot(self.tenant)
+
+        for i in range(2, 22):
+            e = self._snapshot(f'NV{i}', 70)
+            CompetencyScoreSnapshot.objects.create(
+                tenant=self.tenant, employee=e, competency=self.comp_a, group=self.group,
+                score=Decimal('70'), target=80, gap=Decimal('10'),
+            )
+        with self.assertNumQueries(5):
+            _competency_aggregate_from_snapshot(self.tenant)
+
+
+class AggregateDashboardQueryCountTests(TestCase):
+    """Prompt_Fix_OOM_DashboardTongHop.md, nghiem thu: so truy van cua man tong hop KHONG tang
+    ti le voi tong so nhan su trong tenant (chi tang theo nhom da loc - thang/nha hang - vi du
+    cohort thang nay, khong phai toan bo roster)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        seed_dashboard_indicators(self.tenant)
+        seed_competency_framework(self.tenant)
+        self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='R1', name='NH 1', brand='Kampong')
+
+    def _add_noise_employee(self, code):
+        """Nhan su 'nhieu' - da lam lau, da Pass tu lau - KHONG thuoc cohort thang nay, KHONG con
+        thu viec (bi loai khoi bang canh bao boi WHERE o DB) - chi de kiem tra ho KHONG lam tang
+        so truy van (truoc day se lam, vi engine cu duyet QUA TAT CA nhan su dang lam)."""
+        import datetime
+
+        old_start = datetime.date(2020, 1, 1)
+        e = Employee.objects.create(
+            tenant=self.tenant, code=code, name=code, restaurant=self.restaurant,
+            operation_unit='restaurant', start_date=old_start, pass_date=datetime.date(2020, 1, 20),
+            employee_status='active',
+        )
+        CompetencySnapshot.objects.create(tenant=self.tenant, employee=e, restaurant=self.restaurant, ci=Decimal('85'))
+        return e
+
+    def test_query_count_stable_as_total_employees_grow(self):
+        with CaptureQueriesContext(connection) as ctx_small:
+            compute_aggregate_dashboard(self.admin, 'ceo', 7, 2026, restaurant_id=self.restaurant.id)
+        queries_small = len(ctx_small)
+
+        for i in range(20):
+            self._add_noise_employee(f'NOISE{i}')
+
+        with CaptureQueriesContext(connection) as ctx_large:
+            compute_aggregate_dashboard(self.admin, 'ceo', 7, 2026, restaurant_id=self.restaurant.id)
+        queries_large = len(ctx_large)
+
+        self.assertEqual(
+            queries_small, queries_large,
+            f'So truy van phai KHONG doi khi them nhan su "nhieu" (khong thuoc cohort) - '
+            f'{queries_small} (truoc) vs {queries_large} (sau, +20 nhan su).',
+        )
 
 
 class AggregateDashboardApiTests(TestCase):

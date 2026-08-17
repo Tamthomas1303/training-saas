@@ -21,6 +21,11 @@ function fmtValue(indicator) {
   return v.toLocaleString('vi-VN', { maximumFractionDigits: 1 })
 }
 
+function fmtDateTime(iso) {
+  if (!iso) return ''
+  return new Date(iso).toLocaleString('vi-VN')
+}
+
 function IndicatorCard({ indicator }) {
   return (
     <StatCard
@@ -88,6 +93,11 @@ export default function DashboardOverviewPage() {
           {groups.map((groupLabel) => (
             <div key={groupLabel} style={{ marginBottom: 20 }}>
               <h3>{groupLabel}</h3>
+              {groupLabel === 'Năng lực' && data.competency_snapshot_at && (
+                <p className="muted-note" style={{ marginTop: -8, marginBottom: 8 }}>
+                  Tính từ dữ liệu nền lúc {fmtDateTime(data.competency_snapshot_at)} (không realtime, cập nhật định kỳ).
+                </p>
+              )}
               <div className="stat-grid">
                 {data.indicators.filter((i) => i.group_label === groupLabel).map((ind) => (
                   <IndicatorCard key={ind.key} indicator={ind} />
@@ -134,6 +144,9 @@ export default function DashboardOverviewPage() {
           {groupAvg.length > 0 && (
             <div className="card" style={{ marginBottom: 16 }}>
               <h3 style={{ marginTop: 0 }}>Radar năng lực trung bình (CI theo nhóm)</h3>
+              {data.competency_snapshot_at && (
+                <p className="muted-note">Tính từ dữ liệu nền lúc {fmtDateTime(data.competency_snapshot_at)}.</p>
+              )}
               <RadarChart labels={groupAvg.map((g) => g.name)} actual={groupAvg.map((g) => g.avg_score)} />
             </div>
           )}

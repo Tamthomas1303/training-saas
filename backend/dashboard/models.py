@@ -160,6 +160,53 @@ class TrainingCostSource(models.Model):
         return f'TrainingCostSource({self.tenant_id})'
 
 
+class CompetencySnapshot(models.Model):
+    """Snapshot dinh ky diem nang luc TONG HOP (CI) cua 1 nhan su - dung cho cac chi so cap he
+    thong tren man CEO/GDDT (Prompt_Fix_OOM_DashboardTongHop.md). Man tong hop truoc day goi
+    compute_competency_scores() cho TOAN BO nhan su (~1.240) trong 1 request -> OOM tren Render
+    free 512MB. Sua: tinh nen dinh ky qua management command refresh_competency_snapshots (dung
+    LAI dung engine compute_competency_scores, KHONG doi cong thuc) roi ghi vao day; man tong
+    hop CHI DOC + aggregate bang nay (Avg/Count) - nhe, hang so ve so truy van du bao nhieu
+    nhan su. Ho so 360 (tung nguoi) VAN tinh realtime nhu cu, khong dung bang nay."""
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='competency_snapshots')
+    employee = models.OneToOneField(
+        'employees.Employee', on_delete=models.CASCADE, related_name='competency_snapshot',
+    )
+    restaurant = models.ForeignKey(
+        'restaurants.Restaurant', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='competency_snapshots',
+    )
+    ci = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True)
+    computed_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.employee_id} - CI {self.ci}'
+
+
+class CompetencyScoreSnapshot(models.Model):
+    """Snapshot diem TUNG nang luc (score/target/gap) cua 1 nhan su, ghi kem CompetencySnapshot -
+    dung cho '% dat muc tieu nang luc', 'top skill gap toan he thong', 'radar CI trung binh
+    theo nhom' bang truy van aggregate (values().annotate(Avg/Count)) thay vi lap Python qua
+    tung nhan su x tung nang luc (xem CompetencySnapshot docstring)."""
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='competency_score_snapshots')
+    employee = models.ForeignKey(
+        'employees.Employee', on_delete=models.CASCADE, related_name='competency_score_snapshots',
+    )
+    competency = models.ForeignKey(Competency, on_delete=models.CASCADE, related_name='score_snapshots')
+    group = models.ForeignKey(CompetencyGroup, on_delete=models.CASCADE, related_name='score_snapshots')
+    score = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True)
+    target = models.IntegerField(null=True, blank=True)
+    gap = models.DecimalField(max_digits=5, decimal_places=1, null=True, blank=True)
+
+    class Meta:
+        unique_together = ('employee', 'competency')
+
+    def __str__(self):
+        return f'{self.employee_id} - {self.competency_id}: {self.score}'
+
+
 class DashboardIndicator(models.Model):
     """Cau hinh 1 chi so tren dashboard (Phan A muc 5+6) - admin bat/tat + chinh nguong mau.
     Seed tu file ChiSo_Dashboard_ChonLua_v0.2.xlsx (cac dong CHON='x') qua management command

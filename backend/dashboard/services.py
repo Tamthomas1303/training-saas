@@ -16,13 +16,16 @@ import unicodedata
 from collections import defaultdict
 
 from django.conf import settings
+from django.db.models import Avg, Count, F, Max, Q
 from django.utils import timezone
 
 from .models import (
     ClsExamCompetencyMap,
     CompetencyGroup,
     Competency,
+    CompetencyScoreSnapshot,
     CompetencyScoringConfig,
+    CompetencySnapshot,
     DashboardIndicator,
     PositionGroupWeight,
     PositionTarget,
@@ -903,68 +906,108 @@ def sync_training_costs(tenant):
     return import_training_costs(tenant, rows)
 
 
-def _competency_aggregate(employees):
-    """1 lan duyet compute_competency_scores(e) (engine da co, Phan A/A.1) cho tung nhan su -
-    dung chung cho cac chi so nang luc cap he thong: CI trung binh, % dat muc tieu, san sang
-    nhan luc (CI >= 80 - nguong toi thieu, dong bo voi nguong xanh/vang 90/80 mac dinh cua cac
-    chi so "higher_better" khac), top skill gap toan he thong, va diem trung binh THEO NHOM (cho
-    'Radar CI trung bình' - muc 3 cua prompt, dung lai RadarChart hien co o Ho so 360)."""
-    ci_values = []
-    comp_hit = comp_total = 0
-    ready = total_scored = 0
-    gap_sum = defaultdict(float)
-    gap_count = defaultdict(int)
-    group_sum = defaultdict(float)
-    group_count = defaultdict(int)
-    group_label = {}
+def refresh_competency_snapshots(tenant):
+    """Tinh NEN dinh ky CompetencySnapshot/CompetencyScoreSnapshot cho toan bo nhan su dang lam
+    cua 1 tenant (Prompt_Fix_OOM_DashboardTongHop.md) - dung LAI DUNG engine
+    compute_competency_scores (Phan A/A.1), KHONG doi cong thuc/y nghia so lieu, chi doi CHO
+    tinh (background/cron thay vi trong 1 request cua man tong hop). Chay qua management
+    command (xem management/commands/refresh_competency_snapshots.py), KHONG goi tu web request
+    de tranh chinh no gay OOM. Dung .iterator(chunk_size=500) de khong giu ca list ~1000+
+    Employee trong bo nho cung luc."""
+    from employees.models import Employee
 
-    for e in employees:
-        scores = compute_competency_scores(e)
-        if scores['ci'] is not None:
-            ci_values.append(scores['ci'])
-            total_scored += 1
-            if scores['ci'] >= 80:
-                ready += 1
-        for c in scores['competencies']:
-            if c['score'] is not None and c['target'] is not None:
-                comp_total += 1
-                if c['score'] >= c['target']:
-                    comp_hit += 1
-                gap = c['target'] - c['score']
-                if gap > 0:
-                    gap_sum[c['name']] += gap
-                    gap_count[c['name']] += 1
-        for g in scores['groups']:
-            if g['score'] is not None:
-                group_sum[g['code']] += g['score']
-                group_count[g['code']] += 1
-                group_label[g['code']] = g['name']
-
-    top_gaps = sorted(
-        (
-            {'name': name, 'avg_gap': round(gap_sum[name] / gap_count[name], 1), 'count': gap_count[name]}
-            for name in gap_sum
-        ),
-        key=lambda g: -g['avg_gap'],
-    )[:10]
-
-    group_avg = sorted(
-        (
-            {
-                'code': code, 'name': group_label[code],
-                'avg_score': round(group_sum[code] / group_count[code], 1),
-            }
-            for code in group_sum
-        ),
-        key=lambda g: g['code'],
+    employees_qs = (
+        Employee.objects.filter(tenant=tenant, is_legacy=False)
+        .exclude(employee_status='resigned')
+        .select_related('restaurant')
+        .iterator(chunk_size=500)
     )
 
+    updated = 0
+    kept_employee_ids = []
+    for e in employees_qs:
+        scores = compute_competency_scores(e)
+        CompetencySnapshot.objects.update_or_create(
+            tenant=tenant, employee=e,
+            defaults={'restaurant': e.restaurant, 'ci': scores['ci']},
+        )
+        CompetencyScoreSnapshot.objects.filter(employee=e).delete()
+        rows = [
+            CompetencyScoreSnapshot(
+                tenant=tenant, employee=e, competency_id=c['id'], group_id=c['group_id'],
+                score=c['score'], target=c['target'], gap=c['gap'],
+            )
+            for c in scores['competencies']
+        ]
+        if rows:
+            CompetencyScoreSnapshot.objects.bulk_create(rows)
+        kept_employee_ids.append(e.id)
+        updated += 1
+
+    # Don snapshot cua nhan su khong con trong scope (nghi viec/xoa/is_legacy) - tranh so lieu ma.
+    CompetencySnapshot.objects.filter(tenant=tenant).exclude(employee_id__in=kept_employee_ids).delete()
+    CompetencyScoreSnapshot.objects.filter(tenant=tenant).exclude(employee_id__in=kept_employee_ids).delete()
+
+    return {'updated': updated}
+
+
+def _competency_aggregate_from_snapshot(tenant, restaurant=None):
+    """Chi so nang luc cap he thong: CI trung binh, % dat muc tieu, san sang nhan luc (CI >= 80 -
+    nguong toi thieu, dong bo voi nguong xanh/vang 90/80 mac dinh cua cac chi so "higher_better"
+    khac), top skill gap toan he thong, diem trung binh THEO NHOM (Radar CI trung bình) - ĐỌC
+    TỪ CompetencySnapshot/CompetencyScoreSnapshot (da tinh nen dinh ky) bang truy van aggregate
+    (Avg/Count), KHONG lap Python qua tung nhan su - so truy van HANG SO du tenant co bao nhieu
+    nhan su (Prompt_Fix_OOM_DashboardTongHop.md, sua thay the ham _competency_aggregate cu goi
+    compute_competency_scores() cho tung nhan su, la nguyen nhan gay OOM)."""
+    snap_qs = CompetencySnapshot.objects.filter(tenant=tenant)
+    if restaurant is not None:
+        snap_qs = snap_qs.filter(restaurant=restaurant)
+    snap_agg = snap_qs.aggregate(
+        ci_avg=Avg('ci'),
+        total_scored=Count('id', filter=Q(ci__isnull=False)),
+        ready=Count('id', filter=Q(ci__gte=80)),
+    )
+    ci_avg = round(float(snap_agg['ci_avg']), 1) if snap_agg['ci_avg'] is not None else None
+    ready_rate = (
+        round(snap_agg['ready'] / snap_agg['total_scored'] * 100, 1) if snap_agg['total_scored'] else None
+    )
+
+    score_qs = CompetencyScoreSnapshot.objects.filter(tenant=tenant)
+    if restaurant is not None:
+        score_qs = score_qs.filter(employee__restaurant=restaurant)
+    score_agg = score_qs.aggregate(
+        comp_total=Count('id', filter=Q(score__isnull=False, target__isnull=False)),
+        comp_hit=Count('id', filter=Q(score__isnull=False, target__isnull=False, gap__lte=0)),
+    )
+    target_rate = (
+        round(score_agg['comp_hit'] / score_agg['comp_total'] * 100, 1) if score_agg['comp_total'] else None
+    )
+
+    top_gaps = [
+        {'name': row['competency__name'], 'avg_gap': round(float(row['avg_gap']), 1), 'count': row['count']}
+        for row in (
+            score_qs.filter(gap__gt=0)
+            .values('competency__name')
+            .annotate(avg_gap=Avg('gap'), count=Count('id'))
+            .order_by('-avg_gap')[:10]
+        )
+    ]
+
+    group_avg = [
+        {'code': row['group__code'], 'name': row['group__name'], 'avg_score': round(float(row['avg_score']), 1)}
+        for row in (
+            score_qs.filter(score__isnull=False)
+            .values('group__code', 'group__name')
+            .annotate(avg_score=Avg('score'))
+            .order_by('group__code')
+        )
+    ]
+
+    computed_at = snap_qs.aggregate(latest=Max('computed_at'))['latest']
+
     return {
-        'ci_avg': round(sum(ci_values) / len(ci_values), 1) if ci_values else None,
-        'target_rate': round(comp_hit / comp_total * 100, 1) if comp_total else None,
-        'ready_rate': round(ready / total_scored * 100, 1) if total_scored else None,
-        'top_gaps': top_gaps,
-        'group_avg': group_avg,
+        'ci_avg': ci_avg, 'target_rate': target_rate, 'ready_rate': ready_rate,
+        'top_gaps': top_gaps, 'group_avg': group_avg, 'computed_at': computed_at,
     }
 
 
@@ -1030,11 +1073,12 @@ def _aggregate_context(user, month, year, restaurant):
         round(sum(1 for e in with_trainer if e.pass_date) / len(with_trainer) * 100, 1) if with_trainer else None
     )
 
-    # --- Nang luc (CI/muc tieu/san sang nhan luc/skill gap - engine Phan A/A.1) ---
-    active_qs = Employee.objects.filter(tenant=tenant, is_legacy=False).exclude(employee_status='resigned')
-    if restaurant:
-        active_qs = active_qs.filter(restaurant=restaurant)
-    competency = _competency_aggregate(list(active_qs))
+    # --- Nang luc (CI/muc tieu/san sang nhan luc/skill gap) - DOC snapshot da tinh nen dinh ky
+    #     (CompetencySnapshot/CompetencyScoreSnapshot), KHONG goi compute_competency_scores cho
+    #     tung nhan su trong request nay (nguyen nhan OOM cu - Prompt_Fix_OOM_
+    #     DashboardTongHop.md). Snapshot lam moi qua management command
+    #     refresh_competency_snapshots (chay nen/cron, xem docstring). ---
+    competency = _competency_aggregate_from_snapshot(tenant, restaurant)
 
     # --- San sang ke can (tai dung employees.career.talent_pool_employees) ---
     talent_pool = talent_pool_employees(tenant)
@@ -1050,9 +1094,11 @@ def _aggregate_context(user, month, year, restaurant):
     completed_qs = enroll_qs.filter(status=Enrollment.Status.COMPLETED)
     enroll_completed = completed_qs.count()
     course_completion_rate = round(enroll_completed / enroll_total * 100, 1) if enroll_total else None
-    with_due = list(completed_qs.filter(due_date__isnull=False))
-    on_time = sum(1 for e in with_due if e.updated_at.date() <= e.due_date)
-    on_time_rate = round(on_time / len(with_due) * 100, 1) if with_due else None
+    # So sanh ngay hoan thanh vs han (F() -> 1 truy van aggregate, khong nap Enrollment vao Python).
+    due_qs = completed_qs.filter(due_date__isnull=False)
+    due_total = due_qs.count()
+    on_time = due_qs.filter(updated_at__date__lte=F('due_date')).count()
+    on_time_rate = round(on_time / due_total * 100, 1) if due_total else None
 
     attempt_qs = Attempt.objects.filter(
         tenant=tenant, attempt_no=1, status=Attempt.Status.GRADED, submitted_at__date__range=(month_start, month_end),
@@ -1111,8 +1157,18 @@ def _aggregate_context(user, month, year, restaurant):
             row['color'] = 'red'
     below_threshold_restaurants = [r for r in kpi_rows if r['on_den'] > 0 and r['on_rate'] < low_threshold]
 
-    # --- Canh bao (tai dung _probation_deadline_days_left da co san, khong tinh lai) ---
-    overdue_count, at_risk_count, warnings_table = _employee_warning_rows(list(active_qs))
+    # --- Canh bao (tai dung _probation_deadline_days_left da co san, khong tinh lai) - LOC
+    #     TRUOC o DB (chua Pass + chua nghi viec) thay vi nap toan bo nhan su dang lam roi loai
+    #     trong Python: mau chi con nhan su CON DANG thu viec (nho hon nhieu so voi toan bo
+    #     roster), select_related('restaurant') tranh N+1 khi doc ten nha hang. ---
+    probation_qs = (
+        Employee.objects.filter(tenant=tenant, is_legacy=False, pass_date__isnull=True)
+        .exclude(employee_status='resigned')
+        .select_related('restaurant')
+    )
+    if restaurant:
+        probation_qs = probation_qs.filter(restaurant=restaurant)
+    overdue_count, at_risk_count, warnings_table = _employee_warning_rows(probation_qs.iterator(chunk_size=500))
 
     # --- Cong chi phi (muc 4) ---
     cost_total = training_cost_total(tenant, month, year, restaurant)
@@ -1258,5 +1314,8 @@ def compute_aggregate_dashboard(user, scope, month, year, restaurant_id=None):
         'warnings_table': context['warnings_table'],
         'top_skill_gap': context['competency']['top_gaps'],
         'competency_group_avg': context['competency']['group_avg'],
+        # Cac chi so nang luc (CI/muc tieu/san sang/skill gap) doc tu snapshot tinh nen dinh ky
+        # (khong realtime) - gui kem thoi diem tinh gan nhat de UI hien "tinh luc ...".
+        'competency_snapshot_at': context['competency']['computed_at'],
         'trainer_breakdown': context['trainer_breakdown'],
     }
