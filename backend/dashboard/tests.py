@@ -14,6 +14,7 @@ from courses.models import Course, CourseModule, Enrollment, Lesson, LessonProgr
 from employees.models import Employee
 from evaluation.models import Evaluation, EvaluationCriteria, EvaluationDetail
 from exams.models import Assessment, Attempt
+from kpi.services import kpi_bql_report_data
 from restaurants.models import Restaurant
 
 from .models import (
@@ -1223,6 +1224,104 @@ class AggregateDashboardQueryCountTests(TestCase):
             f'So truy van phai KHONG doi khi them nhan su "nhieu" (khong thuoc cohort) - '
             f'{queries_small} (truoc) vs {queries_large} (sau, +20 nhan su).',
         )
+
+
+class DungLoTrinhMatchesKpiServiceTests(TestCase):
+    """Prompt_Fix_DungLoTrinh_Dashboard.md: chi so '% NV đúng lộ trình' (the tong + xep hang nha
+    hang) tren man tong hop PHAI khop CHINH XAC voi kpi.services.kpi_bql_report_data (dung
+    logic "pass_date trong han theo cap" da co san cua module KPI, khong tinh lai cong thuc
+    khac). Da dieu tra ky: dashboard hien tai DA goi dung kpi_bql_report_data (xem
+    _aggregate_context/_resolve_aggregate_indicator_value key='dung_lo_trinh') - cac test nay
+    khoa lai su dung khop do, ca truong hop co nguoi dung han LAN truong hop CA NHOM tre han
+    (dung y kich ban thuc te thang 7/2026 tren production: cohort 20 nguoi, 0 nguoi dung han -
+    gan nhat tre 1 ngay so voi han 15 ngay - day la SO LIEU THAT, khong phai loi phan mem)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        seed_dashboard_indicators(self.tenant)
+        self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='R1', name='NH 1', brand='Kampong')
+        self.restaurant2 = Restaurant.objects.create(tenant=self.tenant, code='R2', name='NH 2', brand='Kampong')
+
+    def _employee(self, code, restaurant, start_date, pass_date, position='NV Phục vụ'):
+        return Employee.objects.create(
+            tenant=self.tenant, code=code, name=code, position=position, restaurant=restaurant,
+            operation_unit='restaurant', start_date=start_date, pass_date=pass_date, employee_status='active',
+        )
+
+    def test_total_matches_kpi_service_when_some_on_time(self):
+        import datetime
+
+        # Han cap S = 15 ngay. 1 nguoi dung han (10 ngay), 1 nguoi tre han (20 ngay).
+        self._employee('P1', self.restaurant, datetime.date(2026, 7, 1), datetime.date(2026, 7, 11))
+        self._employee('P2', self.restaurant, datetime.date(2026, 7, 1), datetime.date(2026, 7, 21))
+
+        kpi_totals = kpi_bql_report_data(self.admin, 7, 2026)['totals']
+        result = compute_aggregate_dashboard(self.admin, 'ceo', 7, 2026)
+        by_key = {i['key']: i for i in result['indicators']}
+
+        self.assertEqual(kpi_totals['on_rate'], 50)
+        self.assertEqual(by_key['dung_lo_trinh']['value'], float(kpi_totals['on_rate']))
+        self.assertEqual(by_key['dung_lo_trinh']['pending'], False)
+
+    def test_restaurant_ranking_matches_kpi_rows_per_restaurant(self):
+        import datetime
+
+        # NH1: 1/1 dung han (100%). NH2: 0/1 dung han (0%).
+        self._employee('P1', self.restaurant, datetime.date(2026, 7, 1), datetime.date(2026, 7, 11))
+        self._employee('P2', self.restaurant2, datetime.date(2026, 7, 1), datetime.date(2026, 7, 21))
+
+        kpi_rows = {r['restaurant_id']: r for r in kpi_bql_report_data(self.admin, 7, 2026)['rows']}
+        result = compute_aggregate_dashboard(self.admin, 'ceo', 7, 2026)
+
+        for row in result['restaurant_ranking']:
+            self.assertEqual(row['on_rate'], kpi_rows[row['restaurant_id']]['on_rate'])
+        ranking_by_id = {r['restaurant_id']: r for r in result['restaurant_ranking']}
+        self.assertEqual(ranking_by_id[self.restaurant.id]['on_rate'], 100)
+        self.assertEqual(ranking_by_id[self.restaurant2.id]['on_rate'], 0)
+
+    def test_restaurant_filtered_indicator_matches_that_restaurant_row(self):
+        import datetime
+
+        self._employee('P1', self.restaurant, datetime.date(2026, 7, 1), datetime.date(2026, 7, 11))
+        self._employee('P2', self.restaurant2, datetime.date(2026, 7, 1), datetime.date(2026, 7, 21))
+
+        kpi_rows = {r['restaurant_id']: r for r in kpi_bql_report_data(self.admin, 7, 2026)['rows']}
+        result = compute_aggregate_dashboard(self.admin, 'ceo', 7, 2026, restaurant_id=self.restaurant2.id)
+        by_key = {i['key']: i for i in result['indicators']}
+
+        self.assertEqual(by_key['dung_lo_trinh']['value'], float(kpi_rows[self.restaurant2.id]['on_rate']))
+        self.assertEqual(by_key['dung_lo_trinh']['value'], 0.0)
+
+    def test_all_late_cohort_correctly_shows_zero_matching_kpi_not_a_bug(self):
+        """Tai hien dung kich ban thuc te da bao cao: CA cohort tre han (gan nhat tre 1 ngay so
+        voi han 15 ngay) -> dashboard PHAI khop kpi_bql_report_data (ca hai deu = 0%), vi day la
+        so lieu dung theo dinh nghia "dung lo trinh" (khong phai loi phan mem)."""
+        import datetime
+
+        self._employee('P1', self.restaurant, datetime.date(2026, 7, 1), datetime.date(2026, 7, 17))  # tre 1 ngay
+        self._employee('P2', self.restaurant, datetime.date(2026, 7, 1), datetime.date(2026, 7, 22))  # tre 6 ngay
+
+        kpi_totals = kpi_bql_report_data(self.admin, 7, 2026)['totals']
+        result = compute_aggregate_dashboard(self.admin, 'ceo', 7, 2026)
+        by_key = {i['key']: i for i in result['indicators']}
+
+        self.assertEqual(kpi_totals['on_num'], 0)
+        self.assertEqual(kpi_totals['on_den'], 2)  # cohort co du lieu (khong phai "chua wire")
+        self.assertEqual(by_key['dung_lo_trinh']['value'], 0.0)
+        self.assertEqual(by_key['dung_lo_trinh']['pending'], False)  # co du lieu, gia tri that = 0, khong phai "Cho du lieu"
+
+    def test_not_read_from_competency_snapshot(self):
+        """'dung_lo_trinh' KHONG phu thuoc CompetencySnapshot (khac voi ci_tong_hop/san_sang_
+        nhan_luc/...) - khong can chay refresh_competency_snapshots de chi so nay co du lieu."""
+        import datetime
+
+        self._employee('P1', self.restaurant, datetime.date(2026, 7, 1), datetime.date(2026, 7, 11))
+        self.assertEqual(CompetencySnapshot.objects.filter(tenant=self.tenant).count(), 0)
+
+        result = compute_aggregate_dashboard(self.admin, 'ceo', 7, 2026)
+        by_key = {i['key']: i for i in result['indicators']}
+        self.assertEqual(by_key['dung_lo_trinh']['value'], 100.0)
 
 
 class AggregateDashboardApiTests(TestCase):
