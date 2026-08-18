@@ -137,8 +137,15 @@ def _parse_skill_result(raw):
 
 
 def _parse_sheet_date(raw):
-    """'2026-07-28' hoac '2026-07-28 10:30:00' (bo phan gio) -> date(2026,7,28). None neu rong/
-    khong parse duoc."""
+    """Ho tro 2 dinh dang tung gap tren Google Sheet:
+    - ISO: '2026-07-28' hoac '2026-07-28 10:30:00' hoac '2026-07-28T10:30:00' (bo phan gio).
+    - Chuoi JS Date.toString() - cot Pass_Date/Resigned_Date trong tab app_employees khi o
+      Sheet dung cong thuc dang =NOW()/new Date() (Prompt_Fix_PassDate_DungLoTrinh.md): vd
+      'Wed Jul 29 2026 14:01:38 GMT+0700 (Indochina Time)'. TRUOC KHI SUA, dinh dang nay lam
+      date.fromisoformat() nem ValueError ngay tu token dau ('Wed') -> import AM THAM bo qua
+      toan bo Pass_Date/Resigned_Date dang nay (khong loi, khong canh bao) - day la nguyen
+      nhan goc khien pass_date khong duoc dien tu nguon "chot" nay.
+    -> date(2026,7,28). None neu rong/khong parse duoc dinh dang nao."""
     raw = (raw or '').strip()
     if not raw:
         return None
@@ -146,7 +153,14 @@ def _parse_sheet_date(raw):
     try:
         return datetime.date.fromisoformat(date_part)
     except ValueError:
-        return None
+        pass
+    tokens = raw.split()
+    if len(tokens) >= 4:
+        try:
+            return datetime.datetime.strptime(' '.join(tokens[:4]), '%a %b %d %Y').date()
+        except ValueError:
+            pass
+    return None
 
 
 def build_checklist_code_map(tenant, position_checklist_rows):

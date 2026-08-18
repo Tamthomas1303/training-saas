@@ -18,6 +18,10 @@ from employees.services import best_exam_score, change_employee_status, emp_type
 from employees.management.commands.import_july_data import (
     Command as ImportJulyDataCommand,
 )
+from employees.management.commands.backfill_pass_date_from_sheet import (
+    compute_pass_date_updates,
+    diagnose_cohort,
+)
 from employees.management.commands.import_july_data import (
     _match_evidence_filename,
     _match_training_record_filename,
@@ -470,6 +474,132 @@ class ClearBackfilledPassDateCommandTests(TestCase):
         call_command('clear_backfilled_pass_date', tenant='Demo Tenant')  # khong loi
 
 
+class BackfillPassDateFromSheetTests(TestCase):
+    """Prompt_Fix_PassDate_DungLoTrinh.md: sua pass_date SAI (khong phai RONG) do loi parser cu
+    khong doc duoc dinh dang JS Date.toString() cua cot Pass_Date tren Sheet app_employees -
+    doc lai tu Sheet (da sua parser) va cap nhat pass_date cho nhan su dang Pass ma gia tri
+    khac Sheet, KHONG dong vao nguoi chua Pass."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='NH1', name='NH Demo', brand='Kampong')
+
+    def _employee(self, code, **kwargs):
+        defaults = dict(
+            tenant=self.tenant, code=code, name=code, position='NV Phục vụ', restaurant=self.restaurant,
+            operation_unit=Employee.OperationUnit.RESTAURANT, employee_status='active',
+        )
+        defaults.update(kwargs)
+        return Employee.objects.create(**defaults)
+
+    @patch('employees.management.commands.backfill_pass_date_from_sheet.load_csv_rows')
+    def test_backfills_wrong_pass_date_from_sheet(self, mock_load):
+        # DB pass_date=28/7 (tu 1 lan recompute chay sau, SAI) nhung Sheet "chot" ghi 21/7.
+        e = self._employee(
+            'NV1', final_result='Pass thử việc',
+            start_date=datetime.date(2026, 7, 6), pass_date=datetime.date(2026, 7, 28),
+        )
+        mock_load.return_value = [{
+            'Employee_ID': 'NV1', 'Pass_Date': 'Wed Jul 21 2026 14:00:00 GMT+0700 (Indochina Time)',
+        }]
+
+        call_command('backfill_pass_date_from_sheet', tenant='Demo Tenant', csv_url='http://fake', month=7, year=2026)
+
+        e.refresh_from_db()
+        self.assertEqual(e.pass_date, datetime.date(2026, 7, 21))
+
+    @patch('employees.management.commands.backfill_pass_date_from_sheet.load_csv_rows')
+    def test_dry_run_does_not_write(self, mock_load):
+        e = self._employee(
+            'NV1', final_result='Pass thử việc',
+            start_date=datetime.date(2026, 7, 6), pass_date=datetime.date(2026, 7, 28),
+        )
+        mock_load.return_value = [{'Employee_ID': 'NV1', 'Pass_Date': '2026-07-21'}]
+
+        call_command(
+            'backfill_pass_date_from_sheet', tenant='Demo Tenant', csv_url='http://fake',
+            month=7, year=2026, dry_run=True,
+        )
+
+        e.refresh_from_db()
+        self.assertEqual(e.pass_date, datetime.date(2026, 7, 28))
+
+    @patch('employees.management.commands.backfill_pass_date_from_sheet.load_csv_rows')
+    def test_idempotent_second_run_makes_no_further_changes(self, mock_load):
+        e = self._employee(
+            'NV1', final_result='Pass thử việc',
+            start_date=datetime.date(2026, 7, 6), pass_date=datetime.date(2026, 7, 28),
+        )
+        mock_load.return_value = [{'Employee_ID': 'NV1', 'Pass_Date': '2026-07-21'}]
+
+        call_command('backfill_pass_date_from_sheet', tenant='Demo Tenant', csv_url='http://fake', month=7, year=2026)
+        call_command('backfill_pass_date_from_sheet', tenant='Demo Tenant', csv_url='http://fake', month=7, year=2026)
+
+        e.refresh_from_db()
+        self.assertEqual(e.pass_date, datetime.date(2026, 7, 21))
+
+    @patch('employees.management.commands.backfill_pass_date_from_sheet.load_csv_rows')
+    def test_does_not_touch_employee_not_marked_pass(self, mock_load):
+        e = self._employee(
+            'NV1', final_result='Tiếp tục thử việc',
+            start_date=datetime.date(2026, 7, 6), pass_date=None,
+        )
+        mock_load.return_value = [{'Employee_ID': 'NV1', 'Pass_Date': '2026-07-21'}]
+
+        call_command('backfill_pass_date_from_sheet', tenant='Demo Tenant', csv_url='http://fake', month=7, year=2026)
+
+        e.refresh_from_db()
+        self.assertIsNone(e.pass_date)
+
+    @patch('employees.management.commands.backfill_pass_date_from_sheet.load_csv_rows')
+    def test_no_matching_sheet_row_or_invalid_date_skipped(self, mock_load):
+        e = self._employee(
+            'NV1', final_result='Pass thử việc',
+            start_date=datetime.date(2026, 7, 6), pass_date=datetime.date(2026, 7, 28),
+        )
+        mock_load.return_value = [{'Employee_ID': 'OTHER', 'Pass_Date': '2026-07-21'}]
+
+        call_command('backfill_pass_date_from_sheet', tenant='Demo Tenant', csv_url='http://fake', month=7, year=2026)
+
+        e.refresh_from_db()
+        self.assertEqual(e.pass_date, datetime.date(2026, 7, 28))
+
+    @patch('employees.management.commands.backfill_pass_date_from_sheet.load_csv_rows')
+    def test_diagnosis_before_after_reflects_on_time_rate_change(self, mock_load):
+        self._employee(
+            'NV1', final_result='Pass thử việc',
+            start_date=datetime.date(2026, 7, 6), pass_date=datetime.date(2026, 7, 28),
+        )
+        mock_load.return_value = [{'Employee_ID': 'NV1', 'Pass_Date': '2026-07-21'}]
+
+        before = diagnose_cohort(self.tenant, 7, 2026)
+        self.assertEqual(before['pass_count'], 1)
+        self.assertEqual(before['with_pass_date'], 1)
+        self.assertEqual(before['on_time'], 0)
+
+        call_command('backfill_pass_date_from_sheet', tenant='Demo Tenant', csv_url='http://fake', month=7, year=2026)
+
+        after = diagnose_cohort(self.tenant, 7, 2026)
+        self.assertEqual(after['on_time'], 1)
+        self.assertEqual(after['on_time_rate'], 100.0)
+
+    @patch('employees.management.commands.backfill_pass_date_from_sheet.load_csv_rows')
+    def test_compute_pass_date_updates_counts_reasons_for_skipping(self, mock_load):
+        e1 = self._employee('NV1', final_result='Pass thử việc', pass_date=datetime.date(2026, 7, 28))
+        self._employee('NV2', final_result='Pass thử việc', pass_date=datetime.date(2026, 7, 21))  # da khop san
+        rows = [
+            {'Employee_ID': 'NV1', 'Pass_Date': '2026-07-21'},
+            {'Employee_ID': 'NV2', 'Pass_Date': '2026-07-21'},
+        ]
+
+        plan = compute_pass_date_updates(self.tenant, rows)
+
+        self.assertEqual([e.code for e, _ in plan['to_update']], ['NV1'])
+        self.assertEqual(plan['to_update'][0][1], datetime.date(2026, 7, 21))
+        self.assertEqual(plan['already_match'], 1)
+        self.assertEqual(e1.pass_date, datetime.date(2026, 7, 28))  # chua ghi, chi tinh toan
+
+
 class ClearTestDataCommandTests(TestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name='Demo Tenant')
@@ -614,6 +744,23 @@ class ImportJulyDataHelperTests(TestCase):
         self.assertIsNone(_parse_sheet_date(''))
         self.assertIsNone(_parse_sheet_date('not-a-date'))
 
+    def test_parse_sheet_date_handles_js_date_tostring_format(self):
+        """Prompt_Fix_PassDate_DungLoTrinh.md: cot Pass_Date/Resigned_Date tren Sheet
+        app_employees thuc te o dang JS Date.toString() (o co cong thuc =NOW()/new Date()),
+        TRUOC KHI SUA ham nay tra None cho dinh dang nay (nem ValueError tu token dau 'Wed')
+        -> import am tham bo qua viec ghi pass_date."""
+        self.assertEqual(
+            _parse_sheet_date('Wed Jul 29 2026 14:01:38 GMT+0700 (Indochina Time)'),
+            datetime.date(2026, 7, 29),
+        )
+        self.assertEqual(
+            _parse_sheet_date('Fri Jul 31 2026 17:09:00 GMT+0700 (Indochina Time)'),
+            datetime.date(2026, 7, 31),
+        )
+        # Dinh dang khac (khong phai ISO, khong phai JS Date.toString() 4-token) - van None,
+        # khong doan bua.
+        self.assertIsNone(_parse_sheet_date('01/07/2026'))
+
 
 class ProcessAppEmployeesFieldsTests(TestCase):
     def setUp(self):
@@ -657,6 +804,21 @@ class ProcessAppEmployeesFieldsTests(TestCase):
         self.assertEqual(self.employee.skill_result, 'Đạt')
         self.assertEqual(self.employee.final_result, 'Pass thử việc')
         self.assertEqual(self.employee.pass_date, datetime.date(2026, 7, 28))
+
+    def test_confirm_writes_pass_date_from_js_date_tostring_format(self):
+        """Prompt_Fix_PassDate_DungLoTrinh.md: dinh dang Pass_Date thuc te tren Sheet (JS
+        Date.toString()) gio phai duoc ghi dung, khong con bi am tham bo qua."""
+        row = {
+            'Final_Probation_Result': 'Pass thử việc',
+            'Pass_Date': 'Wed Jul 29 2026 14:01:38 GMT+0700 (Indochina Time)',
+        }
+        stats = {'app_employees_synced': 0}
+
+        self.command._process_app_employees_fields(self.employee, row, dry_run=False, stats=stats)
+
+        self.employee.refresh_from_db()
+        self.assertEqual(self.employee.final_result, 'Pass thử việc')
+        self.assertEqual(self.employee.pass_date, datetime.date(2026, 7, 29))
 
     def test_pass_date_not_set_when_final_result_is_not_pass(self):
         row = {'Final_Probation_Result': 'Tiếp tục thử việc', 'Pass_Date': '2026-07-28'}
