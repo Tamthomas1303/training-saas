@@ -10,6 +10,9 @@ from .views import (
     AssessmentResultsView,
     AssessmentViewSet,
     AttemptDetailView,
+    ExamSessionTrackingExportView,
+    ExamSessionTrackingView,
+    ExamSessionViewSet,
     GradeAttemptView,
     GradingListView,
     MyAssessmentsView,
@@ -26,6 +29,7 @@ router.register('questions', QuestionViewSet, basename='exam-question')
 router.register('assessment-questions', AssessmentQuestionViewSet, basename='exam-assessment-question')
 router.register('assignments', AssessmentAssignmentViewSet, basename='exam-assignment')
 router.register('assessments', AssessmentViewSet, basename='exam-assessment')
+router.register('sessions', ExamSessionViewSet, basename='exam-session')
 
 urlpatterns = [
     path('my/', MyAssessmentsView.as_view(), name='exam-my'),
@@ -41,5 +45,10 @@ urlpatterns = [
     path(
         'assessments/<int:pk>/results/export/', AssessmentResultsExportView.as_view(),
         name='exam-assessment-results-export',
+    ),
+    path('sessions/<int:pk>/tracking/', ExamSessionTrackingView.as_view(), name='exam-session-tracking'),
+    path(
+        'sessions/<int:pk>/tracking/export/', ExamSessionTrackingExportView.as_view(),
+        name='exam-session-tracking-export',
     ),
 ] + router.urls

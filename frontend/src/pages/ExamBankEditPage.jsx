@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import AppShell from '../components/AppShell'
+import FilterBar from '../components/FilterBar'
 import api from '../api/client'
 import { DIFFICULTIES, QUESTION_TYPES, typeLabel } from '../config/examQuestionTypes'
 import * as s from './listPageStyles'
@@ -341,11 +342,19 @@ export default function ExamBankEditPage() {
   const [error, setError] = useState('')
   const [adding, setAdding] = useState(false)
   const [editingId, setEditingId] = useState(null)
+  const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState('')
+  const [difficultyFilter, setDifficultyFilter] = useState('')
 
   function load() {
     Promise.all([
       api.get(`/exams/banks/${id}/`),
-      api.get('/exams/questions/', { params: { bank: id, page_size: 200 } }),
+      api.get('/exams/questions/', {
+        params: {
+          bank: id, page_size: 200, search: search || undefined,
+          type: typeFilter || undefined, difficulty: difficultyFilter || undefined,
+        },
+      }),
     ])
       .then(([bankRes, questionsRes]) => {
         setBank(bankRes.data)
@@ -354,7 +363,7 @@ export default function ExamBankEditPage() {
       .catch(() => setError('Không tải được ngân hàng câu hỏi.'))
   }
 
-  useEffect(load, [id])
+  useEffect(load, [id, search, typeFilter, difficultyFilter])
 
   async function deleteQuestion(qid) {
     if (!window.confirm('Xóa câu hỏi này?')) return
@@ -373,6 +382,21 @@ export default function ExamBankEditPage() {
     <AppShell>
       <Link to="/exam-banks">&larr; Ngân hàng câu hỏi</Link>
       <h2 style={{ marginTop: 8 }}>{bank.name}</h2>
+
+      <FilterBar>
+        <input
+          value={search} onChange={(e) => setSearch(e.target.value)}
+          placeholder="Tìm nội dung câu hỏi..." style={{ ...s.input, minWidth: 220 }}
+        />
+        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={s.select}>
+          <option value="">Mọi dạng câu hỏi</option>
+          {QUESTION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+        <select value={difficultyFilter} onChange={(e) => setDifficultyFilter(e.target.value)} style={s.select}>
+          <option value="">Mọi cấp độ</option>
+          {DIFFICULTIES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+        </select>
+      </FilterBar>
 
       {questions.map((q) => (
         editingId === q.id ? (

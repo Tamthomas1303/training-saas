@@ -6,6 +6,7 @@ from .models import (
     AssessmentAssignment,
     AssessmentQuestion,
     Attempt,
+    ExamSession,
     Question,
     QuestionBank,
     QuestionOption,
@@ -99,6 +100,8 @@ class AssessmentSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'description', 'time_limit_min', 'pass_mark', 'max_attempts',
             'shuffle_questions', 'shuffle_options', 'show_result_mode', 'random_pool_config',
+            'questions_per_page', 'show_countdown', 'show_score', 'review_mode',
+            'show_grade_label', 'proctoring_enabled',
             'competency_tag', 'competency', 'competency_name', 'sync_exam_type', 'status',
             'status_display', 'created_by', 'created_by_name', 'questions_count',
             'assigned_count', 'created_at', 'updated_at',
@@ -117,6 +120,28 @@ class AssessmentDetailSerializer(AssessmentSerializer):
 
     class Meta(AssessmentSerializer.Meta):
         fields = AssessmentSerializer.Meta.fields + ['assessment_questions']
+
+
+class ExamSessionSerializer(serializers.ModelSerializer):
+    assessment_title = serializers.CharField(source='assessment.title', read_only=True, default='')
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    assigned_count = serializers.SerializerMethodField()
+    done_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ExamSession
+        fields = [
+            'id', 'title', 'assessment', 'assessment_title', 'start_at', 'end_at',
+            'target_config', 'status', 'status_display', 'created_by', 'assigned_count',
+            'done_count', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_by', 'target_config', 'created_at', 'updated_at']
+
+    def get_assigned_count(self, obj):
+        return obj.assignments.count()
+
+    def get_done_count(self, obj):
+        return obj.assignments.filter(status=AssessmentAssignment.Status.DONE).count()
 
 
 class AssessmentAssignmentSerializer(serializers.ModelSerializer):

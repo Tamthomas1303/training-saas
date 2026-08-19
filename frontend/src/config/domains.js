@@ -1,5 +1,9 @@
 // M3 — Card Nesting: 4 miền cha của phòng Đào tạo → thẻ con (parent-child). Dùng cho HubPage.
 // Mỗi thẻ con có `roles` để lọc theo vai trò; ProtectedRoute vẫn là lớp chặn thật ở route.
+// `group` (tùy chọn) hiện tiêu đề nhóm nhỏ NGAY TRƯỚC thẻ con đó khi giá trị group đổi so với
+// thẻ liền trước (xem HubPage) - dùng để gom cụm "Ngân hàng câu hỏi/đề thi" (Nội dung) tách
+// khỏi "Kỳ thi" (Tổ chức đào tạo) kiểu CLS (Prompt_NganHangDe_va_KyThi_kieuCLS.md muc 4), KHÔNG
+// đổi path/roles của các mục khác trong domain này.
 export const DOMAINS = [
   {
     key: 'new',
@@ -13,9 +17,13 @@ export const DOMAINS = [
       { label: 'Checklist đào tạo', path: '/checklist', icon: '📋', roles: ['admin', 'om', 'bod'] },
       { label: 'Tiêu chí đánh giá', path: '/criteria', icon: '📝', roles: ['admin', 'om'] },
       { label: 'Khóa học trực tuyến', path: '/courses-admin', icon: '🎬', roles: ['admin'] },
-      { label: 'Ngân hàng câu hỏi', path: '/exam-banks', icon: '🗃️', roles: ['admin'] },
-      { label: 'Đề thi', path: '/exams-admin', icon: '📝', roles: ['admin'] },
-      { label: 'Chấm bài', path: '/exam-grading', icon: '🖊️', roles: ['admin', 'om', 'am', 'kcs', 'bql'] },
+      { label: 'Ngân hàng câu hỏi', path: '/exam-banks', icon: '🗃️', roles: ['admin'], group: 'Nội dung' },
+      { label: 'Ngân hàng đề thi', path: '/exams-admin', icon: '📝', roles: ['admin'], group: 'Nội dung' },
+      { label: 'Kỳ thi', path: '/exam-sessions', icon: '🗓️', roles: ['admin'], group: 'Tổ chức đào tạo' },
+      {
+        label: 'Chấm bài', path: '/exam-grading', icon: '🖊️', roles: ['admin', 'om', 'am', 'kcs', 'bql'],
+        group: 'Tổ chức đào tạo',
+      },
       { label: 'Mẫu chứng chỉ', path: '/cert-templates', icon: '🖼️', roles: ['admin'] },
       { label: 'Chương trình chứng chỉ', path: '/cert-programs', icon: '🏆', roles: ['admin'] },
       { label: 'Chứng chỉ đã cấp', path: '/certificates', icon: '📜', roles: ['admin'] },

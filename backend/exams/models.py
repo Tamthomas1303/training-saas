@@ -91,6 +91,15 @@ class Assessment(models.Model):
         PUBLISHED = 'published', 'Xuất bản'
         ARCHIVED = 'archived', 'Lưu trữ (đóng đề)'
 
+    class ReviewMode(models.TextChoices):
+        """'Che do xem lai' kieu CLS (tab Tuy chinh) - TACH RIENG voi show_result_mode (thoi
+        diem hien ket qua, da co tu Dot 2, KHONG doi de khong pha test/logic cu). Hai truong
+        cung anh huong attempt_result_payload: show_result_mode quyet dinh 'luc nao' duoc xem
+        chi tiet (ngay/sau khi dong), review_mode gioi han THEM 'muc do' chi tiet do."""
+        NONE = 'none', 'Không'
+        SCORE_ONLY = 'score_only', 'Không chi tiết điểm'
+        FULL_DETAIL = 'full_detail', 'Chi tiết điểm từng câu'
+
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='assessments')
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True)
@@ -102,6 +111,17 @@ class Assessment(models.Model):
     show_result_mode = models.CharField(
         max_length=20, choices=ShowResultMode.choices, default=ShowResultMode.IMMEDIATELY,
     )
+    # Tab "Tùy chỉnh" kiểu CLS (Prompt_NganHangDe_va_KyThi_kieuCLS.md muc 2) - deu la field MOI,
+    # cong them, gia tri mac dinh giu NGUYEN hanh vi cu cho de da tao truoc do.
+    questions_per_page = models.IntegerField(null=True, blank=True)  # None = tat ca 1 trang
+    show_countdown = models.BooleanField(default=True)
+    show_score = models.BooleanField(default=True)  # 'Hien thi diem cua thi sinh'
+    review_mode = models.CharField(
+        max_length=20, choices=ReviewMode.choices, default=ReviewMode.FULL_DETAIL,
+    )
+    show_grade_label = models.BooleanField(default=False)
+    # Placeholder P2 (prompt: "chi de co, CHUA cai webcam") - khong co logic gi dung den truong nay.
+    proctoring_enabled = models.BooleanField(default=False)
     # Rut cau ngau nhien khi bat dau attempt, thay vi chon tay qua AssessmentQuestion. Cau truc
     # (tu chon, MVP): {"bank_id": <id>, "count": <n>, "difficulty": "<easy|medium|hard>"?}.
     # difficulty bo trong = khong loc do kho. rong/None = dung cau chon tay (AssessmentQuestion).
@@ -149,6 +169,45 @@ class AssessmentQuestion(models.Model):
         return f'{self.assessment_id} - {self.question_id}'
 
 
+class ExamSession(models.Model):
+    """"Ky thi" (Prompt_NganHangDe_va_KyThi_kieuCLS.md muc 3) - lop MOI thuoc "To chuc dao tao",
+    tach khoi Assessment ("De thi", thuoc "Noi dung"). Tao 1 ExamSession = chon 1 De + giao cho
+    ai + dat lich mo-dong -> SINH AssessmentAssignment cho nhan su khop (tai dung
+    services.assign_assessment, xem services.create_exam_session) - KHONG tu quan ly danh sach
+    nhan su rieng, chi la "nguon goc" cua cac AssessmentAssignment do no tao ra (xem
+    AssessmentAssignment.exam_session).
+
+    1 De co the duoc dung lai o NHIEU Ky thi khac nhau (vd thi lai dot 2) - nhung vi
+    AssessmentAssignment co unique_together=('assessment','employee'), 1 nhan su chi gan duoc
+    VAO 1 Ky thi cho MOI De tai 1 thoi diem (han che biet truoc, chap nhan duoc o MVP)."""
+
+    class Status(models.TextChoices):
+        SCHEDULED = 'scheduled', 'Đã lên lịch'
+        CLOSED = 'closed', 'Đã đóng'
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='exam_sessions')
+    title = models.CharField(max_length=255)
+    assessment = models.ForeignKey(Assessment, on_delete=models.CASCADE, related_name='exam_sessions')
+    start_at = models.DateTimeField(null=True, blank=True)
+    end_at = models.DateTimeField(null=True, blank=True)
+    # Luu lai payload da dung de goi assign_assessment (vd {'position': 'Phuc vu'} hoac
+    # {'employee_ids': [...]}) - CHI de hien thi lai "da giao cho ai" tren man theo doi, khong
+    # dung de tinh toan gi them (danh sach nhan su THAT la qua AssessmentAssignment.exam_session).
+    target_config = models.JSONField(default=dict, blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.SCHEDULED)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, related_name='exam_sessions_created', null=True, blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.title
+
+
 class AssessmentAssignment(models.Model):
     class Status(models.TextChoices):
         ASSIGNED = 'assigned', 'Đã gán'
@@ -159,6 +218,13 @@ class AssessmentAssignment(models.Model):
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='assessment_assignments')
     assigned_by = models.ForeignKey(
         User, on_delete=models.SET_NULL, related_name='assessment_assignments_made', null=True, blank=True,
+    )
+    # Null = gan tay truc tiep tren De (AssessmentAssignView cu, Dot 2) - hanh vi giu NGUYEN,
+    # khong bi gioi han thoi gian mo/dong. Co gia tri = sinh ra tu 1 Ky thi (Dot 4), bi gioi han
+    # hien/lam bai trong [start_at, end_at] cua ExamSession do (xem services.my_assessments/
+    # start_attempt).
+    exam_session = models.ForeignKey(
+        ExamSession, on_delete=models.SET_NULL, related_name='assignments', null=True, blank=True,
     )
     due_date = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ASSIGNED)

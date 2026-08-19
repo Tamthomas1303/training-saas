@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import AppShell from '../components/AppShell'
 import { useAuth } from '../auth/AuthContext'
@@ -50,16 +50,25 @@ export default function HubPage() {
                   style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', marginTop: 12 }}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  {d.kids.map((c) => (
-                    <div
-                      key={c.path + c.label}
-                      className="card"
-                      style={{ padding: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
-                      onClick={() => navigate(c.path)}
-                    >
-                      <span style={{ fontSize: 18 }}>{c.icon}</span>
-                      <span style={{ fontWeight: 600 }}>{c.label}</span>
-                    </div>
+                  {d.kids.map((c, i) => (
+                    <Fragment key={c.path + c.label}>
+                      {c.group && c.group !== d.kids[i - 1]?.group && (
+                        <div
+                          className="muted-note"
+                          style={{ gridColumn: '1 / -1', fontSize: 12, fontWeight: 700, textTransform: 'uppercase', marginTop: i === 0 ? 0 : 4 }}
+                        >
+                          {c.group}
+                        </div>
+                      )}
+                      <div
+                        className="card"
+                        style={{ padding: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
+                        onClick={() => navigate(c.path)}
+                      >
+                        <span style={{ fontSize: 18 }}>{c.icon}</span>
+                        <span style={{ fontWeight: 600 }}>{c.label}</span>
+                      </div>
+                    </Fragment>
                   ))}
                 </div>
               )}

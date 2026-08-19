@@ -2,12 +2,14 @@ from decimal import Decimal
 
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from accounts.models import Tenant, User
 from cls_sync.models import ExamResult
 from employees.models import Employee
 from integration.models import XapiStatement
+from restaurants.models import Restaurant
 
 from .models import (
     Answer,
@@ -15,6 +17,7 @@ from .models import (
     AssessmentAssignment,
     AssessmentQuestion,
     Attempt,
+    ExamSession,
     Question,
     QuestionBank,
     QuestionOption,
@@ -566,3 +569,295 @@ class ExamEssayHookTests(TestCase):
             ).exists()
         )
         self.assertTrue(ExamResult.objects.filter(employee=self.employee, exam_name='ESSAY1', passed=True).exists())
+
+
+class AssessmentCustomizationApiTests(TestCase):
+    """Tab 'Tuy chinh' kieu CLS (Prompt_NganHangDe_va_KyThi_kieuCLS.md muc 2): luu thoi gian lam
+    bai/diem dat/so lan lam lai/che do xem lai + hien thi diem, va xac nhan review_mode/show_score
+    thuc su anh huong ket qua tra ve nguoi thi (khong chi luu suong)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.bank = QuestionBank.objects.create(tenant=self.tenant, name='Bank demo')
+        self.question = Question.objects.create(
+            tenant=self.tenant, bank=self.bank, type=Question.Type.SINGLE, stem_html='Q1',
+        )
+        self.opt_correct = QuestionOption.objects.create(
+            tenant=self.tenant, question=self.question, content_html='Đúng', is_correct=True,
+        )
+        QuestionOption.objects.create(tenant=self.tenant, question=self.question, content_html='Sai')
+        self.assessment = Assessment.objects.create(
+            tenant=self.tenant, title='Đề tùy chỉnh', status=Assessment.Status.PUBLISHED, created_by=self.admin,
+        )
+        AssessmentQuestion.objects.create(tenant=self.tenant, assessment=self.assessment, question=self.question, order=0)
+        self.learner_user = User.objects.create_user(
+            username='nv1', password='x', tenant=self.tenant, role=User.Role.EMPLOYEE,
+        )
+        self.employee = Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1', user=self.learner_user)
+        AssessmentAssignment.objects.create(tenant=self.tenant, assessment=self.assessment, employee=self.employee)
+        self.client = APIClient()
+
+    def test_admin_saves_customization_settings(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.patch(
+            reverse('exam-assessment-detail', args=[self.assessment.id]),
+            {
+                'time_limit_min': 45, 'pass_mark': 70, 'max_attempts': 3,
+                'questions_per_page': 5, 'show_countdown': False, 'show_score': False,
+                'review_mode': 'none', 'show_grade_label': True, 'proctoring_enabled': True,
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assessment.refresh_from_db()
+        self.assertEqual(self.assessment.time_limit_min, 45)
+        self.assertEqual(self.assessment.pass_mark, 70)
+        self.assertEqual(self.assessment.max_attempts, 3)
+        self.assertEqual(self.assessment.questions_per_page, 5)
+        self.assertFalse(self.assessment.show_countdown)
+        self.assertFalse(self.assessment.show_score)
+        self.assertEqual(self.assessment.review_mode, Assessment.ReviewMode.NONE)
+        self.assertTrue(self.assessment.show_grade_label)
+        self.assertTrue(self.assessment.proctoring_enabled)
+
+    def _submit_and_get_result(self):
+        self.client.force_authenticate(self.learner_user)
+        start_resp = self.client.post(reverse('exam-start', args=[self.assessment.id]))
+        attempt_id = start_resp.data['attempt_id']
+        self.client.post(
+            reverse('exam-attempt-answer', args=[attempt_id]),
+            {'question': self.question.id, 'response': {'option_id': self.opt_correct.id}}, format='json',
+        )
+        return self.client.post(reverse('exam-attempt-submit', args=[attempt_id]))
+
+    def test_review_mode_none_hides_details(self):
+        self.assessment.review_mode = Assessment.ReviewMode.NONE
+        self.assessment.save()
+        resp = self._submit_and_get_result()
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn('details', resp.data)
+        self.assertIsNotNone(resp.data['score'])  # show_score mac dinh True
+
+    def test_review_mode_full_detail_default_shows_details(self):
+        resp = self._submit_and_get_result()
+        self.assertIn('details', resp.data)
+
+    def test_show_score_false_hides_score_but_keeps_passed(self):
+        self.assessment.show_score = False
+        self.assessment.save()
+        resp = self._submit_and_get_result()
+        self.assertIsNone(resp.data['score'])
+        self.assertIsNone(resp.data['percent'])
+        self.assertIsNotNone(resp.data['passed'])
+
+
+class AssessmentManualQuestionPointsApiTests(TestCase):
+    """'Tao de thu cong: chon cau hoi tu ngan hang, moi cau gan Diem' - xac nhan points_override
+    dat qua API anh huong dung diem cham (khong chi luu suong)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.bank = QuestionBank.objects.create(tenant=self.tenant, name='Bank demo')
+        self.q1 = Question.objects.create(
+            tenant=self.tenant, bank=self.bank, type=Question.Type.SINGLE, stem_html='Q1', points=1,
+        )
+        self.opt1 = QuestionOption.objects.create(
+            tenant=self.tenant, question=self.q1, content_html='Đúng', is_correct=True,
+        )
+        QuestionOption.objects.create(tenant=self.tenant, question=self.q1, content_html='Sai')
+        self.assessment = Assessment.objects.create(
+            tenant=self.tenant, title='Đề thủ công', status=Assessment.Status.PUBLISHED,
+            pass_mark=50, created_by=self.admin,
+        )
+        self.learner_user = User.objects.create_user(
+            username='nv1', password='x', tenant=self.tenant, role=User.Role.EMPLOYEE,
+        )
+        self.employee = Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1', user=self.learner_user)
+        AssessmentAssignment.objects.create(tenant=self.tenant, assessment=self.assessment, employee=self.employee)
+        self.client = APIClient()
+
+    def test_manual_pick_question_and_set_points(self):
+        self.client.force_authenticate(self.admin)
+        add_resp = self.client.post(
+            reverse('exam-assessment-question-list'),
+            {'assessment': self.assessment.id, 'question': self.q1.id, 'order': 0}, format='json',
+        )
+        self.assertEqual(add_resp.status_code, 201)
+        aq_id = add_resp.data['id']
+
+        patch_resp = self.client.patch(
+            reverse('exam-assessment-question-detail', args=[aq_id]), {'points_override': 20}, format='json',
+        )
+        self.assertEqual(patch_resp.status_code, 200)
+        self.assertEqual(patch_resp.data['points_override'], 20)
+
+        self.client.force_authenticate(self.learner_user)
+        start_resp = self.client.post(reverse('exam-start', args=[self.assessment.id]))
+        attempt_id = start_resp.data['attempt_id']
+        self.client.post(
+            reverse('exam-attempt-answer', args=[attempt_id]),
+            {'question': self.q1.id, 'response': {'option_id': self.opt1.id}}, format='json',
+        )
+        submit_resp = self.client.post(reverse('exam-attempt-submit', args=[attempt_id]))
+        # Diem cua cau (mac dinh 1) da bi ghi de thanh 20 -> dung 20 diem, khong phai 1.
+        self.assertEqual(submit_resp.data['score'], Decimal('20.00'))
+        self.assertEqual(submit_resp.data['max_score'], Decimal('20.00'))
+
+
+class ExamSessionApiTests(TestCase):
+    """Muc 3 (Ky thi): tao Ky thi giao theo vi tri -> sinh AssessmentAssignment cho nhan su khop,
+    nguoi thi CHI thay bai thi trong khoang thoi gian mo, man theo doi hien dung da/chua thi."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.restaurant = Restaurant.objects.create(tenant=self.tenant, name='NH01', code='NH01')
+        self.bank = QuestionBank.objects.create(tenant=self.tenant, name='Bank demo')
+        self.question = Question.objects.create(
+            tenant=self.tenant, bank=self.bank, type=Question.Type.SINGLE, stem_html='Q1',
+        )
+        self.opt_correct = QuestionOption.objects.create(
+            tenant=self.tenant, question=self.question, content_html='Đúng', is_correct=True,
+        )
+        QuestionOption.objects.create(tenant=self.tenant, question=self.question, content_html='Sai')
+        self.assessment = Assessment.objects.create(
+            tenant=self.tenant, title='Đề kỳ thi', status=Assessment.Status.PUBLISHED, created_by=self.admin,
+        )
+        AssessmentQuestion.objects.create(tenant=self.tenant, assessment=self.assessment, question=self.question, order=0)
+
+        self.matching_user = User.objects.create_user(
+            username='nv1', password='x', tenant=self.tenant, role=User.Role.EMPLOYEE,
+        )
+        self.matching_employee = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='Đúng vị trí', position='Phục vụ',
+            restaurant=self.restaurant, user=self.matching_user,
+        )
+        self.other_user = User.objects.create_user(
+            username='nv2', password='x', tenant=self.tenant, role=User.Role.EMPLOYEE,
+        )
+        self.other_employee = Employee.objects.create(
+            tenant=self.tenant, code='NV2', name='Khác vị trí', position='Thu ngân', user=self.other_user,
+        )
+        self.client = APIClient()
+
+    def test_create_session_by_position_assigns_only_matching_employee(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(reverse('exam-session-list'), {
+            'assessment': self.assessment.id, 'title': 'Kỳ thi tháng 8', 'position': 'Phục vụ',
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['assigned_count_created'], 1)
+
+        self.assertTrue(
+            AssessmentAssignment.objects.filter(assessment=self.assessment, employee=self.matching_employee).exists()
+        )
+        self.assertFalse(
+            AssessmentAssignment.objects.filter(assessment=self.assessment, employee=self.other_employee).exists()
+        )
+
+    def test_create_session_requires_admin(self):
+        self.client.force_authenticate(self.matching_user)
+        resp = self.client.post(reverse('exam-session-list'), {
+            'assessment': self.assessment.id, 'position': 'Phục vụ',
+        }, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_create_session_requires_target(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(reverse('exam-session-list'), {
+            'assessment': self.assessment.id, 'title': 'Không có mục tiêu',
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(ExamSession.objects.exists())  # rollback dung, khong bo lai session mo côi
+
+    def test_employee_only_sees_exam_within_open_window(self):
+        now = timezone.now()
+        session = ExamSession.objects.create(
+            tenant=self.tenant, title='Kỳ thi tương lai', assessment=self.assessment,
+            start_at=now + timezone.timedelta(days=1), end_at=now + timezone.timedelta(days=2),
+            created_by=self.admin,
+        )
+        AssessmentAssignment.objects.create(
+            tenant=self.tenant, assessment=self.assessment, employee=self.matching_employee, exam_session=session,
+        )
+        self.client.force_authenticate(self.matching_user)
+        resp = self.client.get(reverse('exam-my'))
+        self.assertEqual(resp.data, [])  # chua mo -> khong thay
+
+        session.start_at = now - timezone.timedelta(hours=1)
+        session.end_at = now + timezone.timedelta(hours=1)
+        session.save()
+        resp = self.client.get(reverse('exam-my'))
+        self.assertEqual(len(resp.data), 1)  # dang mo -> thay
+
+        session.start_at = now - timezone.timedelta(days=2)
+        session.end_at = now - timezone.timedelta(days=1)
+        session.save()
+        resp = self.client.get(reverse('exam-my'))
+        self.assertEqual(resp.data, [])  # da dong -> khong con thay
+
+    def test_start_attempt_blocked_outside_session_window(self):
+        now = timezone.now()
+        session = ExamSession.objects.create(
+            tenant=self.tenant, title='Kỳ thi đã đóng', assessment=self.assessment,
+            start_at=now - timezone.timedelta(days=2), end_at=now - timezone.timedelta(days=1),
+            created_by=self.admin,
+        )
+        AssessmentAssignment.objects.create(
+            tenant=self.tenant, assessment=self.assessment, employee=self.matching_employee, exam_session=session,
+        )
+        self.client.force_authenticate(self.matching_user)
+        resp = self.client.post(reverse('exam-start', args=[self.assessment.id]))
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('đóng', resp.data['detail'])
+
+    def test_manual_assignment_without_session_is_unaffected(self):
+        """Gan tay truc tiep (Dot 2, khong qua Ky thi) van hien/lam bai duoc binh thuong, khong
+        bi anh huong boi tinh nang gioi han thoi gian moi."""
+        AssessmentAssignment.objects.create(
+            tenant=self.tenant, assessment=self.assessment, employee=self.matching_employee,
+        )
+        self.client.force_authenticate(self.matching_user)
+        resp = self.client.get(reverse('exam-my'))
+        self.assertEqual(len(resp.data), 1)
+        start_resp = self.client.post(reverse('exam-start', args=[self.assessment.id]))
+        self.assertEqual(start_resp.status_code, 200)
+
+    def test_tracking_shows_done_and_not_done(self):
+        session = ExamSession.objects.create(
+            tenant=self.tenant, title='Kỳ thi theo dõi', assessment=self.assessment, created_by=self.admin,
+        )
+        AssessmentAssignment.objects.create(
+            tenant=self.tenant, assessment=self.assessment, employee=self.matching_employee, exam_session=session,
+        )
+        AssessmentAssignment.objects.create(
+            tenant=self.tenant, assessment=self.assessment, employee=self.other_employee, exam_session=session,
+        )
+
+        self.client.force_authenticate(self.matching_user)
+        start_resp = self.client.post(reverse('exam-start', args=[self.assessment.id]))
+        attempt_id = start_resp.data['attempt_id']
+        self.client.post(
+            reverse('exam-attempt-answer', args=[attempt_id]),
+            {'question': self.question.id, 'response': {'option_id': self.opt_correct.id}}, format='json',
+        )
+        self.client.post(reverse('exam-attempt-submit', args=[attempt_id]))
+
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(reverse('exam-session-tracking', args=[session.id]))
+        self.assertEqual(resp.status_code, 200)
+        by_code = {r['employee_code']: r for r in resp.data}
+        self.assertTrue(by_code['NV1']['done'])
+        self.assertTrue(by_code['NV1']['passed'])
+        self.assertFalse(by_code['NV2']['done'])
+        self.assertIsNone(by_code['NV2']['passed'])
+
+    def test_tracking_requires_admin(self):
+        session = ExamSession.objects.create(
+            tenant=self.tenant, title='X', assessment=self.assessment, created_by=self.admin,
+        )
+        self.client.force_authenticate(self.matching_user)
+        resp = self.client.get(reverse('exam-session-tracking', args=[session.id]))
+        self.assertEqual(resp.status_code, 403)

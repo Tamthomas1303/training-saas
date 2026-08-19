@@ -21,7 +21,8 @@ export const MENU_ITEMS = {
   coursesAdmin: { label: 'Khóa học', icon: '🎬', path: '/courses-admin' },
   myCourses: { label: 'Khóa học của tôi', icon: '🎬', path: '/my-courses' },
   examBanks: { label: 'Ngân hàng câu hỏi', icon: '🗃️', path: '/exam-banks' },
-  examsAdmin: { label: 'Đề thi', icon: '📝', path: '/exams-admin' },
+  examsAdmin: { label: 'Ngân hàng đề thi', icon: '📝', path: '/exams-admin' },
+  examSessions: { label: 'Kỳ thi', icon: '🗓️', path: '/exam-sessions' },
   myExams: { label: 'Bài thi của tôi', icon: '📝', path: '/my-exams' },
   examGrading: { label: 'Chấm bài', icon: '🖊️', path: '/exam-grading' },
   certTemplates: { label: 'Mẫu chứng chỉ', icon: '🖼️', path: '/cert-templates' },
@@ -45,8 +46,9 @@ const MOBILE_ROLES = new Set(['trainer', 'bql', 'am', 'kcs', 'employee'])
 const ROLE_MENU = {
   admin: [
     'hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'users', 'reports',
-    'coursesAdmin', 'examBanks', 'examsAdmin', 'examGrading', 'certTemplates', 'certPrograms',
-    'certificates', 'employee360', 'dashboardConfig', 'competencyFramework', 'dashboardOverview',
+    'coursesAdmin', 'examBanks', 'examsAdmin', 'examSessions', 'examGrading', 'certTemplates',
+    'certPrograms', 'certificates', 'employee360', 'dashboardConfig', 'competencyFramework',
+    'dashboardOverview',
   ],
   om: [
     'hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'reports', 'examGrading',

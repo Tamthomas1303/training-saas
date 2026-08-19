@@ -34,6 +34,7 @@ import ExamBanksAdminPage from './pages/ExamBanksAdminPage'
 import ExamBankEditPage from './pages/ExamBankEditPage'
 import ExamsAdminPage from './pages/ExamsAdminPage'
 import ExamEditPage from './pages/ExamEditPage'
+import ExamSessionsPage from './pages/ExamSessionsPage'
 import MyExamsPage from './pages/MyExamsPage'
 import ExamTakingPage from './pages/ExamTakingPage'
 import ExamGradingPage from './pages/ExamGradingPage'
@@ -315,6 +316,14 @@ function App() {
             element={
               <ProtectedRoute roles={['admin']}>
                 <ExamEditPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/exam-sessions"
+            element={
+              <ProtectedRoute roles={['admin']}>
+                <ExamSessionsPage />
               </ProtectedRoute>
             }
           />

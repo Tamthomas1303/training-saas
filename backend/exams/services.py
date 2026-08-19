@@ -27,7 +27,7 @@ from django.utils import timezone
 
 from employees.models import Employee
 
-from .models import Answer, Assessment, AssessmentAssignment, AssessmentQuestion, Attempt, Question
+from .models import Answer, Assessment, AssessmentAssignment, AssessmentQuestion, Attempt, ExamSession, Question
 
 
 class ValidationError(Exception):
@@ -36,9 +36,13 @@ class ValidationError(Exception):
 
 # ------------------------------------------------------------------ Gan de (giong courses.assign_course)
 
-def assign_assessment(user, assessment, payload):
+def assign_assessment(user, assessment, payload, exam_session=None):
     """Gan de thi (bulk tao AssessmentAssignment) theo danh sach employee_ids HOAC bo loc
-    position/restaurant_id/group. Bo qua nhan su da duoc gan. Tra ve so nhan su duoc gan MOI."""
+    position/restaurant_id/group. Bo qua nhan su da duoc gan. Tra ve so nhan su duoc gan MOI.
+
+    exam_session: None (mac dinh, gan tay truc tiep tren De - Dot 2, hanh vi giu NGUYEN) hoac 1
+    ExamSession (Dot 4, xem create_exam_session) - stamp vao cac AssessmentAssignment MOI tao de
+    gioi han thoi gian mo/dong (xem my_assessments/start_attempt)."""
     tenant = user.tenant
     employee_ids = payload.get('employee_ids') or []
 
@@ -64,11 +68,69 @@ def assign_assessment(user, assessment, payload):
         .values_list('employee_id', flat=True)
     )
     to_create = [
-        AssessmentAssignment(tenant=tenant, assessment=assessment, employee=e, assigned_by=user)
+        AssessmentAssignment(
+            tenant=tenant, assessment=assessment, employee=e, assigned_by=user, exam_session=exam_session,
+        )
         for e in employees if e.id not in existing_ids
     ]
     AssessmentAssignment.objects.bulk_create(to_create)
     return len(to_create)
+
+
+# ------------------------------------------------------------------ Ky thi (Dot 4 - ExamSession)
+
+def create_exam_session(user, payload):
+    """Tao 1 Ky thi (Prompt_NganHangDe_va_KyThi_kieuCLS.md muc 3): chon 1 De + giao cho ai + dat
+    lich -> sinh AssessmentAssignment cho nhan su khop, TAI DUNG assign_assessment (khong viet
+    lai). payload: {assessment, title?, start_at?, end_at?} + 1 trong 2: employee_ids HOAC
+    position/restaurant_id/group (dung dinh dang voi assign_assessment). Tra ve (session,
+    assigned_count)."""
+    tenant = user.tenant
+    assessment = Assessment.objects.filter(tenant=tenant, pk=payload.get('assessment')).first()
+    if not assessment:
+        raise ValidationError('Không tìm thấy đề thi.')
+
+    title = (payload.get('title') or '').strip() or assessment.title
+    target_config = {
+        k: v for k, v in {
+            'employee_ids': payload.get('employee_ids'), 'position': payload.get('position'),
+            'restaurant_id': payload.get('restaurant_id'), 'group': payload.get('group'),
+        }.items() if v
+    }
+
+    session = ExamSession.objects.create(
+        tenant=tenant, title=title, assessment=assessment,
+        start_at=payload.get('start_at') or None, end_at=payload.get('end_at') or None,
+        target_config=target_config, created_by=user,
+    )
+    try:
+        assigned_count = assign_assessment(user, assessment, payload, exam_session=session)
+    except ValidationError:
+        session.delete()
+        raise
+    return session, assigned_count
+
+
+def exam_session_tracking(session):
+    """Man theo doi 1 Ky thi: tung nhan su duoc giao (qua session nay) - da thi/chua thi, diem,
+    dat/khong. Dung Attempt MOI NHAT (attempt_no lon nhat) cua (assessment, employee) do."""
+    assignments = (
+        AssessmentAssignment.objects.filter(exam_session=session).select_related('employee').order_by('employee__code')
+    )
+    rows = []
+    for a in assignments:
+        last = (
+            Attempt.objects.filter(assessment=session.assessment, employee=a.employee)
+            .order_by('-attempt_no').first()
+        )
+        rows.append({
+            'employee_id': a.employee_id, 'employee_code': a.employee.code, 'employee_name': a.employee.name,
+            'done': a.status == AssessmentAssignment.Status.DONE,
+            'attempt_status': last.status if last else '',
+            'score': last.score if last else None, 'max_score': last.max_score if last else None,
+            'percent': last.percent if last else None, 'passed': last.passed if last else None,
+        })
+    return rows
 
 
 # ------------------------------------------------------------------ Cham tu dong tung dang
@@ -171,11 +233,30 @@ def _draw_question_ids(assessment):
     return ids
 
 
+def _check_exam_session_window(assignment):
+    """Dot 4: neu AssessmentAssignment sinh ra tu 1 ExamSession co lich mo/dong, chan lam bai
+    ngoai khoang do. assignment.exam_session=None (gan tay truc tiep, Dot 2) -> KHONG gioi han
+    gi (giu nguyen hanh vi cu)."""
+    session = assignment.exam_session
+    if not session:
+        return
+    now = timezone.now()
+    if session.start_at and now < session.start_at:
+        raise ValidationError('Kỳ thi chưa mở.')
+    if session.end_at and now > session.end_at:
+        raise ValidationError('Kỳ thi đã đóng.')
+
+
 def start_attempt(employee, assessment):
     if assessment.status != Assessment.Status.PUBLISHED:
         raise ValidationError('Đề thi chưa xuất bản.')
-    if not AssessmentAssignment.objects.filter(assessment=assessment, employee=employee).exists():
+    assignment = (
+        AssessmentAssignment.objects.filter(assessment=assessment, employee=employee)
+        .select_related('exam_session').first()
+    )
+    if not assignment:
         raise ValidationError('Bạn chưa được gán đề thi này.')
+    _check_exam_session_window(assignment)
 
     used = Attempt.objects.filter(assessment=assessment, employee=employee).count()
     if used >= assessment.max_attempts:
@@ -382,16 +463,28 @@ def attempt_result_payload(attempt):
     - after_close: CHI hien chi tiet khi de da chuyen sang 'archived' (khong co field 'ngay
       dong' rieng trong model - suy luan dung Assessment.status lam moc 'dong de', vi day la
       trang thai 'dong' duy nhat co san). Truoc do chi hien diem tong (nhu score_only).
-    - score_only: chi diem, khong hien dung/sai/giai thich."""
+    - score_only: chi diem, khong hien dung/sai/giai thich.
+
+    Dot 4 (tab Tuy chinh kieu CLS) them 2 lop GIOI HAN THEM (khong thay the logic tren, chi
+    thu hep lai neu duoc cau hinh chat hon):
+    - show_score=False -> an het diem/%(passed van giu, la 'dat/khong dat' chu khong phai diem).
+    - review_mode='none'|'score_only' -> ep show_detail=False du show_result_mode co cho phep,
+      dung mac dinh 'full_detail' thi khong doi gi (giu nguyen hanh vi de tao truoc Dot 4)."""
+    assessment = attempt.assessment
     base = {
-        'attempt_id': attempt.id, 'status': attempt.status, 'score': attempt.score,
-        'max_score': attempt.max_score, 'percent': attempt.percent, 'passed': attempt.passed,
+        'attempt_id': attempt.id, 'status': attempt.status,
+        'score': attempt.score if assessment.show_score else None,
+        'max_score': attempt.max_score if assessment.show_score else None,
+        'percent': attempt.percent if assessment.show_score else None,
+        'passed': attempt.passed,
     }
-    mode = attempt.assessment.show_result_mode
+    mode = assessment.show_result_mode
     show_detail = mode == Assessment.ShowResultMode.IMMEDIATELY or (
         mode == Assessment.ShowResultMode.AFTER_CLOSE
-        and attempt.assessment.status == Assessment.Status.ARCHIVED
+        and assessment.status == Assessment.Status.ARCHIVED
     )
+    if assessment.review_mode in (Assessment.ReviewMode.NONE, Assessment.ReviewMode.SCORE_ONLY):
+        show_detail = False
     if not show_detail:
         return base
 
@@ -423,9 +516,20 @@ def reorder_assessment_questions(tenant, items):
 
 
 def my_assessments(employee):
-    assignments = AssessmentAssignment.objects.filter(employee=employee).select_related('assessment')
+    """Dot 4: neu assignment sinh tu 1 ExamSession co lich, CHI hien trong khoang [start_at,
+    end_at] cua ky thi do (dung y prompt 'nguoi thi thay ky thi trong Bai thi cua toi TRONG
+    KHOANG THOI GIAN MO'). Assignment gan tay truc tiep (exam_session=None, Dot 2) luon hien -
+    hanh vi giu NGUYEN."""
+    now = timezone.now()
+    assignments = AssessmentAssignment.objects.filter(employee=employee).select_related('assessment', 'exam_session')
     result = []
     for a in assignments:
+        session = a.exam_session
+        if session:
+            if session.start_at and now < session.start_at:
+                continue
+            if session.end_at and now > session.end_at:
+                continue
         attempts = list(
             Attempt.objects.filter(assessment=a.assessment, employee=employee).order_by('-attempt_no')
         )
@@ -433,6 +537,7 @@ def my_assessments(employee):
         result.append({
             'assignment_id': a.id, 'assessment_id': a.assessment_id, 'title': a.assessment.title,
             'time_limit_min': a.assessment.time_limit_min, 'due_date': a.due_date,
+            'exam_session_end_at': session.end_at if session else None,
             'attempts_used': len(attempts), 'max_attempts': a.assessment.max_attempts,
             'in_progress_attempt_id': next(
                 (att.id for att in attempts if att.status == Attempt.Status.IN_PROGRESS), None,

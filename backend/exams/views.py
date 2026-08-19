@@ -11,13 +11,14 @@ from accounts.mixins import TenantScopedViewSetMixin
 from accounts.pagination import DefaultPagination
 from employees.permissions import ROLES_CAN_EVALUATE
 
-from .models import Assessment, AssessmentAssignment, AssessmentQuestion, Attempt, Question, QuestionBank
+from .models import Assessment, AssessmentAssignment, AssessmentQuestion, Attempt, ExamSession, Question, QuestionBank
 from .serializers import (
     AssessmentAssignmentSerializer,
     AssessmentDetailSerializer,
     AssessmentQuestionSerializer,
     AssessmentSerializer,
     AttemptSerializer,
+    ExamSessionSerializer,
     QuestionBankSerializer,
     QuestionSerializer,
 )
@@ -26,6 +27,8 @@ from .services import (
     assign_assessment,
     attempt_detail_payload,
     attempt_result_payload,
+    create_exam_session,
+    exam_session_tracking,
     grade_attempt,
     my_assessments,
     reorder_assessment_questions,
@@ -137,6 +140,81 @@ class AssessmentAssignmentViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyMod
         super().initial(request, *args, **kwargs)
         if (request.user.role or '').lower() != 'admin':
             raise PermissionDenied('Chỉ Admin được xem danh sách gán đề.')
+
+
+# ==================================================================== Ky thi (Dot 4: ExamSession)
+
+
+class ExamSessionViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
+    """CRUD Ky thi. Chi Admin (giong quy uoc cac man quan tri khac). create() KHONG dung
+    serializer.save() truc tiep - goi services.create_exam_session (chon De + giao ai + dat lich
+    -> sinh AssessmentAssignment cung luc, dung y prompt 'Tao Ky thi = ...')."""
+
+    serializer_class = ExamSessionSerializer
+    queryset = ExamSession.objects.select_related('assessment').all()
+    pagination_class = DefaultPagination
+    filterset_fields = ['assessment', 'status']
+    ordering = ['-created_at']
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if (request.user.role or '').lower() != 'admin':
+            raise PermissionDenied('Chỉ Admin được quản lý Kỳ thi.')
+
+    def create(self, request, *args, **kwargs):
+        try:
+            session, assigned_count = create_exam_session(request.user, request.data)
+        except ValidationError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        data = self.get_serializer(session).data
+        data['assigned_count_created'] = assigned_count
+        return Response(data, status=201)
+
+
+class ExamSessionTrackingView(APIView):
+    """GET /api/exams/sessions/<id>/tracking/ — man theo doi 1 Ky thi: tung nhan su da/chua thi,
+    diem, dat/khong. Chi Admin."""
+
+    def get(self, request, pk):
+        if (request.user.role or '').lower() != 'admin':
+            return Response({'detail': 'Chỉ Admin được xem theo dõi kỳ thi.'}, status=403)
+        session = get_object_or_404(ExamSession, pk=pk, tenant=request.user.tenant)
+        return Response(exam_session_tracking(session))
+
+
+class ExamSessionTrackingExportView(APIView):
+    """GET /api/exams/sessions/<id>/tracking/export/ — xuat Excel man theo doi. Chi Admin."""
+
+    def get(self, request, pk):
+        if (request.user.role or '').lower() != 'admin':
+            return Response({'detail': 'Chỉ Admin được xuất báo cáo.'}, status=403)
+        session = get_object_or_404(ExamSession, pk=pk, tenant=request.user.tenant)
+        rows = exam_session_tracking(session)
+
+        from openpyxl import Workbook
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = 'Theo dõi kỳ thi'
+        ws.append(['Mã NV', 'Họ tên', 'Đã thi', 'Điểm', 'Tổng điểm', '%', 'Đạt'])
+        for r in rows:
+            ws.append([
+                r['employee_code'], r['employee_name'], 'Có' if r['done'] else 'Chưa',
+                float(r['score']) if r['score'] is not None else None,
+                float(r['max_score']) if r['max_score'] is not None else None,
+                float(r['percent']) if r['percent'] is not None else None,
+                'Đạt' if r['passed'] else ('Chưa đạt' if r['passed'] is False else ''),
+            ])
+
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        response = HttpResponse(
+            buffer.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = f'attachment; filename="theo_doi_ky_thi_{session.id}.xlsx"'
+        return response
 
 
 class ReorderView(APIView):

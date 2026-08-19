@@ -17,6 +17,12 @@ const SHOW_RESULT_MODES = [
   { value: 'score_only', label: 'Chỉ hiện điểm, không hiện đáp án' },
 ]
 
+const REVIEW_MODES = [
+  { value: 'none', label: 'Không' },
+  { value: 'score_only', label: 'Không chi tiết điểm' },
+  { value: 'full_detail', label: 'Chi tiết điểm từng câu' },
+]
+
 function useDragReorder(items, onDrop) {
   const dragIndex = useRef(null)
   return {
@@ -233,6 +239,7 @@ export default function ExamEditPage() {
   const [error, setError] = useState('')
   const [assignOpen, setAssignOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
+  const [tab, setTab] = useState('settings')
   const [randomMode, setRandomMode] = useState(false)
   const [bankId, setBankId] = useState('')
   const [count, setCount] = useState(10)
@@ -290,6 +297,13 @@ export default function ExamEditPage() {
     load()
   }
 
+  async function updatePoints(aqId, value) {
+    await api.patch(`/exams/assessment-questions/${aqId}/`, {
+      points_override: value === '' ? null : Number(value),
+    })
+    load()
+  }
+
   async function exportExcel() {
     const resp = await api.get(`/exams/assessments/${id}/results/export/`, { responseType: 'blob' })
     const url = window.URL.createObjectURL(new Blob([resp.data]))
@@ -309,6 +323,67 @@ export default function ExamEditPage() {
       <Link to="/exams-admin">&larr; Danh sách đề thi</Link>
       <h2 style={{ marginTop: 8 }}>{assessment.title}</h2>
 
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        <button className={tab === 'settings' ? '' : 'btn-outline'} onClick={() => setTab('settings')}>
+          Thiết lập
+        </button>
+        <button className={tab === 'custom' ? '' : 'btn-outline'} onClick={() => setTab('custom')}>
+          Tùy chỉnh
+        </button>
+      </div>
+
+      {tab === 'custom' && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <p className="muted-note" style={{ marginTop: 0 }}>Thiết lập đề (kiểu CLS) — áp dụng cho lần làm bài tiếp theo.</p>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+            <label style={{ fontSize: 13 }}>
+              Số câu/trang{' '}
+              <input
+                type="number" defaultValue={assessment.questions_per_page || ''}
+                onBlur={(e) => updateField('questions_per_page', e.target.value ? Number(e.target.value) : null)}
+                style={{ ...s.input, width: 90 }} placeholder="Tất cả 1 trang"
+              />
+            </label>
+            <label style={{ fontSize: 13 }}>
+              Chế độ xem lại{' '}
+              <select
+                value={assessment.review_mode} onChange={(e) => updateField('review_mode', e.target.value)}
+                style={s.select}
+              >
+                {REVIEW_MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+            </label>
+          </div>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
+              <input
+                type="checkbox" checked={assessment.show_countdown}
+                onChange={(e) => updateField('show_countdown', e.target.checked)}
+              /> Đếm ngược thời gian
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
+              <input
+                type="checkbox" checked={assessment.show_score}
+                onChange={(e) => updateField('show_score', e.target.checked)}
+              /> Hiển thị điểm của thí sinh
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
+              <input
+                type="checkbox" checked={assessment.show_grade_label}
+                onChange={(e) => updateField('show_grade_label', e.target.checked)}
+              /> Hiển thị xếp loại
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }} title="Chỉ để cờ, chưa cài webcam (P2)">
+              <input
+                type="checkbox" checked={assessment.proctoring_enabled}
+                onChange={(e) => updateField('proctoring_enabled', e.target.checked)}
+              /> Nhận diện học viên (proctoring — P2, chưa cài webcam)
+            </label>
+          </div>
+        </div>
+      )}
+
+      {tab === 'settings' && (
       <div className="card" style={{ marginBottom: 16 }}>
         <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)' }}>Tên đề thi</label>
         <input
@@ -400,6 +475,7 @@ export default function ExamEditPage() {
           placeholder="vd 15N..." style={{ ...s.input, width: '100%' }}
         />
       </div>
+      )}
 
       <h3>Câu hỏi trong đề</h3>
       <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
@@ -442,6 +518,14 @@ export default function ExamEditPage() {
               <span>⠿</span>
               <span className="badge badge-neutral">{typeLabel(aq.question_detail?.type)}</span>
               <span style={{ flex: 1 }}>{aq.question_detail?.stem_html}</span>
+              <label style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                Điểm{' '}
+                <input
+                  type="number" defaultValue={aq.points_override ?? aq.question_detail?.points ?? ''}
+                  onBlur={(e) => updatePoints(aq.id, e.target.value)}
+                  style={{ ...s.input, width: 64 }}
+                />
+              </label>
               <button className="btn-outline btn-sm" onClick={() => removeQuestion(aq.id)}>Xóa khỏi đề</button>
             </div>
           ))}
