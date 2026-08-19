@@ -33,3 +33,7 @@ Thumbs.db
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# k6 load test output (chua ket qua tung lan chay, khong commit)
+loadtest/k6_report.txt
+loadtest/k6_summary.json
