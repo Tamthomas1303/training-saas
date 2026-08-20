@@ -16,6 +16,11 @@ Dap An Dung: la SO THU TU (1-based) cua cot "Cau Tra Loi N" - single la 1 so, mu
 sach so ngan cach dau phay (vd "1, 3"). Index tinh THEO VI TRI COT GOC (1..8), khong phai vi tri
 sau khi da loc bo cac o trong - dung y prompt "chu y index 1-based" va khop voi cach nguoi nhap
 lieu CLS danh so cot tren form.
+
+Cot "Nang luc" (TUY CHON, Prompt_GanNangLuc_CauHoi_Excel.md muc 3): neu file co them cot nay (anh
+tu them tay vao file CLS xuat ra) thi gan luon competency khi import, khop TEN da chuan hoa
+(dung chung logic voi exams/competency_assign.py::apply_competency_assignments). Khong co cot ->
+bo qua nhu truoc (competency=None, gan sau qua man Xuat/Nhap Excel gan nang luc).
 """
 import re
 
@@ -149,6 +154,7 @@ def parse_workbook(path_or_file, sheet_name=SHEET_NAME):
             'stem_html': content, 'explanation_html': _clean_cell(get(row, 'Giải Thích Kết Quả')),
             'media_url': _clean_cell(get(row, 'Đường Dẫn Tệp Tin')),
             'difficulty': difficulty, 'options': options,
+            'competency_name': _clean_cell(get(row, 'Năng lực')),  # rong neu file khong co cot nay
         })
 
     return {'parsed': parsed, 'skipped': skipped}
@@ -159,12 +165,17 @@ def import_rows(tenant, parsed_rows, dry_run=True):
     parse_workbook()['parsed']. Idempotent: 1 Question da ton tai (cung tenant + bank + stem_html
     - dedup THEO NOI DUNG, dung y prompt "khong co truong luu STT nguon, khong can migration")
     thi BO QUA, khong tao lai/khong sua. Tra ve thong ke."""
+    from .competency_assign import build_competency_index
+    from dashboard.services import _normalize_competency_name
+
     stats = {
         'banks_created': 0, 'banks_existing': 0,
         'questions_created': 0, 'questions_skipped_duplicate': 0,
         'single_created': 0, 'multiple_created': 0, 'options_created': 0,
+        'competency_matched': 0, 'competency_unmatched': 0,
     }
     bank_cache = {}
+    competency_index = build_competency_index(tenant)
 
     for row in parsed_rows:
         bank_name = row['bank_name']
@@ -193,13 +204,23 @@ def import_rows(tenant, parsed_rows, dry_run=True):
         else:
             stats['multiple_created'] += 1
 
+        competency = None
+        competency_name = row.get('competency_name')
+        if competency_name:
+            matches = competency_index.get(_normalize_competency_name(competency_name)) or []
+            if len(matches) == 1:
+                competency = matches[0]
+                stats['competency_matched'] += 1
+            else:
+                stats['competency_unmatched'] += 1
+
         if dry_run:
             continue
 
         question = Question.objects.create(
             tenant=tenant, bank=bank, type=row['type'], stem_html=row['stem_html'],
             explanation_html=row['explanation_html'], media_url=row['media_url'],
-            difficulty=row['difficulty'],
+            difficulty=row['difficulty'], competency=competency,
         )
         QuestionOption.objects.bulk_create([
             QuestionOption(

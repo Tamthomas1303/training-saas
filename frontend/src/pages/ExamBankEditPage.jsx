@@ -1,10 +1,94 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import AppShell from '../components/AppShell'
+import Badge from '../components/Badge'
 import FilterBar from '../components/FilterBar'
+import Modal from '../components/Modal'
 import api from '../api/client'
 import { DIFFICULTIES, QUESTION_TYPES, typeLabel } from '../config/examQuestionTypes'
 import * as s from './listPageStyles'
+
+// Xuat/Nhap Excel gan nang luc hang loat cho cau hoi (Prompt_GanNangLuc_CauHoi_Excel.md) - nut
+// tren man Ngan hang cau hoi, dung dung bo loc dang chon (bank/dang/cap do/tim kiem).
+function ImportCompetencyModal({ open, onClose, onDone }) {
+  const inputRef = useRef(null)
+  const [file, setFile] = useState(null)
+  const [preview, setPreview] = useState(null)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  function reset() {
+    setFile(null); setPreview(null); setError('')
+    if (inputRef.current) inputRef.current.value = ''
+  }
+
+  async function handleFile(e) {
+    const f = e.target.files[0]
+    if (!f) return
+    setFile(f)
+    setError('')
+    setBusy(true)
+    const formData = new FormData()
+    formData.append('file', f)
+    formData.append('dry_run', 'true')
+    try {
+      const { data } = await api.post('/exams/questions/import-competency/', formData)
+      setPreview(data)
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Không đọc được file.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function confirm() {
+    if (!file) return
+    setBusy(true)
+    setError('')
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('dry_run', 'false')
+    try {
+      const { data } = await api.post('/exams/questions/import-competency/', formData)
+      onDone(data)
+      reset()
+      onClose()
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Không gán được năng lực.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal open={open} title="Nhập Excel gán năng lực" onClose={() => { reset(); onClose() }}>
+      <p className="muted-note" style={{ marginTop: 0 }}>
+        Chọn file đã điền cột NĂNG LỰC (chọn) — hệ thống sẽ xem trước trước khi ghi thật.
+      </p>
+      <input ref={inputRef} type="file" accept=".xlsx" onChange={handleFile} disabled={busy} />
+      {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
+      {preview && (
+        <div style={{ marginTop: 12 }}>
+          <p>
+            Sẽ gán năng lực cho <strong>{preview.stats.will_assign}</strong> câu · giữ nguyên{' '}
+            <strong>{preview.stats.unchanged_blank}</strong> câu (để trống) · lỗi{' '}
+            <strong>{preview.stats.errors}</strong> dòng.
+          </p>
+          {preview.errors.length > 0 && (
+            <div style={{ maxHeight: 200, overflowY: 'auto', border: '1px solid var(--card-border)', borderRadius: 6, padding: 8 }}>
+              {preview.errors.map((e, i) => (
+                <div key={i} className="muted-note" style={{ fontSize: 12 }}>Dòng {e.row}: {e.reason}</div>
+              ))}
+            </div>
+          )}
+          <button onClick={confirm} disabled={busy || preview.stats.will_assign === 0} style={{ marginTop: 8 }}>
+            Xác nhận gán {preview.stats.will_assign} câu
+          </button>
+        </div>
+      )}
+    </Modal>
+  )
+}
 
 const CHOICE_TYPES = ['single', 'multiple', 'truefalse']
 
@@ -345,6 +429,8 @@ export default function ExamBankEditPage() {
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [difficultyFilter, setDifficultyFilter] = useState('')
+  const [importOpen, setImportOpen] = useState(false)
+  const [importResult, setImportResult] = useState(null)
 
   function load() {
     Promise.all([
@@ -369,6 +455,23 @@ export default function ExamBankEditPage() {
     if (!window.confirm('Xóa câu hỏi này?')) return
     await api.delete(`/exams/questions/${qid}/`)
     load()
+  }
+
+  async function exportCompetencyExcel() {
+    const resp = await api.get('/exams/questions/export-competency/', {
+      params: {
+        bank: id, search: search || undefined, type: typeFilter || undefined,
+        difficulty: difficultyFilter || undefined,
+      },
+      responseType: 'blob',
+    })
+    const url = window.URL.createObjectURL(new Blob([resp.data]))
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', 'gan_nang_luc_cau_hoi.xlsx')
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
   }
 
   if (error) {
@@ -396,7 +499,16 @@ export default function ExamBankEditPage() {
           <option value="">Mọi cấp độ</option>
           {DIFFICULTIES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
         </select>
+        <button className="btn-outline btn-sm" onClick={exportCompetencyExcel}>Xuất Excel gán năng lực</button>
+        <button className="btn-outline btn-sm" onClick={() => setImportOpen(true)}>Nhập Excel gán năng lực</button>
       </FilterBar>
+
+      {importResult && (
+        <p className="muted-note">
+          Đã gán năng lực cho {importResult.stats.will_assign} câu
+          {importResult.stats.errors > 0 ? ` · ${importResult.stats.errors} dòng lỗi` : ''}.
+        </p>
+      )}
 
       {questions.map((q) => (
         editingId === q.id ? (
@@ -409,6 +521,11 @@ export default function ExamBankEditPage() {
           <div key={q.id} className="card" style={{ marginBottom: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
             <span className="badge badge-neutral">{typeLabel(q.type)}</span>
             <span style={{ flex: 1 }}>{q.stem_html}</span>
+            {q.competency_name ? (
+              <Badge variant="success">{q.competency_name}</Badge>
+            ) : (
+              <span className="muted-note" style={{ fontSize: 12 }}>Chưa gán năng lực</span>
+            )}
             <span className="muted-note">{q.points} điểm</span>
             <button className="btn-outline btn-sm" onClick={() => setEditingId(q.id)}>Sửa</button>
             <button className="btn-outline btn-sm" onClick={() => deleteQuestion(q.id)}>Xóa</button>
@@ -416,6 +533,11 @@ export default function ExamBankEditPage() {
         )
       ))}
       {questions.length === 0 && !adding && <p className="muted-note">Chưa có câu hỏi nào.</p>}
+
+      <ImportCompetencyModal
+        open={importOpen} onClose={() => setImportOpen(false)}
+        onDone={(data) => { setImportResult(data); load() }}
+      />
 
       {adding ? (
         <QuestionForm bankId={id} onSaved={() => { setAdding(false); load() }} onCancel={() => setAdding(false)} />

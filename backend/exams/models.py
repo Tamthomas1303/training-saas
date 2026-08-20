@@ -51,6 +51,11 @@ class Question(models.Model):
     # Forward-compat Dot 3 (gan nang luc/vi tri cho cau hoi) - CHUA co logic gi dung den o Dot 2.
     competency_tag = models.CharField(max_length=100, blank=True)
     position = models.CharField(max_length=100, blank=True)
+    # Gan nang luc THAT (Prompt_GanNangLuc_CauHoi_Excel.md) - FK toi khung nang luc, cung mau
+    # voi Assessment.competency/Course.competency. Null = chua gan (mac dinh sau khi import CLS).
+    competency = models.ForeignKey(
+        'dashboard.Competency', on_delete=models.SET_NULL, related_name='exam_questions', null=True, blank=True,
+    )
     # Du lieu rieng theo dang (xem exams/services.py module docstring de biet cau truc tung dang):
     # text_fill: {accepted:[...], case_sensitive}. numeric: {answer, tolerance}. essay: {rubric?}.
     # matching: {pairs:[{left,right},...]}. dragdrop: {tokens:[...], gaps:[{id,answer},...]}.

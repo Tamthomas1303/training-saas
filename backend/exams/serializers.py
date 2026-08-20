@@ -40,13 +40,14 @@ class QuestionSerializer(serializers.ModelSerializer):
 
     options = QuestionOptionSerializer(many=True, required=False)
     type_display = serializers.CharField(source='get_type_display', read_only=True)
+    competency_name = serializers.CharField(source='competency.name', read_only=True, default='')
 
     class Meta:
         model = Question
         fields = [
             'id', 'bank', 'type', 'type_display', 'stem_html', 'points', 'difficulty',
-            'explanation_html', 'media_url', 'competency_tag', 'position', 'config', 'options',
-            'created_at', 'updated_at',
+            'explanation_html', 'media_url', 'competency_tag', 'position', 'competency',
+            'competency_name', 'config', 'options', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 

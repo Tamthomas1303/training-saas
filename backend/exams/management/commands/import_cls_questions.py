@@ -57,6 +57,11 @@ class Command(BaseCommand):
         )
         self.stdout.write(f"  Câu hỏi bỏ qua vì đã tồn tại (trùng nội dung): {stats['questions_skipped_duplicate']}")
         self.stdout.write(f"  Đáp án (QuestionOption) {label.lower()}tạo: {stats['options_created']}")
+        if stats['competency_matched'] or stats['competency_unmatched']:
+            self.stdout.write(
+                f"  Cột 'Năng lực': {label.lower()}gán {stats['competency_matched']} câu, "
+                f"{stats['competency_unmatched']} câu không khớp tên năng lực nào (bỏ trống)"
+            )
 
         if dry_run:
             self.stdout.write(self.style.WARNING('\nDRY-RUN — chưa ghi gì. Chạy lại không có --dry-run để nhập thật.'))

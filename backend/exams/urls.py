@@ -17,6 +17,8 @@ from .views import (
     GradingListView,
     MyAssessmentsView,
     QuestionBankViewSet,
+    QuestionExportCompetencyView,
+    QuestionImportCompetencyView,
     QuestionViewSet,
     ReorderView,
     StartAttemptView,
@@ -39,6 +41,14 @@ urlpatterns = [
     path('attempts/<int:pk>/submit/', SubmitAttemptView.as_view(), name='exam-attempt-submit'),
     path('attempts/<int:pk>/grade/', GradeAttemptView.as_view(), name='exam-attempt-grade'),
     path('grading/', GradingListView.as_view(), name='exam-grading'),
+    path(
+        'questions/export-competency/', QuestionExportCompetencyView.as_view(),
+        name='exam-question-export-competency',
+    ),
+    path(
+        'questions/import-competency/', QuestionImportCompetencyView.as_view(),
+        name='exam-question-import-competency',
+    ),
     path('reorder/', ReorderView.as_view(), name='exam-reorder'),
     path('assessments/<int:pk>/assign/', AssessmentAssignView.as_view(), name='exam-assessment-assign'),
     path('assessments/<int:pk>/results/', AssessmentResultsView.as_view(), name='exam-assessment-results'),

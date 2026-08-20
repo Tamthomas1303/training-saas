@@ -11,6 +11,7 @@ from accounts.mixins import TenantScopedViewSetMixin
 from accounts.pagination import DefaultPagination
 from employees.permissions import ROLES_CAN_EVALUATE
 
+from .competency_assign import apply_competency_assignments, export_workbook, parse_import_workbook
 from .models import Assessment, AssessmentAssignment, AssessmentQuestion, Attempt, ExamSession, Question, QuestionBank
 from .serializers import (
     AssessmentAssignmentSerializer,
@@ -86,6 +87,63 @@ class QuestionViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.user.tenant)
+
+
+class QuestionExportCompetencyView(APIView):
+    """GET /api/exams/questions/export-competency/?bank=&type=&difficulty=&search= — xuat Excel
+    "Gan nang luc" (Prompt_GanNangLuc_CauHoi_Excel.md) cho cac cau hoi khop bo loc (CUNG bo loc
+    voi man Ngan hang cau hoi: bank/type/difficulty/search). Kem sheet DanhMuc_NangLuc + dropdown
+    data-validation tren cot NANG LUC. Chi Admin."""
+
+    def get(self, request):
+        if (request.user.role or '').lower() != 'admin':
+            return Response({'detail': 'Chỉ Admin được xuất Excel gán năng lực.'}, status=403)
+        qs = Question.objects.filter(tenant=request.user.tenant).select_related('bank', 'competency')
+        bank = request.query_params.get('bank')
+        if bank:
+            qs = qs.filter(bank_id=bank)
+        q_type = request.query_params.get('type')
+        if q_type:
+            qs = qs.filter(type=q_type)
+        difficulty = request.query_params.get('difficulty')
+        if difficulty:
+            qs = qs.filter(difficulty=difficulty)
+        search = request.query_params.get('search')
+        if search:
+            qs = qs.filter(stem_html__icontains=search)
+
+        wb = export_workbook(request.user.tenant, qs)
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+        response = HttpResponse(
+            buffer.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = 'attachment; filename="gan_nang_luc_cau_hoi.xlsx"'
+        return response
+
+
+class QuestionImportCompetencyView(APIView):
+    """POST /api/exams/questions/import-competency/ — multipart {file: <.xlsx>, dry_run?}. Chi
+    Admin. Mac dinh dry_run=true (preview - khong ghi gi); FE goi lai voi dry_run=false de xac
+    nhan ghi that (dung y prompt 'upload -> preview -> xac nhan')."""
+
+    def post(self, request):
+        if (request.user.role or '').lower() != 'admin':
+            return Response({'detail': 'Chỉ Admin được nhập Excel gán năng lực.'}, status=403)
+        upload = request.FILES.get('file')
+        if not upload:
+            return Response({'detail': "Cần chọn file .xlsx ('file')."}, status=400)
+        dry_run = str(request.data.get('dry_run', 'true')).strip().lower() not in ('0', 'false', 'no')
+
+        try:
+            raw_rows = parse_import_workbook(upload)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=400)
+
+        result = apply_competency_assignments(request.user.tenant, raw_rows, dry_run=dry_run)
+        return Response({'dry_run': dry_run, **result})
 
 
 class AssessmentViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):

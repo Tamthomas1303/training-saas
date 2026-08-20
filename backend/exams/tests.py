@@ -7,6 +7,7 @@ from rest_framework.test import APIClient
 
 from accounts.models import Tenant, User
 from cls_sync.models import ExamResult
+from dashboard.models import Competency, CompetencyGroup
 from employees.models import Employee
 from integration.models import XapiStatement
 from restaurants.models import Restaurant
@@ -887,7 +888,7 @@ def _cls_row(
     ]
 
 
-def _build_cls_workbook(rows, sheet_name='Câu Hỏi'):
+def _build_cls_workbook(rows, sheet_name='Câu Hỏi', header=None):
     """Dung dinh dang GIONG HET file that (dong 1 = tieu de gop o, dong 2 = header co khoang
     trang thua can .strip(), dong 3+ = du lieu) - xem exams/cls_import.py."""
     import io as _io
@@ -898,7 +899,7 @@ def _build_cls_workbook(rows, sheet_name='Câu Hỏi'):
     ws = wb.active
     ws.title = sheet_name
     ws.append(['MẪU NGÂN HÀNG CÂU HỎI'])
-    ws.append(CLS_HEADER)
+    ws.append(header if header is not None else CLS_HEADER)
     for row in rows:
         ws.append(row)
     buf = _io.BytesIO()
@@ -1098,3 +1099,225 @@ class ImportClsQuestionsCommandTests(TestCase):
 
         with self.assertRaises(CommandError):
             call_command('import_cls_questions', file='/khong/ton/tai.xlsx', tenant='Demo Tenant')
+
+    def test_cls_file_with_optional_nang_luc_column_sets_competency(self):
+        """Muc 3 cua Prompt_GanNangLuc_CauHoi_Excel.md: cot 'Nang luc' TUY CHON trong file CLS -
+        co thi gan luon, khop ten khong khop thi bo trong (khong chan tao cau hoi)."""
+        from exams.cls_import import import_rows, parse_workbook
+
+        group = CompetencyGroup.objects.create(tenant=self.tenant, code='A1', name='Nhóm A1')
+        comp = Competency.objects.create(tenant=self.tenant, group=group, name='Xử lý order & POS')
+
+        header_with_nl = CLS_HEADER + ['      Năng lực      ']
+        wb = _build_cls_workbook([
+            [*_cls_row('1', 'Chủ đề C', 'Trắc nghiệm một lựa chọn', 'Câu 1?', '1', 'Nhận biết', ['A', 'B']),
+             'Xử lý order & POS'],
+            [*_cls_row('2', 'Chủ đề C', 'Trắc nghiệm một lựa chọn', 'Câu 2?', '1', 'Nhận biết', ['A', 'B']),
+             'Năng lực không tồn tại'],
+        ], header=header_with_nl)
+
+        parsed = parse_workbook(wb)['parsed']
+        stats = import_rows(self.tenant, parsed, dry_run=False)
+        self.assertEqual(stats['competency_matched'], 1)
+        self.assertEqual(stats['competency_unmatched'], 1)
+
+        q1 = Question.objects.get(tenant=self.tenant, stem_html='Câu 1?')
+        q2 = Question.objects.get(tenant=self.tenant, stem_html='Câu 2?')
+        self.assertEqual(q1.competency_id, comp.id)
+        self.assertIsNone(q2.competency_id)
+
+
+def _build_competency_import_workbook(rows):
+    """rows: [(question_id, competency_text), ...] - dinh dang GIONG HET file xuat boi
+    export_workbook (xem exams/competency_assign.py)."""
+    import io as _io
+
+    import openpyxl
+
+    from exams.competency_assign import HEADER
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Gan nang luc'
+    ws.append(HEADER)
+    for question_id, competency_text in rows:
+        ws.append([question_id, f'Nội dung câu {question_id}', 'Chủ đề X', 'Trắc nghiệm một lựa chọn', competency_text])
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+class CompetencyExportImportTests(TestCase):
+    """Prompt_GanNangLuc_CauHoi_Excel.md: xuat/nhap Excel gan nang luc cho cau hoi."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.group = CompetencyGroup.objects.create(tenant=self.tenant, code='A1', name='Nhóm A1')
+        self.comp_a = Competency.objects.create(tenant=self.tenant, group=self.group, name='Xử lý order & POS', order=1)
+        self.comp_b = Competency.objects.create(
+            tenant=self.tenant, group=self.group, name='Quy trình phục vụ chuẩn', order=2,
+        )
+        self.bank = QuestionBank.objects.create(tenant=self.tenant, name='Câu hỏi thi Phục vụ Kampong')
+        self.q1 = Question.objects.create(
+            tenant=self.tenant, bank=self.bank, type=Question.Type.SINGLE, stem_html='Câu hỏi 1?',
+        )
+        self.q2 = Question.objects.create(
+            tenant=self.tenant, bank=self.bank, type=Question.Type.SINGLE, stem_html='Câu hỏi 2?',
+            competency=self.comp_a,
+        )
+        self.client = APIClient()
+
+    # ---- export_workbook ----
+
+    def test_export_workbook_has_data_and_catalog_sheets_with_dropdown(self):
+        from exams.competency_assign import SHEET_CATALOG, SHEET_DATA, export_workbook
+
+        wb = export_workbook(self.tenant, Question.objects.filter(tenant=self.tenant, bank=self.bank))
+        self.assertIn(SHEET_DATA, wb.sheetnames)
+        self.assertIn(SHEET_CATALOG, wb.sheetnames)
+
+        ws = wb[SHEET_DATA]
+        rows = list(ws.iter_rows(values_only=True))
+        self.assertEqual(rows[0], ('Mã câu hỏi', 'Nội dung câu hỏi', 'Chủ đề', 'Dạng', 'NĂNG LỰC (chọn)'))
+        by_id = {r[0]: r for r in rows[1:]}
+        self.assertEqual(by_id[self.q1.id][4], '')  # chua gan -> de trong
+        self.assertEqual(by_id[self.q2.id][4], 'Xử lý order & POS')  # da gan -> dien san
+
+        catalog_names = [r[0] for r in ws.parent[SHEET_CATALOG].iter_rows(values_only=True)][1:]
+        self.assertEqual(set(catalog_names), {'Xử lý order & POS', 'Quy trình phục vụ chuẩn'})
+
+        dv = ws.data_validations.dataValidation[0]
+        self.assertEqual(dv.type, 'list')
+        self.assertIn(SHEET_CATALOG, dv.formula1)
+
+    def test_export_endpoint_requires_admin_and_respects_filter(self):
+        trainer = User.objects.create_user(username='trainer1', password='x', tenant=self.tenant, role='trainer')
+        self.client.force_authenticate(trainer)
+        resp = self.client.get(reverse('exam-question-export-competency'))
+        self.assertEqual(resp.status_code, 403)
+
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(reverse('exam-question-export-competency'), {'bank': self.bank.id})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp['Content-Type'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+    # ---- import: apply_competency_assignments ----
+
+    def test_matches_by_id_and_sets_competency(self):
+        from exams.competency_assign import apply_competency_assignments, parse_import_workbook
+
+        wb = _build_competency_import_workbook([(self.q1.id, 'Xử lý order & POS')])
+        raw_rows = parse_import_workbook(wb)
+        result = apply_competency_assignments(self.tenant, raw_rows, dry_run=False)
+        self.assertEqual(result['stats']['will_assign'], 1)
+        self.assertEqual(result['errors'], [])
+        self.q1.refresh_from_db()
+        self.assertEqual(self.q1.competency_id, self.comp_a.id)
+
+    def test_name_matching_is_diacritics_and_whitespace_insensitive(self):
+        from exams.competency_assign import apply_competency_assignments, parse_import_workbook
+
+        wb = _build_competency_import_workbook([(self.q1.id, '  xu ly order & pos  ')])
+        raw_rows = parse_import_workbook(wb)
+        result = apply_competency_assignments(self.tenant, raw_rows, dry_run=False)
+        self.assertEqual(result['stats']['will_assign'], 1)
+        self.q1.refresh_from_db()
+        self.assertEqual(self.q1.competency_id, self.comp_a.id)
+
+    def test_unknown_competency_name_reports_error_without_creating(self):
+        from exams.competency_assign import apply_competency_assignments, parse_import_workbook
+
+        wb = _build_competency_import_workbook([(self.q1.id, 'Năng lực không có thật')])
+        raw_rows = parse_import_workbook(wb)
+        result = apply_competency_assignments(self.tenant, raw_rows, dry_run=False)
+        self.assertEqual(result['stats']['errors'], 1)
+        self.assertIn('Không khớp', result['errors'][0]['reason'])
+        self.q1.refresh_from_db()
+        self.assertIsNone(self.q1.competency_id)
+        self.assertEqual(Competency.objects.count(), 2)  # khong tao them nang luc moi
+
+    def test_blank_competency_cell_keeps_existing_value(self):
+        from exams.competency_assign import apply_competency_assignments, parse_import_workbook
+
+        wb = _build_competency_import_workbook([(self.q2.id, '')])
+        raw_rows = parse_import_workbook(wb)
+        result = apply_competency_assignments(self.tenant, raw_rows, dry_run=False)
+        self.assertEqual(result['stats']['unchanged_blank'], 1)
+        self.q2.refresh_from_db()
+        self.assertEqual(self.q2.competency_id, self.comp_a.id)  # giu nguyen, khong bi xoa
+
+    def test_unknown_question_id_reports_error(self):
+        from exams.competency_assign import apply_competency_assignments, parse_import_workbook
+
+        wb = _build_competency_import_workbook([(999999, 'Xử lý order & POS')])
+        raw_rows = parse_import_workbook(wb)
+        result = apply_competency_assignments(self.tenant, raw_rows, dry_run=False)
+        self.assertEqual(result['stats']['errors'], 1)
+        self.assertIn('Không tìm thấy câu hỏi', result['errors'][0]['reason'])
+
+    def test_dry_run_does_not_write(self):
+        from exams.competency_assign import apply_competency_assignments, parse_import_workbook
+
+        wb = _build_competency_import_workbook([(self.q1.id, 'Xử lý order & POS')])
+        raw_rows = parse_import_workbook(wb)
+        result = apply_competency_assignments(self.tenant, raw_rows, dry_run=True)
+        self.assertEqual(result['stats']['will_assign'], 1)
+        self.q1.refresh_from_db()
+        self.assertIsNone(self.q1.competency_id)
+
+    def test_running_twice_is_idempotent(self):
+        from exams.competency_assign import apply_competency_assignments, parse_import_workbook
+
+        wb = _build_competency_import_workbook([(self.q1.id, 'Xử lý order & POS')])
+        apply_competency_assignments(self.tenant, parse_import_workbook(wb), dry_run=False)
+        self.q1.refresh_from_db()
+        self.assertEqual(self.q1.competency_id, self.comp_a.id)
+
+        wb2 = _build_competency_import_workbook([(self.q1.id, 'Xử lý order & POS')])
+        result2 = apply_competency_assignments(self.tenant, parse_import_workbook(wb2), dry_run=False)
+        self.assertEqual(result2['stats']['will_assign'], 1)
+        self.assertEqual(result2['errors'], [])
+        self.q1.refresh_from_db()
+        self.assertEqual(self.q1.competency_id, self.comp_a.id)  # van dung, khong doi/loi gi them
+
+    # ---- import endpoint (preview -> confirm) ----
+
+    def test_import_endpoint_preview_then_confirm(self):
+        wb = _build_competency_import_workbook([(self.q1.id, 'Xử lý order & POS')])
+        self.client.force_authenticate(self.admin)
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        upload = SimpleUploadedFile(
+            'gan_nang_luc.xlsx', wb.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        resp = self.client.post(
+            reverse('exam-question-import-competency'), {'file': upload}, format='multipart',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data['dry_run'])
+        self.assertEqual(resp.data['stats']['will_assign'], 1)
+        self.q1.refresh_from_db()
+        self.assertIsNone(self.q1.competency_id)  # preview - chua ghi
+
+        wb2 = _build_competency_import_workbook([(self.q1.id, 'Xử lý order & POS')])
+        upload2 = SimpleUploadedFile(
+            'gan_nang_luc.xlsx', wb2.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        resp2 = self.client.post(
+            reverse('exam-question-import-competency'), {'file': upload2, 'dry_run': 'false'}, format='multipart',
+        )
+        self.assertEqual(resp2.status_code, 200)
+        self.assertFalse(resp2.data['dry_run'])
+        self.q1.refresh_from_db()
+        self.assertEqual(self.q1.competency_id, self.comp_a.id)
+
+    def test_import_endpoint_requires_admin(self):
+        trainer = User.objects.create_user(username='trainer1', password='x', tenant=self.tenant, role='trainer')
+        self.client.force_authenticate(trainer)
+        resp = self.client.post(reverse('exam-question-import-competency'), {}, format='multipart')
+        self.assertEqual(resp.status_code, 403)
