@@ -33,6 +33,8 @@ from .services import (
     my_course_detail,
     my_courses,
     offline_completion_report,
+    record_lesson_watch_event,
+    record_watch_progress,
     reorder_items,
     save_lesson_progress,
 )
@@ -200,6 +202,43 @@ class ProgressSaveView(APIView):
         except ValidationError as exc:
             return Response({'detail': str(exc)}, status=400)
         return Response(LessonProgressSerializer(progress).data)
+
+
+class WatchProgressView(APIView):
+    """POST /api/courses/watch-progress/ — body {lesson, position_sec}. Giai doan B: player goi
+    DINH KY luc dang PHAT (khong goi khi tua) de nang 'tran' cho phep tua toi da
+    (max_watched_sec). Server tu choi buoc nhay lon (xem services.record_watch_progress) - day
+    la lop chan tua o SERVER, khong chi dua vao JS client. Tra ve {max_watched_sec, accepted}."""
+
+    def post(self, request):
+        employee = _require_learner(request)
+        if not employee:
+            return Response(
+                {'detail': 'Tài khoản này chưa liên kết với hồ sơ nhân sự.'}, status=403,
+            )
+        try:
+            result = record_watch_progress(employee, request.data)
+        except ValidationError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        return Response(result)
+
+
+class LessonWatchEventView(APIView):
+    """POST /api/courses/lesson-watch-event/ — body {lesson, type: paused_face_lost|resumed}.
+    Giai doan B: ghi moc tam dung/tiep tuc khi phat hien mat khuon mat luc HOC. KHONG BAO GIO
+    nhan/luu anh (khac endpoint proctoring-event cua module thi)."""
+
+    def post(self, request):
+        employee = _require_learner(request)
+        if not employee:
+            return Response(
+                {'detail': 'Tài khoản này chưa liên kết với hồ sơ nhân sự.'}, status=403,
+            )
+        try:
+            event = record_lesson_watch_event(employee, request.data)
+        except ValidationError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        return Response({'id': event.id, 'type': event.type, 'created_at': event.created_at})
 
 
 class OfflineConfirmView(APIView):

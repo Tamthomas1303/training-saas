@@ -96,8 +96,13 @@ class Lesson(models.Model):
     content_url = models.URLField(max_length=500, blank=True)
     content_html = models.TextField(blank=True)
     duration_sec = models.IntegerField(null=True, blank=True)
-    # Co chong tua - PLAYER chong tua thuc su lam o Dot 3, dot nay chi luu co.
+    # Co chong tua - CHI co y nghia voi type='video_r2' (Giai doan B,
+    # Prompt_ChongGianLan_Thi_Video.md): bat ca chan tua vuot (LessonProgress.max_watched_sec)
+    # LAN tu tam dung theo webcam khi mat khuon mat (dung 1 co, khong them toggle rieng).
     anti_seek = models.BooleanField(default=False)
+    # Nguong tu tam dung theo webcam (giay) - CHI ap dung khi anti_seek=True + type=video_r2.
+    face_pause_warn_sec = models.PositiveIntegerField(default=5)
+    face_pause_stop_sec = models.PositiveIntegerField(default=10)
     complete_rule = models.CharField(max_length=20, choices=CompleteRule.choices, default=CompleteRule.MARK)
     pass_watch_pct = models.IntegerField(default=80)
     order = models.IntegerField(default=0)
@@ -156,6 +161,11 @@ class LessonProgress(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     watched_pct = models.IntegerField(default=0)
     last_position_sec = models.IntegerField(default=0)
+    # Giai doan B: "moc da xem toi da" - KHAC last_position_sec (vi tri con tro hien tai, co the
+    # lui lai khi tua nguoc). Chi tang dan, server tu choi buoc nhay lon (xem
+    # services.record_watch_progress) - la TRAN cho phep tua toi da o player (chan tua vuot that
+    # su, khong chi dua vao JS client).
+    max_watched_sec = models.IntegerField(default=0)
     completed_at = models.DateTimeField(null=True, blank=True)
     # Forward-compat Dot 3: hoan thanh offline co nguoi xac nhan (khong qua player). Dot 1 luon False.
     completed_offline = models.BooleanField(default=False)
@@ -167,6 +177,27 @@ class LessonProgress(models.Model):
 
     def __str__(self):
         return f'{self.enrollment_id} - {self.lesson_id}'
+
+
+class LessonWatchEvent(models.Model):
+    """Log 'moc tam dung/tiep tuc' khi HOC (Giai doan B) - KHAC ProctoringEvent cua module thi:
+    KHONG co truong anh (co tinh, dam bao cau truc "khong luu anh khi hoc" - xem
+    Prompt_ChongGianLan_Thi_Video.md muc 'Chung: snapshot chi dung khi THI")."""
+
+    class Type(models.TextChoices):
+        PAUSED_FACE_LOST = 'paused_face_lost', 'Tự tạm dừng (mất khuôn mặt)'
+        RESUMED = 'resumed', 'Tiếp tục phát'
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='lesson_watch_events')
+    lesson_progress = models.ForeignKey(LessonProgress, on_delete=models.CASCADE, related_name='watch_events')
+    type = models.CharField(max_length=20, choices=Type.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f'{self.lesson_progress_id} - {self.type} @ {self.created_at}'
 
 
 class ScormPackage(models.Model):

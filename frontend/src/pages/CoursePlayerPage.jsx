@@ -3,9 +3,14 @@ import { Link, useParams } from 'react-router-dom'
 import AppShell from '../components/AppShell'
 import ProgressBar from '../components/ProgressBar'
 import api from '../api/client'
+import { detectFaceCount, loadFaceApi } from '../utils/proctoring'
 
 const STATUS_ICON = { pending: '○', in_progress: '◐', done: '✓' }
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api'
+// Chong tua (Giai doan B): dung y prompt "an toan" hon nguong grace o server (8s) 1 chut, de
+// snap-back o UI xay ra som hon la bi server tu choi (server van la lop chan that su).
+const SEEK_CLIENT_GRACE_SEC = 5
+const FACE_CHECK_INTERVAL_MS = 4000
 
 function youtubeEmbedUrl(url) {
   const match = (url || '').match(/(?:v=|youtu\.be\/|embed\/)([\w-]{6,})/)
@@ -57,6 +62,19 @@ function ScormContent({ lesson }) {
 
 function LessonContent({ lesson, onPingVideo }) {
   const videoRef = useRef(null)
+  // Giai doan B (Prompt_ChongGianLan_Thi_Video.md) - chi ap dung khi bai la video_r2 VA
+  // anti_seek=True (dung 1 co cho ca chan tua lan tu tam dung webcam, khong them toggle rieng).
+  const antiSeek = lesson.anti_seek && lesson.type === 'video_r2'
+  const maxWatchedRef = useRef(lesson.progress?.max_watched_sec || 0)
+  const faceVideoRef = useRef(null)
+  const faceStreamRef = useRef(null)
+  const faceIntervalRef = useRef(null)
+  const noFaceSinceRef = useRef(null)
+  const pausedByFaceRef = useRef(false)
+  const [faceMonitorOn, setFaceMonitorOn] = useState(false)
+  const [faceWarning, setFaceWarning] = useState(false)
+  const [pausedByFace, setPausedByFace] = useState(false)
+  const [cameraError, setCameraError] = useState('')
 
   useEffect(() => {
     if (lesson.type !== 'video_r2' || !videoRef.current) return
@@ -83,10 +101,143 @@ function LessonContent({ lesson, onPingVideo }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lesson.id])
 
+  // Muc 1 (chong tua): "tran" cho phep tua la max_watched_sec, LAY TU SERVER (khong chi dua vao
+  // JS client - xem services.record_watch_progress) - tach RIENG voi effect timeupdate/ended o
+  // tren (khong dong toi luong watched_pct/last_position_sec cu).
+  useEffect(() => {
+    maxWatchedRef.current = lesson.progress?.max_watched_sec || 0
+    if (!antiSeek || !videoRef.current) return undefined
+    const video = videoRef.current
+    let lastSentAt = -999
+
+    function onTimeUpdateWatch() {
+      if (video.seeking || Math.abs(video.currentTime - lastSentAt) < 5) return
+      lastSentAt = video.currentTime
+      api.post('/courses/watch-progress/', { lesson: lesson.id, position_sec: Math.round(video.currentTime) })
+        .then(({ data }) => { maxWatchedRef.current = data.max_watched_sec })
+        .catch(() => {})
+    }
+    function onSeeking() {
+      if (video.currentTime > maxWatchedRef.current + SEEK_CLIENT_GRACE_SEC) {
+        video.currentTime = maxWatchedRef.current
+      }
+    }
+    video.addEventListener('timeupdate', onTimeUpdateWatch)
+    video.addEventListener('seeking', onSeeking)
+    return () => {
+      video.removeEventListener('timeupdate', onTimeUpdateWatch)
+      video.removeEventListener('seeking', onSeeking)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lesson.id, antiSeek])
+
+  function stopFaceMonitor() {
+    if (faceIntervalRef.current) { clearInterval(faceIntervalRef.current); faceIntervalRef.current = null }
+    if (faceStreamRef.current) { faceStreamRef.current.getTracks().forEach((t) => t.stop()); faceStreamRef.current = null }
+    noFaceSinceRef.current = null
+    pausedByFaceRef.current = false
+    setFaceMonitorOn(false)
+    setFaceWarning(false)
+    setPausedByFace(false)
+  }
+
+  // Doi bai = phai bam bat lai giam sat webcam (dong y ro rang cho TUNG phien, khong am tham
+  // giu camera bat xuyen bai).
+  useEffect(() => stopFaceMonitor, [lesson.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (faceMonitorOn && faceStreamRef.current && faceVideoRef.current) {
+      faceVideoRef.current.srcObject = faceStreamRef.current
+    }
+  }, [faceMonitorOn])
+
+  function logWatchEvent(type) {
+    api.post('/courses/lesson-watch-event/', { lesson: lesson.id, type }).catch(() => {})
+  }
+
+  // Muc 2 (auto-pause theo webcam khi hoc): xin quyen camera RO RANG qua nut bam (khong tu bat).
+  // Mat mat ~face_pause_warn_sec giay -> canh bao; ~face_pause_stop_sec giay -> tu tam dung; co
+  // mat lai -> tu phat tiep. KHONG chup/luu anh nao (khac man Thi) - chi ghi moc tam dung/tiep tuc.
+  async function startFaceMonitor() {
+    setCameraError('')
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+      faceStreamRef.current = stream
+      setFaceMonitorOn(true)
+    } catch {
+      setCameraError('Không truy cập được camera.')
+      return
+    }
+
+    loadFaceApi().then((faceapi) => {
+      faceIntervalRef.current = setInterval(async () => {
+        const video = videoRef.current
+        if (!faceVideoRef.current || !video) return
+        const count = await detectFaceCount(faceapi, faceVideoRef.current).catch(() => null)
+        if (count === null) return
+        const warnMs = (lesson.face_pause_warn_sec || 5) * 1000
+        const stopMs = (lesson.face_pause_stop_sec || 10) * 1000
+
+        if (count === 0) {
+          if (!noFaceSinceRef.current) noFaceSinceRef.current = Date.now()
+          const missingMs = Date.now() - noFaceSinceRef.current
+          if (missingMs >= stopMs && !pausedByFaceRef.current && !video.paused) {
+            video.pause()
+            pausedByFaceRef.current = true
+            setPausedByFace(true)
+            setFaceWarning(false)
+            logWatchEvent('paused_face_lost')
+          } else if (missingMs >= warnMs) {
+            setFaceWarning(true)
+          }
+        } else {
+          if (pausedByFaceRef.current) {
+            pausedByFaceRef.current = false
+            setPausedByFace(false)
+            logWatchEvent('resumed')
+            video.play().catch(() => {})
+          }
+          noFaceSinceRef.current = null
+          setFaceWarning(false)
+        }
+      }, FACE_CHECK_INTERVAL_MS)
+    }).catch((err) => {
+      // Thu vien nhan dien khong tai duoc (mang/CDN) - webcam preview van hien, chi mat phan
+      // tu tam dung theo mat. Khong chan viec hoc.
+      console.warn('Không tải được thư viện nhận diện khuôn mặt:', err)
+    })
+  }
+
   switch (lesson.type) {
     case 'video_r2':
       return (
-        <video ref={videoRef} src={lesson.content_url} controls style={{ width: '100%', maxHeight: '60vh', background: '#000' }} />
+        <div>
+          {antiSeek && (
+            <div style={{ marginBottom: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              {!faceMonitorOn ? (
+                <button className="btn-outline btn-sm" onClick={startFaceMonitor}>
+                  Bật giám sát tập trung (webcam)
+                </button>
+              ) : (
+                <>
+                  <video
+                    ref={faceVideoRef} autoPlay muted playsInline
+                    style={{ width: 72, height: 54, borderRadius: 6, objectFit: 'cover', border: '1px solid var(--card-border)' }}
+                  />
+                  <button className="btn-outline btn-sm" onClick={stopFaceMonitor}>Tắt giám sát</button>
+                </>
+              )}
+              {cameraError && <span className="muted-note" style={{ color: 'var(--danger)' }}>{cameraError}</span>}
+              {faceWarning && !pausedByFace && (
+                <span className="badge badge-warning">Không thấy bạn trước camera — video sẽ tạm dừng nếu tiếp tục mất mặt.</span>
+              )}
+              {pausedByFace && (
+                <span className="badge badge-danger">Đã tạm dừng vì không thấy bạn trước camera — quay lại để phát tiếp.</span>
+              )}
+            </div>
+          )}
+          <video ref={videoRef} src={lesson.content_url} controls style={{ width: '100%', maxHeight: '60vh', background: '#000' }} />
+        </div>
       )
     case 'video_youtube':
       return (

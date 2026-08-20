@@ -95,6 +95,8 @@ function LessonForm({ moduleId, lesson, onSaved, onCancel }) {
   const [completeRule, setCompleteRule] = useState(lesson?.complete_rule || 'mark')
   const [passWatchPct, setPassWatchPct] = useState(lesson?.pass_watch_pct ?? 80)
   const [antiSeek, setAntiSeek] = useState(lesson?.anti_seek || false)
+  const [facePauseWarnSec, setFacePauseWarnSec] = useState(lesson?.face_pause_warn_sec ?? 5)
+  const [facePauseStopSec, setFacePauseStopSec] = useState(lesson?.face_pause_stop_sec ?? 10)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -116,6 +118,8 @@ function LessonForm({ moduleId, lesson, onSaved, onCancel }) {
       complete_rule: type === 'scorm' ? 'mark' : completeRule,
       pass_watch_pct: Number(passWatchPct) || 80,
       anti_seek: antiSeek,
+      face_pause_warn_sec: Number(facePauseWarnSec) || 5,
+      face_pause_stop_sec: Number(facePauseStopSec) || 10,
     }
     try {
       if (lesson) {
@@ -166,13 +170,33 @@ function LessonForm({ moduleId, lesson, onSaved, onCancel }) {
             placeholder="% xem đủ"
           />
         )}
-        {type !== 'scorm' && (
+        {type === 'video_r2' && (
           <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
-            <input type="checkbox" checked={antiSeek} onChange={(e) => setAntiSeek(e.target.checked)} /> Chống tua
-            (đợt sau)
+            <input type="checkbox" checked={antiSeek} onChange={(e) => setAntiSeek(e.target.checked)} />
+            Chống tua + tự tạm dừng khi mất mặt (webcam)
           </label>
         )}
       </div>
+      {type === 'video_r2' && antiSeek && (
+        <div style={{ display: 'flex', gap: 12, marginBottom: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <label style={{ fontSize: 13 }}>
+            Cảnh báo sau (giây){' '}
+            <input
+              type="number" value={facePauseWarnSec}
+              onChange={(e) => setFacePauseWarnSec(e.target.value)}
+              style={{ ...s.input, width: 80 }}
+            />
+          </label>
+          <label style={{ fontSize: 13 }}>
+            Tự tạm dừng sau (giây){' '}
+            <input
+              type="number" value={facePauseStopSec}
+              onChange={(e) => setFacePauseStopSec(e.target.value)}
+              style={{ ...s.input, width: 80 }}
+            />
+          </label>
+        </div>
+      )}
       {type === 'scorm' ? (
         lesson ? (
           <ScormUploadWidget lesson={lesson} onUploaded={() => {}} />

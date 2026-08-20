@@ -12,11 +12,17 @@ from employees.models import Employee
 
 from integration.models import OfflineConfirmation
 
-from .models import Course, CourseModule, Enrollment, Lesson, LessonProgress, ScormPackage
+from .models import Course, CourseModule, Enrollment, Lesson, LessonProgress, LessonWatchEvent, ScormPackage
 
 
 class ValidationError(Exception):
     pass
+
+
+# Giai doan B: buoc nhay toi da (giay) tu max_watched_sec ma server con CHAP NHAN la "xem lien
+# tuc" (khong phai tua) - bao gom ca do tre bao cao dinh ky cua player (xem CoursePlayerPage,
+# bao ~5s/lan) + sai so nho. Vuot qua muc nay -> coi la co gang tua, KHONG nang max_watched_sec.
+WATCH_PROGRESS_GRACE_SEC = 8
 
 
 def assign_course(user, course, payload):
@@ -114,6 +120,8 @@ def my_course_detail(employee, course_id):
                 'id': lesson.id, 'title': lesson.title, 'type': lesson.type,
                 'content_url': lesson.content_url, 'content_html': lesson.content_html,
                 'duration_sec': lesson.duration_sec, 'anti_seek': lesson.anti_seek,
+                'face_pause_warn_sec': lesson.face_pause_warn_sec,
+                'face_pause_stop_sec': lesson.face_pause_stop_sec,
                 'complete_rule': lesson.complete_rule, 'pass_watch_pct': lesson.pass_watch_pct,
                 'order': lesson.order,
                 # Dot 4: bai SCORM - FE dung id nay de dung URL trang phat (ScormPlayerView).
@@ -124,6 +132,7 @@ def my_course_detail(employee, course_id):
                     'status': progress.status if progress else LessonProgress.Status.PENDING,
                     'watched_pct': progress.watched_pct if progress else 0,
                     'last_position_sec': progress.last_position_sec if progress else 0,
+                    'max_watched_sec': progress.max_watched_sec if progress else 0,
                     'completed_at': progress.completed_at if progress else None,
                     'completed_offline': progress.completed_offline if progress else False,
                     'offline_confirmed_by_name': (
@@ -142,12 +151,11 @@ def my_course_detail(employee, course_id):
     }
 
 
-def save_lesson_progress(employee, payload):
-    """Cap nhat tien do 1 bai: {lesson, watched_pct?, last_position_sec?, mark_done?}. Tu set
-    status in_progress/done + completed_at; tu nang Enrollment.status (assigned->in_progress
-    khi co bai dau; ->completed khi tat ca bai done). KHONG dong den ho so nhan su (dong bo
-    CourseResult la Dot 3)."""
-    lesson_id = payload.get('lesson')
+def _get_or_create_progress(employee, lesson_id):
+    """Tra ve (progress, lesson, enrollment, progress_created). Dung chung boi
+    save_lesson_progress va cac ham Giai doan B (record_watch_progress/
+    record_lesson_watch_event) - CUNG 1 cach xac dinh 'nhan su nay dang hoc bai nay hop le hay
+    khong'."""
     if not lesson_id:
         raise ValidationError('Thiếu lesson')
     lesson = (
@@ -164,6 +172,15 @@ def save_lesson_progress(employee, payload):
     progress, progress_created = LessonProgress.objects.get_or_create(
         tenant=employee.tenant, enrollment=enrollment, lesson=lesson,
     )
+    return progress, lesson, enrollment, progress_created
+
+
+def save_lesson_progress(employee, payload):
+    """Cap nhat tien do 1 bai: {lesson, watched_pct?, last_position_sec?, mark_done?}. Tu set
+    status in_progress/done + completed_at; tu nang Enrollment.status (assigned->in_progress
+    khi co bai dau; ->completed khi tat ca bai done). KHONG dong den ho so nhan su (dong bo
+    CourseResult la Dot 3)."""
+    progress, lesson, enrollment, progress_created = _get_or_create_progress(employee, payload.get('lesson'))
     if progress_created:
         _log_xapi_safe(employee, 'viewed', 'lesson', lesson.id)
 
@@ -192,6 +209,37 @@ def save_lesson_progress(employee, payload):
 
     _advance_enrollment_status(enrollment)
     return progress
+
+
+# ==================================================================== Giai doan B: chong tua
+
+def record_watch_progress(employee, payload):
+    """{lesson, position_sec}. Cap nhat LessonProgress.max_watched_sec THEO KIEU CHI TANG + CO
+    GIOI HAN buoc nhay (WATCH_PROGRESS_GRACE_SEC) - day la TRAN THAT SU cho phep tua toi da o
+    player (khong chi dua vao JS client, vi client co the bi can thiep goi thang API voi
+    position_sec lon). Goi dinh ky boi player trong luc dang PHAT (timeupdate), KHONG goi khi
+    nguoi dung keo thanh scrub (player tu chan o phia truoc khi kip goi API - xem
+    CoursePlayerPage). Tra ve {'max_watched_sec', 'accepted'}."""
+    progress, _lesson, _enrollment, _created = _get_or_create_progress(employee, payload.get('lesson'))
+    position_sec = max(0, int(payload.get('position_sec') or 0))
+
+    accepted = position_sec <= progress.max_watched_sec + WATCH_PROGRESS_GRACE_SEC
+    if accepted and position_sec > progress.max_watched_sec:
+        progress.max_watched_sec = position_sec
+        progress.save(update_fields=['max_watched_sec'])
+
+    return {'max_watched_sec': progress.max_watched_sec, 'accepted': accepted}
+
+
+def record_lesson_watch_event(employee, payload):
+    """{lesson, type[paused_face_lost|resumed]} - ghi 'moc tam dung/tiep tuc' khi phat hien mat
+    khuon mat luc HOC (khac ProctoringEvent cua module thi - KHONG BAO GIO kem anh, xem
+    LessonWatchEvent docstring)."""
+    event_type = payload.get('type')
+    if event_type not in LessonWatchEvent.Type.values:
+        raise ValidationError(f"Loại sự kiện không hợp lệ: '{event_type}'.")
+    progress, _lesson, _enrollment, _created = _get_or_create_progress(employee, payload.get('lesson'))
+    return LessonWatchEvent.objects.create(tenant=employee.tenant, lesson_progress=progress, type=event_type)
 
 
 def _advance_enrollment_status(enrollment):

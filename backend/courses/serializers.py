@@ -19,7 +19,8 @@ class LessonSerializer(serializers.ModelSerializer):
         model = Lesson
         fields = [
             'id', 'module', 'title', 'type', 'content_url', 'content_html', 'duration_sec',
-            'anti_seek', 'complete_rule', 'pass_watch_pct', 'order', 'scorm_package',
+            'anti_seek', 'face_pause_warn_sec', 'face_pause_stop_sec', 'complete_rule',
+            'pass_watch_pct', 'order', 'scorm_package',
         ]
 
     def get_scorm_package(self, obj):
@@ -103,6 +104,6 @@ class LessonProgressSerializer(serializers.ModelSerializer):
         model = LessonProgress
         fields = [
             'id', 'enrollment', 'lesson', 'status', 'watched_pct', 'last_position_sec',
-            'completed_at', 'completed_offline',
+            'max_watched_sec', 'completed_at', 'completed_offline',
         ]
         read_only_fields = fields

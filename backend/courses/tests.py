@@ -13,7 +13,16 @@ from cls_sync.models import CourseResult
 from employees.models import Employee
 from integration.models import OfflineConfirmation, XapiStatement
 
-from .models import Course, CourseModule, Enrollment, Lesson, LessonProgress, ScormPackage, ScormTracking
+from .models import (
+    Course,
+    CourseModule,
+    Enrollment,
+    Lesson,
+    LessonProgress,
+    LessonWatchEvent,
+    ScormPackage,
+    ScormTracking,
+)
 from .scorm import ScormImportError, parse_manifest
 
 
@@ -810,3 +819,149 @@ class ScormSameOriginApiTests(TestCase):
         request = factory.get(f'/api/courses/scorm/{self.package.id}/content/../secret.txt')
         with self.assertRaises(Http404):
             scorm_content(request, self.package.id, '../secret.txt')
+
+
+# ==================================================================== Giai doan B: chong tua video
+
+
+class AntiSeekWatchProgressApiTests(TestCase):
+    """Muc 1 (chong tua): moc da xem toi da (max_watched_sec) chi tang, server tu choi buoc
+    nhay lon (co gang tua vuot qua API truc tiep, khong chi dua vao JS client)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.course = Course.objects.create(tenant=self.tenant, title='Khóa video', status=Course.Status.PUBLISHED)
+        self.module = CourseModule.objects.create(tenant=self.tenant, course=self.course, title='Chương 1', order=0)
+        self.lesson = Lesson.objects.create(
+            tenant=self.tenant, module=self.module, title='Video R2', type=Lesson.Type.VIDEO_R2,
+            content_url='https://pub-x.r2.dev/video.mp4', anti_seek=True, order=0,
+        )
+        self.learner_user = User.objects.create_user(
+            username='nv1', password='x', tenant=self.tenant, role=User.Role.EMPLOYEE,
+        )
+        self.employee = Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1', user=self.learner_user)
+        Enrollment.objects.create(tenant=self.tenant, course=self.course, employee=self.employee)
+        self.client = APIClient()
+        self.client.force_authenticate(self.learner_user)
+
+    def _post(self, position_sec):
+        return self.client.post(reverse('course-watch-progress'), {'lesson': self.lesson.id, 'position_sec': position_sec}, format='json')
+
+    def _set_ceiling(self, seconds):
+        """Dat truc tiep max_watched_sec qua ORM (bo qua kiem tra buoc nhay) - dung de dung 1
+        moc xuat phat CO CHU DICH cho tung test, thay vi phai "leo" tung buoc nho tu 0 (grace
+        WATCH_PROGRESS_GRACE_SEC=8 nghia la ngay tu dau chi chap nhan buoc nhay <= 8s/lan)."""
+        from .services import _get_or_create_progress
+
+        progress, _lesson, _enrollment, _created = _get_or_create_progress(self.employee, self.lesson.id)
+        progress.max_watched_sec = seconds
+        progress.save(update_fields=['max_watched_sec'])
+        return progress
+
+    def test_incremental_progress_is_accepted_and_raises_ceiling(self):
+        resp1 = self._post(5)  # tu 0, buoc nhay 5s <= grace 8s -> chap nhan
+        self.assertEqual(resp1.status_code, 200)
+        self.assertTrue(resp1.data['accepted'])
+        self.assertEqual(resp1.data['max_watched_sec'], 5)
+
+        resp2 = self._post(12)  # tu 5, buoc nhay 7s <= grace 8s -> chap nhan
+        self.assertTrue(resp2.data['accepted'])
+        self.assertEqual(resp2.data['max_watched_sec'], 12)
+
+        progress = LessonProgress.objects.get(enrollment__employee=self.employee, lesson=self.lesson)
+        self.assertEqual(progress.max_watched_sec, 12)
+
+    def test_large_forward_jump_rejected_ceiling_unchanged(self):
+        self._set_ceiling(10)
+        resp = self._post(500)  # co gang "tua" thang toi giay 500
+        self.assertFalse(resp.data['accepted'])
+        self.assertEqual(resp.data['max_watched_sec'], 10)  # tran KHONG doi
+
+        progress = LessonProgress.objects.get(enrollment__employee=self.employee, lesson=self.lesson)
+        self.assertEqual(progress.max_watched_sec, 10)
+
+    def test_rewatching_backward_does_not_lower_ceiling(self):
+        self._set_ceiling(50)
+        resp = self._post(5)  # tua LUI (xem lai tu dau) - hop le, khong phai gian lan
+        self.assertTrue(resp.data['accepted'])
+        self.assertEqual(resp.data['max_watched_sec'], 50)  # tran giu nguyen, khong bi ha xuong
+
+    def test_position_within_grace_of_ceiling_is_accepted(self):
+        self._set_ceiling(10)
+        resp = self._post(17)  # +7s, trong WATCH_PROGRESS_GRACE_SEC=8 - buoc nhay hop le tu bao cao dinh ky
+        self.assertTrue(resp.data['accepted'])
+        self.assertEqual(resp.data['max_watched_sec'], 17)
+
+    def test_requires_learner_account(self):
+        admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.client.force_authenticate(admin)
+        resp = self._post(5)
+        self.assertEqual(resp.status_code, 403)
+
+    def test_my_course_detail_exposes_ceiling_and_thresholds(self):
+        self.lesson.face_pause_warn_sec = 6
+        self.lesson.face_pause_stop_sec = 12
+        self.lesson.save()
+        self._set_ceiling(20)
+
+        resp = self.client.get(reverse('course-my-detail', args=[self.course.id]))
+        lesson_data = resp.data['modules'][0]['lessons'][0]
+        self.assertEqual(lesson_data['progress']['max_watched_sec'], 20)
+        self.assertEqual(lesson_data['face_pause_warn_sec'], 6)
+        self.assertEqual(lesson_data['face_pause_stop_sec'], 12)
+
+
+class LessonWatchEventApiTests(TestCase):
+    """Muc 2 (auto-pause theo webcam khi hoc): ghi moc tam dung/tiep tuc - KHONG BAO GIO kem
+    anh (khac ProctoringEvent cua module thi)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.course = Course.objects.create(tenant=self.tenant, title='Khóa video', status=Course.Status.PUBLISHED)
+        self.module = CourseModule.objects.create(tenant=self.tenant, course=self.course, title='Chương 1', order=0)
+        self.lesson = Lesson.objects.create(
+            tenant=self.tenant, module=self.module, title='Video R2', type=Lesson.Type.VIDEO_R2,
+            content_url='https://pub-x.r2.dev/video.mp4', anti_seek=True, order=0,
+        )
+        self.learner_user = User.objects.create_user(
+            username='nv1', password='x', tenant=self.tenant, role=User.Role.EMPLOYEE,
+        )
+        self.employee = Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1', user=self.learner_user)
+        Enrollment.objects.create(tenant=self.tenant, course=self.course, employee=self.employee)
+        self.client = APIClient()
+        self.client.force_authenticate(self.learner_user)
+
+    def test_logs_paused_then_resumed_event(self):
+        resp1 = self.client.post(
+            reverse('course-lesson-watch-event'), {'lesson': self.lesson.id, 'type': 'paused_face_lost'}, format='json',
+        )
+        self.assertEqual(resp1.status_code, 200)
+        resp2 = self.client.post(
+            reverse('course-lesson-watch-event'), {'lesson': self.lesson.id, 'type': 'resumed'}, format='json',
+        )
+        self.assertEqual(resp2.status_code, 200)
+
+        progress = LessonProgress.objects.get(enrollment__employee=self.employee, lesson=self.lesson)
+        events = list(progress.watch_events.order_by('created_at'))
+        self.assertEqual([e.type for e in events], ['paused_face_lost', 'resumed'])
+
+    def test_event_never_stores_an_image(self):
+        # Dam bao cau truc: model LessonWatchEvent KHONG CO truong anh nao ca (khac
+        # ProctoringEvent) - "khong luu anh khi hoc" la dam bao cau truc, khong chi la quy uoc.
+        field_names = {f.name for f in LessonWatchEvent._meta.get_fields()}
+        self.assertNotIn('image_url', field_names)
+        self.assertFalse(any('image' in name for name in field_names))
+
+    def test_invalid_event_type_rejected(self):
+        resp = self.client.post(
+            reverse('course-lesson-watch-event'), {'lesson': self.lesson.id, 'type': 'snapshot'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_requires_learner_account(self):
+        admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.client.force_authenticate(admin)
+        resp = self.client.post(
+            reverse('course-lesson-watch-event'), {'lesson': self.lesson.id, 'type': 'resumed'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 403)

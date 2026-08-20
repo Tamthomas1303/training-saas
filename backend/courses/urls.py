@@ -7,6 +7,7 @@ from .views import (
     CourseViewSet,
     EnrollmentViewSet,
     LessonViewSet,
+    LessonWatchEventView,
     MyCourseDetailView,
     MyCoursesView,
     OfflineConfirmView,
@@ -18,6 +19,7 @@ from .views import (
     ScormUploadView,
     scorm_content,
     scorm_player,
+    WatchProgressView,
 )
 
 router = DefaultRouter()
@@ -30,6 +32,8 @@ urlpatterns = [
     path('my/', MyCoursesView.as_view(), name='course-my'),
     path('my/<int:course_id>/', MyCourseDetailView.as_view(), name='course-my-detail'),
     path('progress/', ProgressSaveView.as_view(), name='course-progress'),
+    path('watch-progress/', WatchProgressView.as_view(), name='course-watch-progress'),
+    path('lesson-watch-event/', LessonWatchEventView.as_view(), name='course-lesson-watch-event'),
     path('reorder/', ReorderView.as_view(), name='course-reorder'),
     path('offline-confirm/', OfflineConfirmView.as_view(), name='course-offline-confirm'),
     path('scorm/upload/', ScormUploadView.as_view(), name='scorm-upload'),
