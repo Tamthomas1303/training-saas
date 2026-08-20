@@ -12,7 +12,16 @@ from accounts.pagination import DefaultPagination
 from employees.permissions import ROLES_CAN_EVALUATE
 
 from .competency_assign import apply_competency_assignments, export_workbook, parse_import_workbook
-from .models import Assessment, AssessmentAssignment, AssessmentQuestion, Attempt, ExamSession, Question, QuestionBank
+from .models import (
+    Assessment,
+    AssessmentAssignment,
+    AssessmentQuestion,
+    Attempt,
+    ExamSession,
+    ProctoringEvent,
+    Question,
+    QuestionBank,
+)
 from .serializers import (
     AssessmentAssignmentSerializer,
     AssessmentDetailSerializer,
@@ -32,8 +41,11 @@ from .services import (
     exam_session_tracking,
     grade_attempt,
     my_assessments,
+    proctoring_timeline,
+    record_proctoring_event,
     reorder_assessment_questions,
     save_answers,
+    set_attempt_flag,
     start_attempt,
     submit_attempt,
 )
@@ -372,7 +384,7 @@ class StartAttemptView(APIView):
             return Response({'detail': 'Tài khoản này chưa liên kết với hồ sơ nhân sự.'}, status=403)
         assessment = get_object_or_404(Assessment, pk=assessment_id, tenant=employee.tenant)
         try:
-            attempt = start_attempt(employee, assessment)
+            attempt = start_attempt(employee, assessment, password=request.data.get('password'))
         except ValidationError as exc:
             return Response({'detail': str(exc)}, status=400)
         return Response(attempt_detail_payload(attempt))
@@ -427,6 +439,56 @@ class SubmitAttemptView(APIView):
         except ValidationError as exc:
             return Response({'detail': str(exc)}, status=400)
         return Response(attempt_result_payload(attempt))
+
+
+class ProctoringEventView(APIView):
+    """POST /api/exams/attempts/<id>/proctoring-event/ — ExamTakingPage goi khi phat hien
+    su kien proctoring (no_face/multi_face/tab_leave/blur/snapshot/fullscreen_exit). Body:
+    {type, detail?, image?} (image la data URL, chi dung khi type='snapshot'). Chi chinh chu
+    attempt (giong AnswerSaveView). Neu roi tab vuot nguong -> tu dong nop, tra ve
+    auto_submitted=True kem 'result' de FE chuyen thang sang man ket qua."""
+
+    def post(self, request, pk):
+        employee = _require_learner(request)
+        if not employee:
+            return Response({'detail': 'Tài khoản này chưa liên kết với hồ sơ nhân sự.'}, status=403)
+        attempt = get_object_or_404(Attempt, pk=pk, tenant=employee.tenant, employee=employee)
+
+        event_type = request.data.get('type')
+        if event_type not in ProctoringEvent.Type.values:
+            return Response({'detail': f"Loại sự kiện không hợp lệ: '{event_type}'."}, status=400)
+        try:
+            event, auto_submitted = record_proctoring_event(
+                attempt, event_type, detail=request.data.get('detail', ''),
+                image_data_url=request.data.get('image'),
+            )
+        except ValidationError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        payload = {'ok': True, 'event_id': event.id, 'auto_submitted': auto_submitted}
+        if auto_submitted:
+            payload['result'] = attempt_result_payload(attempt)
+        return Response(payload)
+
+
+class AttemptProctoringView(APIView):
+    """GET /api/exams/attempts/<id>/proctoring/ — man giam khao xem bang chung (A4): dong thoi
+    gian su kien + anh snapshot + chi so nghi van. Chi ROLES_CAN_EVALUATE."""
+
+    def get(self, request, pk):
+        _require_evaluator(request)
+        attempt = get_object_or_404(Attempt, pk=pk, tenant=request.user.tenant)
+        return Response(proctoring_timeline(attempt))
+
+
+class AttemptFlagView(APIView):
+    """POST /api/exams/attempts/<id>/flag/ — body {flagged: true|false}. Giam khao danh dau
+    nghi van sau khi xem bang chung. Chi ROLES_CAN_EVALUATE."""
+
+    def post(self, request, pk):
+        _require_evaluator(request)
+        attempt = get_object_or_404(Attempt, pk=pk, tenant=request.user.tenant)
+        attempt = set_attempt_flag(attempt, request.data.get('flagged'))
+        return Response({'id': attempt.id, 'flagged_suspicious': attempt.flagged_suspicious})
 
 
 class GradingListView(APIView):

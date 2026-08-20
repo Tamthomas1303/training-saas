@@ -23,6 +23,68 @@ const REVIEW_MODES = [
   { value: 'full_detail', label: 'Chi tiết điểm từng câu' },
 ]
 
+const PROCTORING_EVENT_LABELS = {
+  no_face: 'Không thấy khuôn mặt', multi_face: 'Nhiều hơn 1 khuôn mặt', tab_leave: 'Rời tab',
+  blur: 'Mất focus cửa sổ', snapshot: 'Ảnh chụp định kỳ', fullscreen_exit: 'Thoát toàn màn hình',
+}
+
+function ProctoringEvidenceModal({ attemptId, open, onClose, onFlagged }) {
+  const [timeline, setTimeline] = useState(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!open || !attemptId) return
+    setTimeline(null)
+    setError('')
+    api.get(`/exams/attempts/${attemptId}/proctoring/`)
+      .then(({ data }) => setTimeline(data))
+      .catch((err) => setError(err.response?.data?.detail || 'Không tải được bằng chứng.'))
+  }, [open, attemptId])
+
+  async function toggleFlag() {
+    const { data } = await api.post(`/exams/attempts/${attemptId}/flag/`, { flagged: !timeline.flagged_suspicious })
+    setTimeline((t) => ({ ...t, flagged_suspicious: data.flagged_suspicious }))
+    onFlagged()
+  }
+
+  return (
+    <Modal open={open} title="Bằng chứng giám sát thi" onClose={onClose}>
+      {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
+      {!timeline && !error && <p className="muted-note">Đang tải...</p>}
+      {timeline && (
+        <>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+            <span className="badge badge-warning">Chỉ số nghi vấn: {timeline.suspicion_score}</span>
+            <span className="muted-note" style={{ fontSize: 12 }}>
+              Rời tab {timeline.counts.tab_leave} · Không thấy mặt {timeline.counts.no_face} · Nhiều mặt {timeline.counts.multi_face}
+            </span>
+            <button className={timeline.flagged_suspicious ? '' : 'btn-outline'} onClick={toggleFlag} style={{ marginLeft: 'auto' }}>
+              {timeline.flagged_suspicious ? '✓ Đã đánh dấu nghi vấn' : 'Đánh dấu nghi vấn'}
+            </button>
+          </div>
+          <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+            {timeline.events.map((e) => (
+              <div key={e.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--card-border)' }}>
+                <span className="muted-note" style={{ fontSize: 12, minWidth: 130 }}>
+                  {new Date(e.created_at).toLocaleString('vi-VN')}
+                </span>
+                <span className="badge badge-neutral">{PROCTORING_EVENT_LABELS[e.type] || e.type}</span>
+                {e.detail && <span className="muted-note" style={{ fontSize: 12 }}>{e.detail}</span>}
+                {e.image_url && (
+                  <a href={e.image_url} target="_blank" rel="noreferrer">
+                    <img src={e.image_url} alt="Ảnh chụp" style={{ height: 48, borderRadius: 4 }} />
+                  </a>
+                )}
+              </div>
+            ))}
+            {timeline.events.length === 0 && <p className="muted-note">Chưa có sự kiện nào được ghi.</p>}
+          </div>
+        </>
+      )}
+    </Modal>
+  )
+}
+
 function useDragReorder(items, onDrop) {
   const dragIndex = useRef(null)
   return {
@@ -241,6 +303,7 @@ export default function ExamEditPage() {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [tab, setTab] = useState('settings')
   const [randomMode, setRandomMode] = useState(false)
+  const [evidenceAttemptId, setEvidenceAttemptId] = useState(null)
   const [bankId, setBankId] = useState('')
   const [count, setCount] = useState(10)
   const [difficulty, setDifficulty] = useState('')
@@ -373,13 +436,55 @@ export default function ExamEditPage() {
                 onChange={(e) => updateField('show_grade_label', e.target.checked)}
               /> Hiển thị xếp loại
             </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }} title="Chỉ để cờ, chưa cài webcam (P2)">
-              <input
-                type="checkbox" checked={assessment.proctoring_enabled}
-                onChange={(e) => updateField('proctoring_enabled', e.target.checked)}
-              /> Nhận diện học viên (proctoring — P2, chưa cài webcam)
-            </label>
           </div>
+
+          <hr style={{ margin: '16px 0', border: 'none', borderTop: '1px solid var(--card-border)' }} />
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+            <input
+              type="checkbox" checked={assessment.proctoring_enabled}
+              onChange={(e) => updateField('proctoring_enabled', e.target.checked)}
+            /> Giám sát thi (webcam + chặn rời tab/copy-paste)
+          </label>
+          {assessment.proctoring_enabled && (
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+              <label style={{ fontSize: 13 }}>
+                Chụp ảnh mỗi (giây){' '}
+                <input
+                  type="number" defaultValue={assessment.proctoring_snapshot_interval_sec}
+                  onBlur={(e) => updateField('proctoring_snapshot_interval_sec', Number(e.target.value) || 45)}
+                  style={{ ...s.input, width: 90 }}
+                />
+              </label>
+              <label style={{ fontSize: 13 }}>
+                Tự nộp sau (lần rời tab){' '}
+                <input
+                  type="number" defaultValue={assessment.tab_leave_auto_submit_limit || ''}
+                  onBlur={(e) => updateField('tab_leave_auto_submit_limit', e.target.value ? Number(e.target.value) : null)}
+                  style={{ ...s.input, width: 90 }} placeholder="Không tự nộp"
+                />
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13 }}>
+                <input
+                  type="checkbox" checked={assessment.require_fullscreen}
+                  onChange={(e) => updateField('require_fullscreen', e.target.checked)}
+                /> Yêu cầu toàn màn hình
+              </label>
+            </div>
+          )}
+          <label style={{ display: 'block', fontSize: 13 }}>
+            Mật khẩu vào đề {assessment.has_password && <span className="badge badge-neutral">Đã đặt</span>}
+          </label>
+          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            <input
+              type="text" placeholder="Để trống = không yêu cầu mật khẩu"
+              onBlur={(e) => { if (e.target.value) { updateField('access_password', e.target.value); e.target.value = '' } }}
+              style={{ ...s.input, flex: 1 }}
+            />
+            {assessment.has_password && (
+              <button className="btn-outline btn-sm" onClick={() => updateField('access_password', '')}>Xoá mật khẩu</button>
+            )}
+          </div>
+          <p className="muted-note" style={{ marginTop: 4 }}>Nhập mật khẩu mới rồi rời khỏi ô để lưu.</p>
         </div>
       )}
 
@@ -539,6 +644,7 @@ export default function ExamEditPage() {
         <thead>
           <tr>
             <th>Nhân sự</th><th>Lần</th><th>Điểm</th><th>%</th><th>Đạt</th><th>Trạng thái</th><th>Nộp lúc</th>
+            {assessment.proctoring_enabled && <th>Giám sát</th>}
           </tr>
         </thead>
         <tbody>
@@ -551,9 +657,19 @@ export default function ExamEditPage() {
               <td>{r.passed === null ? '-' : r.passed ? <Badge variant="success">Đạt</Badge> : <Badge variant="danger">Chưa đạt</Badge>}</td>
               <td>{r.status_display}</td>
               <td>{r.submitted_at ? new Date(r.submitted_at).toLocaleString('vi-VN') : '-'}</td>
+              {assessment.proctoring_enabled && (
+                <td>
+                  {r.flagged_suspicious && <Badge variant="danger">Nghi vấn</Badge>}{' '}
+                  <button className="btn-outline btn-sm" onClick={() => setEvidenceAttemptId(r.id)}>
+                    Bằng chứng ({r.proctoring_event_count})
+                  </button>
+                </td>
+              )}
             </tr>
           ))}
-          {results.length === 0 && <tr><td colSpan={7} className="muted-note">Chưa có ai làm bài.</td></tr>}
+          {results.length === 0 && (
+            <tr><td colSpan={assessment.proctoring_enabled ? 8 : 7} className="muted-note">Chưa có ai làm bài.</td></tr>
+          )}
         </tbody>
       </Table>
 
@@ -562,6 +678,11 @@ export default function ExamEditPage() {
         open={pickerOpen} onClose={() => setPickerOpen(false)}
         existingIds={aQuestions.map((aq) => aq.question)}
         onAdded={async (qid) => { await addQuestion(qid); load() }}
+      />
+      <ProctoringEvidenceModal
+        attemptId={evidenceAttemptId} open={!!evidenceAttemptId}
+        onClose={() => setEvidenceAttemptId(null)}
+        onFlagged={load}
       />
     </AppShell>
   )

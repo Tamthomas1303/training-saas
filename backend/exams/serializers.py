@@ -95,6 +95,7 @@ class AssessmentSerializer(serializers.ModelSerializer):
     competency_name = serializers.CharField(source='competency.name', read_only=True, default='')
     questions_count = serializers.SerializerMethodField()
     assigned_count = serializers.SerializerMethodField()
+    has_password = serializers.SerializerMethodField()
 
     class Meta:
         model = Assessment
@@ -102,18 +103,25 @@ class AssessmentSerializer(serializers.ModelSerializer):
             'id', 'title', 'description', 'time_limit_min', 'pass_mark', 'max_attempts',
             'shuffle_questions', 'shuffle_options', 'show_result_mode', 'random_pool_config',
             'questions_per_page', 'show_countdown', 'show_score', 'review_mode',
-            'show_grade_label', 'proctoring_enabled',
+            'show_grade_label', 'proctoring_enabled', 'proctoring_snapshot_interval_sec',
+            'tab_leave_auto_submit_limit', 'require_fullscreen', 'access_password', 'has_password',
             'competency_tag', 'competency', 'competency_name', 'sync_exam_type', 'status',
             'status_display', 'created_by', 'created_by_name', 'questions_count',
             'assigned_count', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_by', 'created_at', 'updated_at']
+        # access_password: chi ghi (dat/doi mat khau), KHONG BAO GIO tra ve qua GET - de thi doc
+        # duoc boi "moi role dang nhap" (xem AssessmentViewSet), ho tro loi mat khau plaintext.
+        extra_kwargs = {'access_password': {'write_only': True}}
 
     def get_questions_count(self, obj):
         return obj.assessment_questions.count()
 
     def get_assigned_count(self, obj):
         return obj.assignments.count()
+
+    def get_has_password(self, obj):
+        return bool(obj.access_password)
 
 
 class AssessmentDetailSerializer(AssessmentSerializer):
@@ -175,12 +183,16 @@ class AttemptSerializer(serializers.ModelSerializer):
     employee_code = serializers.CharField(source='employee.code', read_only=True, default='')
     employee_name = serializers.CharField(source='employee.name', read_only=True, default='')
     status_display = serializers.CharField(source='get_status_display', read_only=True)
+    proctoring_event_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Attempt
         fields = [
             'id', 'assessment', 'assessment_title', 'employee', 'employee_code', 'employee_name',
             'attempt_no', 'started_at', 'submitted_at', 'score', 'max_score', 'percent', 'passed',
-            'status', 'status_display',
+            'status', 'status_display', 'flagged_suspicious', 'proctoring_event_count',
         ]
         read_only_fields = fields
+
+    def get_proctoring_event_count(self, obj):
+        return obj.proctoring_events.count()

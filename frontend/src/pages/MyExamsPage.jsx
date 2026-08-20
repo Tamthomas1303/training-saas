@@ -18,10 +18,15 @@ export default function MyExamsPage() {
 
   useEffect(load, [])
 
-  async function start(assessmentId) {
+  async function start(assessmentId, hasPassword) {
+    let password
+    if (hasPassword) {
+      password = window.prompt('Đề thi này yêu cầu mật khẩu vào đề:')
+      if (password === null) return // huy
+    }
     setStartingId(assessmentId)
     try {
-      const { data } = await api.post(`/exams/my/${assessmentId}/start/`)
+      const { data } = await api.post(`/exams/my/${assessmentId}/start/`, password ? { password } : {})
       navigate(`/my-exams/attempt/${data.attempt_id}`)
     } catch (err) {
       setError(err.response?.data?.detail || 'Không bắt đầu được bài thi.')
@@ -65,8 +70,11 @@ export default function MyExamsPage() {
                   Tiếp tục làm bài
                 </button>
               ) : (
-                <button onClick={() => start(a.assessment_id)} disabled={exhausted || startingId === a.assessment_id}>
-                  {exhausted ? 'Đã hết lượt' : 'Bắt đầu làm bài'}
+                <button
+                  onClick={() => start(a.assessment_id, a.has_password)}
+                  disabled={exhausted || startingId === a.assessment_id}
+                >
+                  {exhausted ? 'Đã hết lượt' : a.has_password ? '🔒 Bắt đầu làm bài' : 'Bắt đầu làm bài'}
                 </button>
               )}
             </div>

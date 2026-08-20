@@ -1,4 +1,6 @@
+from datetime import timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.test import TestCase
 from django.urls import reverse
@@ -19,6 +21,7 @@ from .models import (
     AssessmentQuestion,
     Attempt,
     ExamSession,
+    ProctoringEvent,
     Question,
     QuestionBank,
     QuestionOption,
@@ -1321,3 +1324,317 @@ class CompetencyExportImportTests(TestCase):
         self.client.force_authenticate(trainer)
         resp = self.client.post(reverse('exam-question-import-competency'), {}, format='multipart')
         self.assertEqual(resp.status_code, 403)
+
+
+# ==================================================================== Giai doan A: Proctoring
+
+
+class ProctoringBaseTestCase(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.bank = QuestionBank.objects.create(tenant=self.tenant, name='Bank demo')
+        self.question = Question.objects.create(
+            tenant=self.tenant, bank=self.bank, type=Question.Type.SINGLE, stem_html='Q1',
+        )
+        self.opt_correct = QuestionOption.objects.create(
+            tenant=self.tenant, question=self.question, content_html='Đúng', is_correct=True,
+        )
+        QuestionOption.objects.create(tenant=self.tenant, question=self.question, content_html='Sai')
+        self.assessment = Assessment.objects.create(
+            tenant=self.tenant, title='Đề có giám sát', status=Assessment.Status.PUBLISHED, created_by=self.admin,
+        )
+        AssessmentQuestion.objects.create(tenant=self.tenant, assessment=self.assessment, question=self.question, order=0)
+        self.learner_user = User.objects.create_user(
+            username='nv1', password='x', tenant=self.tenant, role=User.Role.EMPLOYEE,
+        )
+        self.employee = Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1', user=self.learner_user)
+        AssessmentAssignment.objects.create(tenant=self.tenant, assessment=self.assessment, employee=self.employee)
+        self.client = APIClient()
+
+    def _start(self, password=None):
+        self.client.force_authenticate(self.learner_user)
+        payload = {'password': password} if password is not None else {}
+        return self.client.post(reverse('exam-start', args=[self.assessment.id]), payload, format='json')
+
+
+class A1AccessPasswordTests(ProctoringBaseTestCase):
+    """A1: mat khau vao de (tuy chon)."""
+
+    def test_no_password_set_starts_normally(self):
+        resp = self._start()
+        self.assertEqual(resp.status_code, 200)
+
+    def test_wrong_password_rejected(self):
+        self.assessment.access_password = 'bimat123'
+        self.assessment.save()
+        resp = self._start(password='sai')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('mật khẩu', resp.data['detail'])
+        self.assertFalse(Attempt.objects.exists())
+
+    def test_missing_password_rejected_when_required(self):
+        self.assessment.access_password = 'bimat123'
+        self.assessment.save()
+        resp = self._start()
+        self.assertEqual(resp.status_code, 400)
+
+    def test_correct_password_starts(self):
+        self.assessment.access_password = 'bimat123'
+        self.assessment.save()
+        resp = self._start(password='bimat123')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_access_password_never_leaks_in_api_response_but_has_password_does(self):
+        self.client.force_authenticate(self.admin)
+        patch_resp = self.client.patch(
+            reverse('exam-assessment-detail', args=[self.assessment.id]), {'access_password': 'bimat123'}, format='json',
+        )
+        self.assertEqual(patch_resp.status_code, 200)
+        self.assertNotIn('access_password', patch_resp.data)
+        self.assertTrue(patch_resp.data['has_password'])
+
+        get_resp = self.client.get(reverse('exam-assessment-detail', args=[self.assessment.id]))
+        self.assertNotIn('access_password', get_resp.data)
+        self.assertTrue(get_resp.data['has_password'])
+        self.assessment.refresh_from_db()
+        self.assertEqual(self.assessment.access_password, 'bimat123')
+
+
+class A1TimeLimitEnforcementTests(ProctoringBaseTestCase):
+    """A1: 'gioi han thoi gian' - bo sung enforcement server-side (truoc day chi la dem nguoc FE)."""
+
+    def test_no_time_limit_unaffected(self):
+        resp = self._start()
+        attempt_id = resp.data['attempt_id']
+        save_resp = self.client.post(
+            reverse('exam-attempt-answer', args=[attempt_id]),
+            {'question': self.question.id, 'response': {'option_id': self.opt_correct.id}}, format='json',
+        )
+        self.assertEqual(save_resp.status_code, 200)
+
+    def test_answers_rejected_and_auto_submitted_after_time_limit(self):
+        self.assessment.time_limit_min = 10
+        self.assessment.save()
+        resp = self._start()
+        attempt_id = resp.data['attempt_id']
+        attempt = Attempt.objects.get(pk=attempt_id)
+        attempt.started_at = timezone.now() - timedelta(minutes=11)
+        attempt.save(update_fields=['started_at'])
+
+        save_resp = self.client.post(
+            reverse('exam-attempt-answer', args=[attempt_id]),
+            {'question': self.question.id, 'response': {'option_id': self.opt_correct.id}}, format='json',
+        )
+        self.assertEqual(save_resp.status_code, 400)
+        self.assertIn('hết thời gian', save_resp.data['detail'])
+
+        attempt.refresh_from_db()
+        self.assertEqual(attempt.status, Attempt.Status.GRADED)
+        self.assertIsNotNone(attempt.submitted_at)
+
+    def test_answers_ok_before_time_limit(self):
+        self.assessment.time_limit_min = 30
+        self.assessment.save()
+        resp = self._start()
+        attempt_id = resp.data['attempt_id']
+        save_resp = self.client.post(
+            reverse('exam-attempt-answer', args=[attempt_id]),
+            {'question': self.question.id, 'response': {'option_id': self.opt_correct.id}}, format='json',
+        )
+        self.assertEqual(save_resp.status_code, 200)
+
+
+class A2A3ProctoringEventApiTests(ProctoringBaseTestCase):
+    """A2 (snapshot) + A3 (roi tab / tu nop sau N lan)."""
+
+    def setUp(self):
+        super().setUp()
+        self.assessment.proctoring_enabled = True
+        self.assessment.save()
+
+    def test_attempt_detail_includes_proctoring_config_only_when_enabled(self):
+        self.assessment.max_attempts = 2
+        self.assessment.save()
+
+        resp = self._start()
+        self.assertIsNotNone(resp.data['proctoring'])
+        self.assertTrue(resp.data['proctoring']['enabled'])
+        self.assertEqual(resp.data['proctoring']['snapshot_interval_sec'], 45)
+        self.client.post(reverse('exam-attempt-submit', args=[resp.data['attempt_id']]))
+
+        self.assessment.proctoring_enabled = False
+        self.assessment.save()
+        resp2 = self._start()
+        self.assertIsNone(resp2.data['proctoring'])
+
+    def test_log_tab_leave_event(self):
+        resp = self._start()
+        attempt_id = resp.data['attempt_id']
+        ev_resp = self.client.post(
+            reverse('exam-attempt-proctoring-event', args=[attempt_id]), {'type': 'tab_leave'}, format='json',
+        )
+        self.assertEqual(ev_resp.status_code, 200)
+        self.assertFalse(ev_resp.data['auto_submitted'])
+        self.assertEqual(ProctoringEvent.objects.filter(attempt_id=attempt_id, type='tab_leave').count(), 1)
+
+    def test_invalid_event_type_rejected(self):
+        resp = self._start()
+        attempt_id = resp.data['attempt_id']
+        ev_resp = self.client.post(
+            reverse('exam-attempt-proctoring-event', args=[attempt_id]), {'type': 'not_a_type'}, format='json',
+        )
+        self.assertEqual(ev_resp.status_code, 400)
+
+    def test_cannot_log_event_for_other_employees_attempt(self):
+        resp = self._start()
+        attempt_id = resp.data['attempt_id']
+        other_user = User.objects.create_user(
+            username='nv2', password='x', tenant=self.tenant, role=User.Role.EMPLOYEE,
+        )
+        Employee.objects.create(tenant=self.tenant, code='NV2', name='NV2', user=other_user)
+        self.client.force_authenticate(other_user)
+        ev_resp = self.client.post(
+            reverse('exam-attempt-proctoring-event', args=[attempt_id]), {'type': 'tab_leave'}, format='json',
+        )
+        self.assertEqual(ev_resp.status_code, 404)
+
+    def test_auto_submit_after_tab_leave_limit_reached(self):
+        self.assessment.tab_leave_auto_submit_limit = 3
+        self.assessment.save()
+        resp = self._start()
+        attempt_id = resp.data['attempt_id']
+
+        for _ in range(2):
+            ev_resp = self.client.post(
+                reverse('exam-attempt-proctoring-event', args=[attempt_id]), {'type': 'tab_leave'}, format='json',
+            )
+            self.assertFalse(ev_resp.data['auto_submitted'])
+
+        final_resp = self.client.post(
+            reverse('exam-attempt-proctoring-event', args=[attempt_id]), {'type': 'tab_leave'}, format='json',
+        )
+        self.assertTrue(final_resp.data['auto_submitted'])
+        self.assertIn('result', final_resp.data)
+
+        attempt = Attempt.objects.get(pk=attempt_id)
+        self.assertEqual(attempt.status, Attempt.Status.GRADED)
+
+        # Da nop roi - roi tab them nua khong con tu nop lai (khong loi, chi ghi log binh thuong).
+        after_resp = self.client.post(
+            reverse('exam-attempt-proctoring-event', args=[attempt_id]), {'type': 'tab_leave'}, format='json',
+        )
+        self.assertEqual(after_resp.status_code, 200)
+        self.assertFalse(after_resp.data['auto_submitted'])
+
+    def test_no_auto_submit_when_limit_not_configured(self):
+        resp = self._start()
+        attempt_id = resp.data['attempt_id']
+        for _ in range(10):
+            ev_resp = self.client.post(
+                reverse('exam-attempt-proctoring-event', args=[attempt_id]), {'type': 'tab_leave'}, format='json',
+            )
+            self.assertFalse(ev_resp.data['auto_submitted'])
+        attempt = Attempt.objects.get(pk=attempt_id)
+        self.assertEqual(attempt.status, Attempt.Status.IN_PROGRESS)
+
+    @patch('checklist.storage.upload_data_url', return_value='https://pub-x.r2.dev/proctoring/snap.jpg')
+    def test_snapshot_event_uploads_image(self, mock_upload):
+        resp = self._start()
+        attempt_id = resp.data['attempt_id']
+        ev_resp = self.client.post(
+            reverse('exam-attempt-proctoring-event', args=[attempt_id]),
+            {'type': 'snapshot', 'image': 'data:image/jpeg;base64,AAAA'}, format='json',
+        )
+        self.assertEqual(ev_resp.status_code, 200)
+        mock_upload.assert_called_once()
+        event = ProctoringEvent.objects.get(pk=ev_resp.data['event_id'])
+        self.assertEqual(event.image_url, 'https://pub-x.r2.dev/proctoring/snap.jpg')
+
+    def test_snapshot_upload_failure_returns_400(self):
+        from checklist.storage import StorageError
+
+        with patch('checklist.storage.upload_data_url', side_effect=StorageError('lỗi upload')):
+            resp = self._start()
+            attempt_id = resp.data['attempt_id']
+            ev_resp = self.client.post(
+                reverse('exam-attempt-proctoring-event', args=[attempt_id]),
+                {'type': 'snapshot', 'image': 'data:image/jpeg;base64,AAAA'}, format='json',
+            )
+            self.assertEqual(ev_resp.status_code, 400)
+
+
+class A4EvidenceViewingTests(ProctoringBaseTestCase):
+    """A4: man giam khao xem bang chung + dat co nghi van."""
+
+    def setUp(self):
+        super().setUp()
+        self.assessment.proctoring_enabled = True
+        self.assessment.save()
+
+    def test_evaluator_sees_timeline_and_suspicion_score(self):
+        resp = self._start()
+        attempt_id = resp.data['attempt_id']
+        attempt = Attempt.objects.get(pk=attempt_id)
+        ProctoringEvent.objects.create(tenant=self.tenant, attempt=attempt, type='tab_leave')
+        ProctoringEvent.objects.create(tenant=self.tenant, attempt=attempt, type='no_face')
+        ProctoringEvent.objects.create(
+            tenant=self.tenant, attempt=attempt, type='snapshot', image_url='https://pub-x.r2.dev/a.jpg',
+        )
+
+        self.client.force_authenticate(self.admin)
+        timeline_resp = self.client.get(reverse('exam-attempt-proctoring', args=[attempt_id]))
+        self.assertEqual(timeline_resp.status_code, 200)
+        self.assertEqual(len(timeline_resp.data['events']), 3)
+        self.assertEqual(timeline_resp.data['counts']['tab_leave'], 1)
+        self.assertEqual(timeline_resp.data['counts']['no_face'], 1)
+        self.assertEqual(timeline_resp.data['suspicion_score'], 2)  # tab_leave + no_face, khong tinh snapshot
+        snapshot_events = [e for e in timeline_resp.data['events'] if e['type'] == 'snapshot']
+        self.assertEqual(snapshot_events[0]['image_url'], 'https://pub-x.r2.dev/a.jpg')
+
+    def test_non_evaluator_cannot_view_timeline(self):
+        resp = self._start()
+        attempt_id = resp.data['attempt_id']
+        trainer = User.objects.create_user(username='trainer1', password='x', tenant=self.tenant, role='trainer')
+        self.client.force_authenticate(trainer)
+        timeline_resp = self.client.get(reverse('exam-attempt-proctoring', args=[attempt_id]))
+        self.assertEqual(timeline_resp.status_code, 403)
+
+    def test_evaluator_can_flag_and_unflag_attempt(self):
+        resp = self._start()
+        attempt_id = resp.data['attempt_id']
+        self.client.force_authenticate(self.admin)
+
+        flag_resp = self.client.post(reverse('exam-attempt-flag', args=[attempt_id]), {'flagged': True}, format='json')
+        self.assertEqual(flag_resp.status_code, 200)
+        self.assertTrue(flag_resp.data['flagged_suspicious'])
+        self.assertTrue(Attempt.objects.get(pk=attempt_id).flagged_suspicious)
+
+        unflag_resp = self.client.post(reverse('exam-attempt-flag', args=[attempt_id]), {'flagged': False}, format='json')
+        self.assertFalse(unflag_resp.data['flagged_suspicious'])
+
+    def test_results_list_includes_flag_and_event_count(self):
+        resp = self._start()
+        attempt_id = resp.data['attempt_id']
+        attempt = Attempt.objects.get(pk=attempt_id)
+        ProctoringEvent.objects.create(tenant=self.tenant, attempt=attempt, type='tab_leave')
+
+        self.client.force_authenticate(self.admin)
+        results_resp = self.client.get(reverse('exam-assessment-results', args=[self.assessment.id]))
+        self.assertEqual(results_resp.status_code, 200)
+        row = next(r for r in results_resp.data if r['id'] == attempt_id)
+        self.assertEqual(row['proctoring_event_count'], 1)
+        self.assertFalse(row['flagged_suspicious'])
+
+
+class A1BasicControlsRegressionTests(ProctoringBaseTestCase):
+    """A1: xac nhan tron cau/tron dap an/gioi han so lan DA hoat dong tu truoc (khong can sua) -
+    test nay chi la XAC NHAN (nghiem thu 'kiem tra dang hoat dong'), khong test logic moi."""
+
+    def test_max_attempts_still_enforced(self):
+        self.assessment.max_attempts = 1
+        self.assessment.save()
+        self._start()
+        second_resp = self._start()
+        self.assertEqual(second_resp.status_code, 400)
+        self.assertIn('hết số lần', second_resp.data['detail'])

@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import AppShell from '../components/AppShell'
 import api from '../api/client'
+import { captureSnapshotDataUrl, detectFaceCount, loadFaceApi } from '../utils/proctoring'
 import * as s from './listPageStyles'
+
+const FACE_CHECK_INTERVAL_MS = 8000
 
 function formatCountdown(sec) {
   if (sec <= 0) return '00:00'
@@ -198,6 +201,32 @@ function ResultView({ result }) {
   )
 }
 
+// A2/A3: man dong y truoc khi bat dau bai thi co giam sat - xin quyen camera RO RANG (khong xin
+// ngam), giai thich se lam gi (chup anh dinh ky, ghi log roi tab, cam copy/paste). Hoc vien co
+// the "Tiep tuc khong dung camera" (mobile/khong co cam/tu choi quyen) - van bi ghi log roi tab
+// + chan copy/paste nhu thuong, chi la khong co webcam/snapshot - dung tinh than "ran de, khong
+// chan 100%" cua prompt.
+function ProctoringConsentGate({ config, onAgree, onSkipCamera, cameraError }) {
+  return (
+    <div className="card" style={{ maxWidth: 520, margin: '40px auto' }}>
+      <h3 style={{ marginTop: 0 }}>Bài thi này có giám sát (proctoring)</h3>
+      <ul style={{ paddingLeft: 20, marginBottom: 16 }}>
+        <li>Xin quyền dùng camera để chụp ảnh định kỳ (mỗi {config.snapshot_interval_sec} giây) làm bằng chứng.</li>
+        <li>Ghi lại thời điểm nếu bạn rời khỏi tab/cửa sổ làm bài{
+          config.tab_leave_auto_submit_limit ? ` — rời tab quá ${config.tab_leave_auto_submit_limit} lần sẽ tự động nộp bài` : ''
+        }.</li>
+        <li>Không cho phép copy/paste/chuột phải trong lúc làm bài.</li>
+        {config.require_fullscreen && <li>Yêu cầu làm bài ở chế độ toàn màn hình.</li>}
+      </ul>
+      {cameraError && <p style={{ color: 'var(--danger)' }}>{cameraError}</p>}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button onClick={onAgree}>Đồng ý &amp; Bắt đầu</button>
+        <button className="btn-outline" onClick={onSkipCamera}>Tiếp tục không dùng camera</button>
+      </div>
+    </div>
+  )
+}
+
 export default function ExamTakingPage() {
   const { attemptId } = useParams()
   const navigate = useNavigate()
@@ -207,6 +236,20 @@ export default function ExamTakingPage() {
   const [error, setError] = useState('')
   const [remainingSec, setRemainingSec] = useState(null)
   const [submitting, setSubmitting] = useState(false)
+
+  // Giai doan A - proctoring. proctoringStage: 'none' (de khong bat giam sat - hanh vi CU,
+  // khong doi gi) | 'consent' (cho dong y) | 'active' (dang giam sat, co the co hoac khong co
+  // camera). videoRef/streamRef/faceApiRef la refs (khong trigger re-render) vi day la tai
+  // nguyen trinh duyet (camera stream, model AI), khong phai state hien thi.
+  const [proctoringStage, setProctoringStage] = useState('none')
+  const [cameraError, setCameraError] = useState('')
+  const [fullscreenWarning, setFullscreenWarning] = useState(false)
+  const videoRef = useRef(null)
+  const streamRef = useRef(null)
+  const faceApiRef = useRef(null)
+  const intervalsRef = useRef([])
+  const enteredFullscreenRef = useRef(false)
+  const listenersCleanupRef = useRef(null)
 
   useEffect(() => {
     api.get(`/exams/attempts/${attemptId}/`)
@@ -218,9 +261,134 @@ export default function ExamTakingPage() {
           const deadlineMs = startedMs + data.time_limit_min * 60000
           setRemainingSec(Math.max(0, Math.round((deadlineMs - Date.now()) / 1000)))
         }
+        setProctoringStage(data.proctoring?.enabled ? 'consent' : 'none')
       })
       .catch((err) => setError(err.response?.data?.detail || 'Không tải được bài thi.'))
   }, [attemptId])
+
+  const postProctoringEvent = useCallback(async (type, extra) => {
+    try {
+      const { data } = await api.post(`/exams/attempts/${attemptId}/proctoring-event/`, { type, ...extra })
+      if (data.auto_submitted) {
+        setResult(data.result)
+      }
+    } catch {
+      // ghi log ban chung - loi mang khong duoc chan nguoi thi dang lam bai
+    }
+  }, [attemptId])
+
+  const stopMonitoring = useCallback(() => {
+    intervalsRef.current.forEach(clearInterval)
+    intervalsRef.current = []
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop())
+      streamRef.current = null
+    }
+    if (listenersCleanupRef.current) {
+      listenersCleanupRef.current()
+      listenersCleanupRef.current = null
+    }
+    if (enteredFullscreenRef.current && document.fullscreenElement) {
+      document.exitFullscreen?.().catch(() => {})
+    }
+  }, [])
+
+  const attachBehaviorListeners = useCallback(() => {
+    const onVisibility = () => { if (document.hidden) postProctoringEvent('tab_leave') }
+    const onBlur = () => postProctoringEvent('blur')
+    const onContextMenu = (e) => e.preventDefault()
+    const onCopyPaste = (e) => e.preventDefault()
+    const onFullscreenChange = () => {
+      if (enteredFullscreenRef.current && !document.fullscreenElement) {
+        setFullscreenWarning(true)
+        postProctoringEvent('fullscreen_exit')
+      } else if (document.fullscreenElement) {
+        setFullscreenWarning(false)
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('blur', onBlur)
+    document.addEventListener('contextmenu', onContextMenu)
+    document.addEventListener('copy', onCopyPaste)
+    document.addEventListener('cut', onCopyPaste)
+    document.addEventListener('paste', onCopyPaste)
+    document.addEventListener('fullscreenchange', onFullscreenChange)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('blur', onBlur)
+      document.removeEventListener('contextmenu', onContextMenu)
+      document.removeEventListener('copy', onCopyPaste)
+      document.removeEventListener('cut', onCopyPaste)
+      document.removeEventListener('paste', onCopyPaste)
+      document.removeEventListener('fullscreenchange', onFullscreenChange)
+    }
+  }, [postProctoringEvent])
+
+  async function startMonitoring(useCamera) {
+    setCameraError('')
+    if (attempt.proctoring?.require_fullscreen) {
+      try {
+        await document.documentElement.requestFullscreen()
+        enteredFullscreenRef.current = true
+      } catch {
+        // trinh duyet/thiet bi khong ho tro fullscreen (vd 1 so mobile) - khong chan bai thi
+      }
+    }
+
+    if (useCamera) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+        streamRef.current = stream
+        // videoRef.current con la null luc nay (the <video> chi mount SAU khi setProctoringStage
+        // ben duoi kich hoat re-render, dang o man dong y - xem useEffect gan srcObject phia
+        // duoi, chay SAU khi <video> da mount).
+
+        const snapshotSec = attempt.proctoring?.snapshot_interval_sec || 45
+        intervalsRef.current.push(setInterval(() => {
+          if (videoRef.current) {
+            postProctoringEvent('snapshot', { image: captureSnapshotDataUrl(videoRef.current) })
+          }
+        }, snapshotSec * 1000))
+
+        loadFaceApi().then((faceapi) => {
+          faceApiRef.current = faceapi
+          intervalsRef.current.push(setInterval(async () => {
+            if (!videoRef.current) return
+            const count = await detectFaceCount(faceapi, videoRef.current).catch(() => null)
+            if (count === 0) postProctoringEvent('no_face')
+            else if (count > 1) postProctoringEvent('multi_face', { detail: `${count} khuôn mặt` })
+          }, FACE_CHECK_INTERVAL_MS))
+        }).catch((err) => {
+          // Thu vien nhan dien khong tai duoc (mang/CDN) - webcam + snapshot van chay binh
+          // thuong, chi mat phan phat hien khuon mat. Khong hien loi chan man hinh.
+          console.warn('Không tải được thư viện nhận diện khuôn mặt:', err)
+        })
+      } catch {
+        setCameraError('Không truy cập được camera — vẫn tiếp tục làm bài (không có ảnh chụp/nhận diện khuôn mặt).')
+      }
+    }
+
+    listenersCleanupRef.current = attachBehaviorListeners()
+    setProctoringStage('active')
+  }
+
+  useEffect(() => {
+    if (proctoringStage !== 'active') return undefined
+    return () => stopMonitoring()
+  }, [proctoringStage, stopMonitoring])
+
+  // <video> chi mount khi proctoringStage==='active' (xem JSX) - phai gan srcObject SAU khi da
+  // mount (trong effect, chay sau commit), khong the gan ngay trong startMonitoring vi luc do
+  // videoRef.current van con null (dang o man dong y).
+  useEffect(() => {
+    if (proctoringStage === 'active' && streamRef.current && videoRef.current) {
+      videoRef.current.srcObject = streamRef.current
+    }
+  }, [proctoringStage])
+
+  useEffect(() => {
+    if (result) stopMonitoring()
+  }, [result, stopMonitoring])
 
   useEffect(() => {
     if (remainingSec === null || submitting || result) return
@@ -267,6 +435,19 @@ export default function ExamTakingPage() {
     return <AppShell><p className="muted-note">Đang tải...</p></AppShell>
   }
 
+  if (proctoringStage === 'consent') {
+    return (
+      <AppShell>
+        <ProctoringConsentGate
+          config={attempt.proctoring}
+          cameraError={cameraError}
+          onAgree={() => startMonitoring(true)}
+          onSkipCamera={() => startMonitoring(false)}
+        />
+      </AppShell>
+    )
+  }
+
   return (
     <AppShell>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -275,6 +456,27 @@ export default function ExamTakingPage() {
           <span className="badge badge-warning" style={{ fontSize: 16 }}>⏱ {formatCountdown(remainingSec)}</span>
         )}
       </div>
+
+      {streamRef.current && !result && (
+        <div style={{ position: 'fixed', bottom: 12, right: 12, zIndex: 50 }}>
+          <video
+            ref={videoRef} autoPlay muted playsInline
+            style={{ width: 120, height: 90, borderRadius: 8, border: '2px solid var(--forest)', objectFit: 'cover' }}
+          />
+        </div>
+      )}
+      {cameraError && !result && <p className="muted-note" style={{ color: 'var(--danger)' }}>{cameraError}</p>}
+      {fullscreenWarning && !result && (
+        <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: 12 }}>
+          Bạn đã thoát chế độ toàn màn hình.{' '}
+          <button
+            className="btn-outline btn-sm"
+            onClick={() => document.documentElement.requestFullscreen?.().then(() => { enteredFullscreenRef.current = true })}
+          >
+            Vào lại toàn màn hình
+          </button>
+        </div>
+      )}
 
       {result ? (
         <>

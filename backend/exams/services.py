@@ -21,13 +21,23 @@ Quy tac cham TU DONG (MVP, dung y prompt):
   essay               : KHONG tu cham, cho cham tay (xem grade_attempt).
 """
 import random
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.utils import timezone
 
 from employees.models import Employee
 
-from .models import Answer, Assessment, AssessmentAssignment, AssessmentQuestion, Attempt, ExamSession, Question
+from .models import (
+    Answer,
+    Assessment,
+    AssessmentAssignment,
+    AssessmentQuestion,
+    Attempt,
+    ExamSession,
+    ProctoringEvent,
+    Question,
+)
 
 
 class ValidationError(Exception):
@@ -247,9 +257,12 @@ def _check_exam_session_window(assignment):
         raise ValidationError('Kỳ thi đã đóng.')
 
 
-def start_attempt(employee, assessment):
+def start_attempt(employee, assessment, password=None):
     if assessment.status != Assessment.Status.PUBLISHED:
         raise ValidationError('Đề thi chưa xuất bản.')
+    # A1: mat khau vao de (tuy chon) - rong = khong yeu cau, giu nguyen hanh vi cu cho de cu.
+    if assessment.access_password and (password or '') != assessment.access_password:
+        raise ValidationError('Sai mật khẩu vào đề.')
     assignment = (
         AssessmentAssignment.objects.filter(assessment=assessment, employee=employee)
         .select_related('exam_session').first()
@@ -346,6 +359,19 @@ def attempt_questions_payload(attempt):
     ]
 
 
+def proctoring_config_payload(assessment):
+    """Cau hinh proctoring cho FE (ExamTakingPage) - None neu de khong bat proctoring, de FE biet
+    KHONG xin quyen camera/khong gan listener gi ca (giu nguyen trai nghiem de thuong)."""
+    if not assessment.proctoring_enabled:
+        return None
+    return {
+        'enabled': True,
+        'snapshot_interval_sec': assessment.proctoring_snapshot_interval_sec,
+        'tab_leave_auto_submit_limit': assessment.tab_leave_auto_submit_limit,
+        'require_fullscreen': assessment.require_fullscreen,
+    }
+
+
 def attempt_detail_payload(attempt):
     """Chi tiet 1 lan lam bai DANG LAM - dung cho ca 'bat dau' va 'tiep tuc lam bai' (FE goi
     lai endpoint nay sau khi start de lay cau hoi + dap an da luu tam, tranh trung logic)."""
@@ -353,14 +379,29 @@ def attempt_detail_payload(attempt):
     return {
         'attempt_id': attempt.id, 'time_limit_min': attempt.assessment.time_limit_min,
         'started_at': attempt.started_at, 'questions': attempt_questions_payload(attempt),
-        'answers': saved,
+        'answers': saved, 'proctoring': proctoring_config_payload(attempt.assessment),
     }
+
+
+def _auto_submit_if_time_expired(attempt):
+    """A1: 'gioi han thoi gian' truoc day CHI hien dem nguoc o FE, server khong ep - bo sung
+    kiem tra server-side o day (goi truoc khi ghi dap an moi). time_limit_min khong dat (None) =
+    khong gioi han gi, giu nguyen hanh vi cu cho de khong dat gio."""
+    limit = attempt.assessment.time_limit_min
+    if not limit or attempt.status != Attempt.Status.IN_PROGRESS:
+        return False
+    if timezone.now() <= attempt.started_at + timedelta(minutes=limit):
+        return False
+    submit_attempt(attempt)
+    return True
 
 
 def save_answers(attempt, items):
     """items: [{question, response}, ...] (chap nhan ca 1 dict don le - view chuan hoa truoc)."""
     if attempt.status != Attempt.Status.IN_PROGRESS:
         raise ValidationError('Bài thi đã nộp, không thể sửa câu trả lời.')
+    if _auto_submit_if_time_expired(attempt):
+        raise ValidationError('Đã hết thời gian làm bài — bài đã được tự động nộp.')
     saved = []
     for item in items:
         qid = item.get('question')
@@ -538,6 +579,7 @@ def my_assessments(employee):
             'assignment_id': a.id, 'assessment_id': a.assessment_id, 'title': a.assessment.title,
             'time_limit_min': a.assessment.time_limit_min, 'due_date': a.due_date,
             'exam_session_end_at': session.end_at if session else None,
+            'has_password': bool(a.assessment.access_password),
             'attempts_used': len(attempts), 'max_attempts': a.assessment.max_attempts,
             'in_progress_attempt_id': next(
                 (att.id for att in attempts if att.status == Attempt.Status.IN_PROGRESS), None,
@@ -545,3 +587,68 @@ def my_assessments(employee):
             'last_result': attempt_result_payload(last) if last else None,
         })
     return result
+
+
+# ==================================================================== Proctoring (Giai doan A)
+
+def record_proctoring_event(attempt, event_type, detail='', image_data_url=None):
+    """Ghi 1 su kien proctoring cho attempt (A2/A3). image_data_url chi dung voi type='snapshot'
+    - upload qua checklist/storage.py (nen anh, giong avatar/minh chung khac trong he thong).
+
+    A3: neu type='tab_leave' VA de co dat tab_leave_auto_submit_limit VA attempt van
+    IN_PROGRESS, dem lai tong so su kien tab_leave cua attempt nay (BAO GOM su kien vua tao) -
+    dat nguong thi TU DONG goi submit_attempt (server-side, dang tin cay hon dua vao client tu
+    goi submit rieng - hoc vien co the can thiep JS chan client tu nop). Tra ve
+    (event, auto_submitted: bool)."""
+    image_url = ''
+    if event_type == ProctoringEvent.Type.SNAPSHOT and image_data_url:
+        from checklist.storage import StorageError, upload_data_url
+
+        try:
+            image_url = upload_data_url(image_data_url, f'proctoring/{attempt.tenant_id}/{attempt.id}', 'snapshot')
+        except StorageError as exc:
+            raise ValidationError(f'Không lưu được ảnh chụp: {exc}') from exc
+
+    event = ProctoringEvent.objects.create(
+        tenant=attempt.tenant, attempt=attempt, type=event_type, detail=detail or '', image_url=image_url,
+    )
+
+    auto_submitted = False
+    limit = attempt.assessment.tab_leave_auto_submit_limit
+    if event_type == ProctoringEvent.Type.TAB_LEAVE and limit and attempt.status == Attempt.Status.IN_PROGRESS:
+        tab_leave_count = ProctoringEvent.objects.filter(
+            attempt=attempt, type=ProctoringEvent.Type.TAB_LEAVE,
+        ).count()
+        if tab_leave_count >= limit:
+            submit_attempt(attempt)
+            auto_submitted = True
+
+    return event, auto_submitted
+
+
+def proctoring_timeline(attempt):
+    """Man giam khao xem bang chung (A4): dong thoi gian su kien + 'chi so nghi van' (dem
+    no_face/multi_face/tab_leave). Dung cho AttemptProctoringView."""
+    events = list(attempt.proctoring_events.all())
+    counts = {'no_face': 0, 'multi_face': 0, 'tab_leave': 0, 'blur': 0, 'fullscreen_exit': 0}
+    for e in events:
+        if e.type in counts:
+            counts[e.type] += 1
+    suspicion_score = counts['no_face'] + counts['multi_face'] + counts['tab_leave']
+    return {
+        'attempt_id': attempt.id, 'flagged_suspicious': attempt.flagged_suspicious,
+        'suspicion_score': suspicion_score, 'counts': counts,
+        'events': [
+            {
+                'id': e.id, 'type': e.type, 'type_display': e.get_type_display(),
+                'detail': e.detail, 'image_url': e.image_url, 'created_at': e.created_at,
+            }
+            for e in events
+        ],
+    }
+
+
+def set_attempt_flag(attempt, flagged):
+    attempt.flagged_suspicious = bool(flagged)
+    attempt.save(update_fields=['flagged_suspicious'])
+    return attempt

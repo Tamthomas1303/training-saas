@@ -125,8 +125,20 @@ class Assessment(models.Model):
         max_length=20, choices=ReviewMode.choices, default=ReviewMode.FULL_DETAIL,
     )
     show_grade_label = models.BooleanField(default=False)
-    # Placeholder P2 (prompt: "chi de co, CHUA cai webcam") - khong co logic gi dung den truong nay.
+    # Giai doan A (Prompt_ChongGianLan_Thi_Video.md) - proctoring THAT, khong con la placeholder
+    # thuan tuy: bat truong nay se kich hoat webcam/snapshot/rap tab o ExamTakingPage.
     proctoring_enabled = models.BooleanField(default=False)
+    # A2: chu ky chup snapshot webcam (giay) khi proctoring bat.
+    proctoring_snapshot_interval_sec = models.PositiveIntegerField(default=45)
+    # A3: so lan "roi tab" (visibilitychange) toi da truoc khi HE THONG TU DONG NOP bai (server-
+    # side, xem services.record_proctoring_event) - None/0 = khong tu nop, chi ghi log.
+    tab_leave_auto_submit_limit = models.PositiveIntegerField(null=True, blank=True)
+    # A3: tuy chon yeu cau man hinh toan man hinh luc lam bai (khong chan cung, chi canh bao khi thoat).
+    require_fullscreen = models.BooleanField(default=False)
+    # A1: mat khau vao de (tuy chon) - rong = khong yeu cau. KHONG phai mat khau tai khoan, chi la
+    # passcode phong thi nen luu ro (khong hash) - xem QuestionSerializer/AssessmentSerializer
+    # write_only de khong lo qua GET.
+    access_password = models.CharField(max_length=100, blank=True)
     # Rut cau ngau nhien khi bat dau attempt, thay vi chon tay qua AssessmentQuestion. Cau truc
     # (tu chon, MVP): {"bank_id": <id>, "count": <n>, "difficulty": "<easy|medium|hard>"?}.
     # difficulty bo trong = khong loc do kho. rong/None = dung cau chon tay (AssessmentQuestion).
@@ -263,6 +275,9 @@ class Attempt(models.Model):
     # Danh sach id cau hoi CHO LAN THI NAY, theo dung thu tu da tron/rut (can luu lai de cau hoi
     # + thu tu on dinh xuyen suot attempt, ke ca khi rut ngau nhien tu random_pool_config).
     question_ids = models.JSONField(default=list, blank=True)
+    # A4: giam khao/cham bai tu danh dau nghi van sau khi xem bang chung proctoring (xem
+    # services.set_attempt_flag) - khong tu dong bat, chi la co ghi chu de doi chieu sau.
+    flagged_suspicious = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -271,6 +286,34 @@ class Attempt(models.Model):
 
     def __str__(self):
         return f'{self.employee_id} - {self.assessment_id} (lần {self.attempt_no})'
+
+
+class ProctoringEvent(models.Model):
+    """Bang chung chong gian lan cho 1 Attempt - Giai doan A (Prompt_ChongGianLan_Thi_Video.md).
+    Ghi boi client (ExamTakingPage) qua services.record_proctoring_event trong luc dang lam bai
+    (KHONG anh huong luong cham diem - chi la lop log/bang chung doc lap). image_url chi co voi
+    type=snapshot (upload qua checklist/storage.py, giong avatar/minh chung khac trong he thong)."""
+
+    class Type(models.TextChoices):
+        NO_FACE = 'no_face', 'Không thấy khuôn mặt'
+        MULTI_FACE = 'multi_face', 'Nhiều hơn 1 khuôn mặt'
+        TAB_LEAVE = 'tab_leave', 'Rời tab'
+        BLUR = 'blur', 'Mất focus cửa sổ'
+        SNAPSHOT = 'snapshot', 'Ảnh chụp định kỳ'
+        FULLSCREEN_EXIT = 'fullscreen_exit', 'Thoát toàn màn hình'
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='proctoring_events')
+    attempt = models.ForeignKey(Attempt, on_delete=models.CASCADE, related_name='proctoring_events')
+    type = models.CharField(max_length=20, choices=Type.choices)
+    detail = models.CharField(max_length=255, blank=True)
+    image_url = models.URLField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f'{self.attempt_id} - {self.type} @ {self.created_at}'
 
 
 class Answer(models.Model):
