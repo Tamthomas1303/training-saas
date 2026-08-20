@@ -861,3 +861,240 @@ class ExamSessionApiTests(TestCase):
         self.client.force_authenticate(self.matching_user)
         resp = self.client.get(reverse('exam-session-tracking', args=[session.id]))
         self.assertEqual(resp.status_code, 403)
+
+
+# ==================================================================== import_cls_questions
+
+CLS_HEADER = [
+    '      STT (*)      ', '      STT Câu Hỏi Cha      ', '      Chủ Đề (*)      ',
+    '      Kiểu Câu Hỏi (*)      ', '      Nội Dung (*)      ', '      Mã tác giả      ',
+    '      Tác giả      ', '      Đường Dẫn Tệp Tin      ', '      Đáp Án Đúng      ',
+    '      Giải Thích Kết Quả      ', '      Xáo Trộn      ', '      Câu trả lời không xáo trộn      ',
+    '      Cấp Độ (*)      ', '      Câu Trả Lời 1      ', '      Câu Trả Lời 2      ',
+    '      Câu Trả Lời 3      ', '      Câu Trả Lời 4      ', '      Câu Trả Lời 5      ',
+    '      Câu Trả Lời 6      ', '      Câu Trả Lời 7      ', '      Câu Trả Lời 8      ',
+]
+
+
+def _cls_row(
+    stt, topic, qtype, content, correct, level, answers,
+    explanation='', media='', author_code='', author='',
+):
+    answers = (answers + [''] * 8)[:8]
+    return [
+        stt, '', topic, qtype, content, author_code, author, media, correct, explanation,
+        'Không', '1, 2, 3, 4', level, *answers,
+    ]
+
+
+def _build_cls_workbook(rows, sheet_name='Câu Hỏi'):
+    """Dung dinh dang GIONG HET file that (dong 1 = tieu de gop o, dong 2 = header co khoang
+    trang thua can .strip(), dong 3+ = du lieu) - xem exams/cls_import.py."""
+    import io as _io
+
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = sheet_name
+    ws.append(['MẪU NGÂN HÀNG CÂU HỎI'])
+    ws.append(CLS_HEADER)
+    for row in rows:
+        ws.append(row)
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+class ClsImportParseTests(TestCase):
+    """parse_workbook() thuan tuy (khong dong DB) - dung workbook dung dinh dang that."""
+
+    def test_parses_single_choice_correct_option(self):
+        from exams.cls_import import parse_workbook
+
+        wb = _build_cls_workbook([
+            _cls_row('1', 'Chủ đề A', 'Trắc nghiệm một lựa chọn', 'Câu hỏi 1?', '2', 'Nhận biết',
+                     ['Sai 1', 'Đúng', 'Sai 2', 'Sai 3']),
+        ])
+        result = parse_workbook(wb)
+        self.assertEqual(len(result['parsed']), 1)
+        self.assertEqual(len(result['skipped']), 0)
+        row = result['parsed'][0]
+        self.assertEqual(row['type'], Question.Type.SINGLE)
+        self.assertEqual(row['bank_name'], 'Chủ đề A')
+        self.assertEqual(row['difficulty'], Question.Difficulty.EASY)
+        self.assertEqual([o['text'] for o in row['options']], ['Sai 1', 'Đúng', 'Sai 2', 'Sai 3'])
+        self.assertEqual([o['is_correct'] for o in row['options']], [False, True, False, False])
+
+    def test_parses_multiple_choice_correct_options(self):
+        from exams.cls_import import parse_workbook
+
+        wb = _build_cls_workbook([
+            _cls_row('2', 'Chủ đề A', 'Trắc nghiệm nhiều lựa chọn', 'Câu hỏi nhiều đáp án?', '1, 3', 'Vận Dụng',
+                     ['Đúng 1', 'Sai 1', 'Đúng 2', 'Sai 2']),
+        ])
+        result = parse_workbook(wb)
+        row = result['parsed'][0]
+        self.assertEqual(row['type'], Question.Type.MULTIPLE)
+        self.assertEqual(row['difficulty'], Question.Difficulty.MEDIUM)
+        self.assertEqual([o['is_correct'] for o in row['options']], [True, False, True, False])
+
+    def test_skips_row_missing_content(self):
+        from exams.cls_import import parse_workbook
+
+        wb = _build_cls_workbook([
+            _cls_row('3', 'Chủ đề A', 'Trắc nghiệm một lựa chọn', '', '1', 'Nhận biết', ['A', 'B']),
+        ])
+        result = parse_workbook(wb)
+        self.assertEqual(result['parsed'], [])
+        self.assertEqual(len(result['skipped']), 1)
+        self.assertIn('Nội Dung', result['skipped'][0]['reason'])
+
+    def test_skips_unsupported_question_type(self):
+        from exams.cls_import import parse_workbook
+
+        wb = _build_cls_workbook([
+            _cls_row('4', 'Chủ đề A', 'Gạch chân', 'Câu hỏi dạng lạ?', '1', 'Nhận biết', ['A', 'B']),
+        ])
+        result = parse_workbook(wb)
+        self.assertEqual(result['parsed'], [])
+        self.assertEqual(len(result['skipped']), 1)
+        self.assertIn('Kiểu câu hỏi không hỗ trợ', result['skipped'][0]['reason'])
+
+    def test_skips_row_without_valid_correct_answer(self):
+        from exams.cls_import import parse_workbook
+
+        wb = _build_cls_workbook([
+            _cls_row('5', 'Chủ đề A', 'Trắc nghiệm một lựa chọn', 'Câu hỏi thiếu đáp án đúng?', '',
+                     'Nhận biết', ['A', 'B']),
+        ])
+        result = parse_workbook(wb)
+        self.assertEqual(result['parsed'], [])
+        self.assertEqual(len(result['skipped']), 1)
+        self.assertIn('Đáp Án Đúng', result['skipped'][0]['reason'])
+
+    def test_finds_header_row_even_without_leading_title_row(self):
+        """Phong ho file chu de khac co the KHONG co dong tieu de gop o rieng (header ngay dong
+        1) - _find_header_row phai van nhan dung, khong gia dinh cung dong 2."""
+        from exams.cls_import import parse_workbook
+        import io as _io
+
+        import openpyxl
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = 'Câu Hỏi'
+        ws.append(CLS_HEADER)
+        ws.append(_cls_row('1', 'Chủ đề B', 'Trắc nghiệm một lựa chọn', 'Câu hỏi?', '1', 'Nhận biết', ['A', 'B']))
+        buf = _io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        result = parse_workbook(buf)
+        self.assertEqual(len(result['parsed']), 1)
+
+
+class ClsImportWriteTests(TestCase):
+    """import_rows() - ghi DB (hoac chi dem neu dry_run)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+
+    def _sample_rows(self):
+        from exams.cls_import import parse_workbook
+
+        wb = _build_cls_workbook([
+            _cls_row('1', 'Câu hỏi thi Phục vụ', 'Trắc nghiệm một lựa chọn', 'Câu 1?', '1', 'Nhận biết',
+                     ['Đúng', 'Sai']),
+            _cls_row('2', 'Câu hỏi thi Phục vụ', 'Trắc nghiệm nhiều lựa chọn', 'Câu 2?', '1, 2', 'Vận Dụng',
+                     ['Đúng 1', 'Đúng 2', 'Sai']),
+        ])
+        return parse_workbook(wb)['parsed']
+
+    def test_dry_run_reports_stats_without_writing_anything(self):
+        from exams.cls_import import import_rows
+
+        stats = import_rows(self.tenant, self._sample_rows(), dry_run=True)
+        self.assertEqual(stats['banks_created'], 1)
+        self.assertEqual(stats['questions_created'], 2)
+        self.assertEqual(stats['single_created'], 1)
+        self.assertEqual(stats['multiple_created'], 1)
+        self.assertEqual(stats['options_created'], 5)
+        self.assertEqual(QuestionBank.objects.count(), 0)
+        self.assertEqual(Question.objects.count(), 0)
+
+    def test_real_run_creates_bank_question_options(self):
+        from exams.cls_import import import_rows
+
+        stats = import_rows(self.tenant, self._sample_rows(), dry_run=False)
+        self.assertEqual(stats['questions_created'], 2)
+        bank = QuestionBank.objects.get(tenant=self.tenant, name='Câu hỏi thi Phục vụ')
+        self.assertEqual(Question.objects.filter(bank=bank).count(), 2)
+        q1 = Question.objects.get(bank=bank, stem_html='Câu 1?')
+        self.assertEqual(q1.type, Question.Type.SINGLE)
+        self.assertTrue(q1.options.get(content_html='Đúng').is_correct)
+        self.assertFalse(q1.options.get(content_html='Sai').is_correct)
+
+    def test_running_twice_is_idempotent(self):
+        from exams.cls_import import import_rows
+
+        rows = self._sample_rows()
+        import_rows(self.tenant, rows, dry_run=False)
+        self.assertEqual(QuestionBank.objects.count(), 1)
+        self.assertEqual(Question.objects.count(), 2)
+        self.assertEqual(QuestionOption.objects.count(), 5)
+
+        stats2 = import_rows(self.tenant, rows, dry_run=False)
+        self.assertEqual(stats2['questions_created'], 0)
+        self.assertEqual(stats2['questions_skipped_duplicate'], 2)
+        self.assertEqual(QuestionBank.objects.count(), 1)
+        self.assertEqual(Question.objects.count(), 2)
+        self.assertEqual(QuestionOption.objects.count(), 5)
+
+
+class ImportClsQuestionsCommandTests(TestCase):
+    """Test o muc lenh CLI (call_command) - tenant khong ton tai, file khong ton tai, dry-run
+    that qua tham so --file/--dry-run."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+
+    def _write_temp_xlsx(self):
+        import tempfile
+
+        wb = _build_cls_workbook([
+            _cls_row('1', 'Chủ đề CLI', 'Trắc nghiệm một lựa chọn', 'Câu CLI?', '1', 'Nhận biết', ['Đúng', 'Sai']),
+        ])
+        tmp = tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False)
+        tmp.write(wb.read())
+        tmp.close()
+        return tmp.name
+
+    def test_dry_run_via_command_does_not_write(self):
+        from django.core.management import call_command
+
+        path = self._write_temp_xlsx()
+        call_command('import_cls_questions', file=path, tenant='Demo Tenant', dry_run=True)
+        self.assertEqual(QuestionBank.objects.count(), 0)
+
+    def test_real_run_via_command_writes(self):
+        from django.core.management import call_command
+
+        path = self._write_temp_xlsx()
+        call_command('import_cls_questions', file=path, tenant='Demo Tenant')
+        self.assertEqual(QuestionBank.objects.filter(name='Chủ đề CLI').count(), 1)
+        self.assertEqual(Question.objects.filter(stem_html='Câu CLI?').count(), 1)
+
+    def test_missing_tenant_raises(self):
+        from django.core.management import CommandError, call_command
+
+        path = self._write_temp_xlsx()
+        with self.assertRaises(CommandError):
+            call_command('import_cls_questions', file=path, tenant='Tenant không tồn tại')
+
+    def test_missing_file_raises(self):
+        from django.core.management import CommandError, call_command
+
+        with self.assertRaises(CommandError):
+            call_command('import_cls_questions', file='/khong/ton/tai.xlsx', tenant='Demo Tenant')
