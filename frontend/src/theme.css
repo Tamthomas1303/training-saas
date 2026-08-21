@@ -196,6 +196,54 @@ textarea:focus {
   font-weight: 600;
 }
 
+/* ---- StatCard v2 (UI dot 2 muc C - the tich hop sparkline, CHI kich hoat khi truyen
+   delta/trend, xem components/StatCard.jsx) ---- */
+.stat-card-v2 {
+  gap: 8px;
+}
+.stat-card-v2-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.stat-icon-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  flex-shrink: 0;
+  font-size: 1.05rem;
+}
+.stat-card-v2-num-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.stat-delta {
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.stat-delta.good {
+  color: var(--forest-dark);
+}
+.stat-delta.bad {
+  color: var(--danger);
+}
+.stat-caption {
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-top: -4px;
+}
+.stat-sparkline {
+  margin-top: 4px;
+}
+
 /* ---- ProgressBar ---- */
 .bar-track {
   height: 8px;
@@ -373,69 +421,8 @@ table.themed tbody tr:hover {
   color: var(--muted);
 }
 
-/* ---- TopBar (desktop shell) ---- */
-.topbar {
-  background: #fff;
-  border-bottom: 1px solid var(--card-border);
-  position: sticky;
-  top: 0;
-  z-index: 100;
-}
-.topbar-inner {
-  max-width: 1760px;
-  margin: 0 auto;
-  padding: 10px 20px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: nowrap;
-}
-.topbar-brand {
-  color: var(--forest);
-  font-weight: 700;
-  font-size: 1.35rem;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.topbar-brand:hover {
-  text-decoration: none;
-  color: var(--forest-dark);
-}
-.topbar-nav {
-  display: flex;
-  gap: 2px;
-  flex: 1;
-  flex-wrap: wrap;
-  row-gap: 4px;
-}
-.nav-link {
-  padding: 7px 8px;
-  border-radius: 8px;
-  color: var(--text);
-  font-size: 0.86rem;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  white-space: nowrap;
-}
-.nav-link-icon {
-  font-size: 1.05rem;
-}
-.nav-link:hover {
-  background: var(--page-bg);
-  text-decoration: none;
-}
-.nav-link.active {
-  background: var(--mint);
-  color: var(--forest);
-  font-weight: 600;
-}
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-shrink: 0;
-}
+/* ---- topbar-user (dung boi mobile-topstrip + UserMenu) - TopBar.jsx (desktop shell ngang) da
+   duoc thay bang Sidebar console admin, xem UI dot 2 muc "Console admin" ben duoi. ---- */
 .topbar-user {
   font-size: 0.85rem;
   color: var(--muted);
@@ -540,6 +527,147 @@ table.themed tbody tr:hover {
   max-width: 1440px;
   margin: 0 auto;
   padding: 20px;
+}
+
+/* ---- Console admin (UI dot 2 - Prompt_UI_Dot2_ConsoleAdmin.md) - CHI admin/om/bod tren
+   desktop (xem AppShell.jsx). KHONG anh huong .app-content-mobile/.mobile-topstrip/.bottom-nav
+   cua man van hanh (TUYET DOI khong doi bo cuc man do, xem dau file prompt doi 2). */
+.admin-shell {
+  display: flex;
+  min-height: 100%;
+}
+.admin-sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 260px;
+  height: 100vh;
+  background: var(--card);
+  border-right: 0.5px solid var(--card-border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  z-index: 110;
+  transition: width 0.15s ease;
+}
+.admin-sidebar.collapsed {
+  width: 64px;
+}
+.admin-sidebar-toggle {
+  align-self: flex-end;
+  margin: 10px;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px;
+  border-radius: 8px;
+}
+.admin-sidebar-toggle:hover {
+  background: var(--page-bg);
+  color: var(--text);
+}
+.admin-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 10px 16px;
+}
+.admin-sidebar-link,
+.admin-sidebar-group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 0.86rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+}
+.admin-sidebar-group-head {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.admin-sidebar-group-head span {
+  flex: 1;
+}
+.admin-sidebar-link:hover,
+.admin-sidebar-group-head:hover {
+  background: var(--page-bg);
+  text-decoration: none;
+}
+.admin-sidebar-link.active {
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-weight: 600;
+}
+.admin-sidebar-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-left: 14px;
+  margin-bottom: 4px;
+}
+.admin-sidebar.collapsed .admin-sidebar-link,
+.admin-sidebar.collapsed .admin-sidebar-group-head {
+  justify-content: center;
+  padding: 9px;
+}
+
+.admin-shell-main {
+  flex: 1;
+  min-width: 0;
+  margin-left: 260px;
+  transition: margin-left 0.15s ease;
+}
+.admin-shell-main.collapsed {
+  margin-left: 64px;
+}
+.admin-topbar-thin {
+  background: var(--card);
+  border-bottom: 0.5px solid var(--card-border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.admin-topbar-thin-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--brand);
+  font-weight: 600;
+  font-size: 1rem;
+  white-space: nowrap;
+}
+.admin-topbar-thin-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Design system dot 2 muc B - the/vien/bo goc + typography, SCOPE RIENG trong .admin-shell de
+   khong dung cham man van hanh mobile (chi ap dung noi dung ben trong console admin). */
+.admin-shell .card {
+  border-width: 0.5px;
+  border-radius: 12px;
+}
+.admin-shell h1 {
+  font-size: 22px;
+}
+.admin-shell h2 {
+  font-size: 18px;
+}
+.admin-shell h3 {
+  font-size: 16px;
 }
 
 /* ---- BottomNav (mobile shell) ---- */

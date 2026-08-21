@@ -56,14 +56,11 @@ export default function DashboardPage() {
       {data && (
         <>
           <div className="stat-grid" style={{ marginBottom: 16 }}>
-            <StatCard icon="🧑‍🍳" label="Tổng nhân viên mới (tháng này)" value={data.stats.total_new}>
-              {data.stats.total_new_delta != null && (
-                <div className="muted-note" style={{ marginTop: 4 }}>
-                  {data.stats.total_new_delta >= 0 ? '+' : ''}
-                  {data.stats.total_new_delta}% so với tháng trước
-                </div>
-              )}
-            </StatCard>
+            <StatCard
+              icon="🧑‍🍳" label="Tổng nhân viên mới (tháng này)" value={data.stats.total_new}
+              delta={data.stats.total_new_delta ?? undefined}
+              trend={[data.stats.total_new_prev, data.stats.total_new]}
+            />
             <StatCard icon="⏳" label="Đang thử việc" value={data.stats.probation} />
             <StatCard icon="✅" label="Hoàn thành thử việc" value={data.stats.completed} />
             <StatCard icon="🎯" label="Tỷ lệ đạt thử việc level S trong tháng" value={`${data.stats.pass_rate}%`}>

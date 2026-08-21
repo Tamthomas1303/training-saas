@@ -376,6 +376,21 @@ class DashboardStatsApiTests(TestCase):
         self.assertEqual(stats['den'], expected_den)
         self.assertEqual(stats['pass_rate'], expected_rate)
 
+    def test_dashboard_exposes_total_new_prev_for_sparkline(self):
+        """UI dot 2 (Prompt_UI_Dot2_ConsoleAdmin.md muc C) - total_new_prev la du lieu THAT (da
+        tinh san tu truoc de ra total_new_delta), CHI moi lo ra them de FE ve sparkline 2 diem,
+        khong doi cach tinh gi ca."""
+        today = timezone.now().date()
+        prev_month_date = today.replace(day=1) - datetime.timedelta(days=1)
+        Employee.objects.create(tenant=self.tenant, code='S1', name='A', start_date=today)
+        Employee.objects.create(tenant=self.tenant, code='S2', name='B', start_date=prev_month_date)
+        Employee.objects.create(tenant=self.tenant, code='S3', name='C', start_date=prev_month_date)
+
+        resp = self.client.get('/api/employees/dashboard/')
+        stats = resp.data['stats']
+        self.assertEqual(stats['total_new'], 1)
+        self.assertEqual(stats['total_new_prev'], 2)
+
 
 class RecomputeFinalResultNoBackfillTests(TestCase):
     """pass_date CHI duoc set khi final_result THAT SU chuyen sang Pass, khong backfill cho

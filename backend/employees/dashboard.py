@@ -107,6 +107,9 @@ def dashboard_stats(user):
     return {
         'total_new': len(new_this),
         'total_new_delta': total_new_delta,
+        # UI dot 2 (Prompt_UI_Dot2_ConsoleAdmin.md muc C) - da tinh san o tren (len(new_prev)),
+        # CHI THEM truong tra ve de FE ve sparkline 2 diem that (khong doi cach tinh gi ca).
+        'total_new_prev': len(new_prev),
         'probation': len(probation_now),
         'completed': len(passed),
         'pass_rate': s_pass_rate['rate'],
