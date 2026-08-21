@@ -8,8 +8,13 @@ from accounts.mixins import TenantScopedViewSetMixin
 from accounts.pagination import DefaultPagination
 from restaurants.models import Restaurant
 
-from .models import User, UserRestaurantAssignment
-from .serializers import TenantAwareTokenObtainPairSerializer, UserAdminSerializer, UserSerializer
+from .models import BrandSettings, User, UserRestaurantAssignment
+from .serializers import (
+    BrandSettingsSerializer,
+    TenantAwareTokenObtainPairSerializer,
+    UserAdminSerializer,
+    UserSerializer,
+)
 
 
 class LoginView(TokenObtainPairView):
@@ -20,6 +25,20 @@ class MeView(APIView):
 
     def get(self, request):
         return Response(UserSerializer(request.user).data)
+
+
+class BrandSettingsView(APIView):
+    """GET /api/settings/brand/ — cau hinh thuong hieu (UI dot 1) cua tenant nguoi dang nhap:
+    {system_name, logo_url, brand_hex, theme_mode}. Bat ky tai khoan da dang nhap nao cung doc
+    duoc (khong phai man quan tri). Chua co ban ghi (tenant chua cau hinh) -> tra ve gia tri mac
+    dinh cua model, KHONG tu tao ban ghi trong DB."""
+
+    def get(self, request):
+        settings_obj = (
+            BrandSettings.objects.filter(tenant=request.user.tenant).first()
+            or BrandSettings(tenant=request.user.tenant)
+        )
+        return Response(BrandSettingsSerializer(settings_obj).data)
 
 
 class ChangeAvatarView(APIView):

@@ -2,8 +2,16 @@ import { useEffect, useRef } from 'react'
 import {
   Chart, RadarController, RadialLinearScale, PointElement, LineElement, Filler, Legend, Tooltip,
 } from 'chart.js'
+import { hexToRgba } from '../utils/color'
 
 Chart.register(RadarController, RadialLinearScale, PointElement, LineElement, Filler, Legend, Tooltip)
+
+// UI dot 1 (Prompt_UI_Dot1_Theme.md muc 3d): "Thuc te" doc --brand RUNTIME thay vi hardcode
+// '#2E6F40'. Doc trong ham (khong phai hang so module-level) de luon lay dung gia tri MOI NHAT.
+function brandColor() {
+  const brand = getComputedStyle(document.documentElement).getPropertyValue('--brand').trim()
+  return brand || '#2E6F40'
+}
 
 // Radar Thuc te vs Muc tieu (Dashboard Phan A muc 4) - dung truc tiep chart.js (khong qua
 // react-chartjs-2) de khong them lop bao ngoai, dung quy uoc "it phu thuoc" cua repo nay.
@@ -33,13 +41,14 @@ export default function RadarChart({ labels, actual, target, height = 320 }) {
 
   useEffect(() => {
     if (!chartRef.current) return
+    const brand = brandColor()
     const datasets = [
       {
         label: 'Thực tế',
         data: actual.map((v) => v ?? 0),
-        borderColor: '#2E6F40',
-        backgroundColor: 'rgba(46, 111, 64, 0.25)',
-        pointBackgroundColor: '#2E6F40',
+        borderColor: brand,
+        backgroundColor: hexToRgba(brand, 0.25),
+        pointBackgroundColor: brand,
       },
     ]
     if (target && target.some((v) => v !== null && v !== undefined)) {

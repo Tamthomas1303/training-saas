@@ -46,7 +46,9 @@ class EmployeeLearnerScope(BasePermission):
     cac app khac. Ap dung toan cuc qua DEFAULT_PERMISSION_CLASSES giong BodReadOnly, tranh phai
     sua tung app khi them role nay."""
 
-    ALLOWED_PREFIXES = ('/api/courses/', '/api/exams/', '/api/integration/', '/api/auth/me')
+    # /api/settings/brand/ (UI dot 1): mau/ten/logo thuong hieu phai ap cho MOI tai khoan, ke
+    # ca hoc vien (dung y "man van hanh mobile role giu nguyen bo cuc, chi nhan mau/ten/logo").
+    ALLOWED_PREFIXES = ('/api/courses/', '/api/exams/', '/api/integration/', '/api/auth/me', '/api/settings/brand/')
 
     def has_permission(self, request, view):
         if (getattr(request.user, 'role', '') or '').lower() != 'employee':

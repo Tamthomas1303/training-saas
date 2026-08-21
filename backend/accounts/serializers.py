@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from .models import User
+from .models import BrandSettings, User
 
 DEFAULT_PASSWORD = 'Anhminh@12345'
 
@@ -67,6 +67,12 @@ class UserSerializer(serializers.ModelSerializer):
             'restaurant_name',
         ]
         read_only_fields = fields
+
+
+class BrandSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BrandSettings
+        fields = ['system_name', 'logo_url', 'brand_hex', 'theme_mode']
 
 
 class TenantAwareTokenObtainPairSerializer(TokenObtainPairSerializer):

@@ -17,9 +17,14 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import include, path
 
+from accounts.views import BrandSettingsView
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/auth/', include('accounts.urls')),
+    # UI dot 1 (Prompt_UI_Dot1_Theme.md) - dung URL dung nhu prompt yeu cau, KHONG nam duoi
+    # prefix api/auth/ cua accounts.urls (de khop dung "/api/settings/brand/").
+    path('api/settings/brand/', BrandSettingsView.as_view(), name='brand-settings'),
     path('api/restaurants/', include('restaurants.urls')),
     path('api/employees/', include('employees.urls')),
     path('api/checklist/', include('checklist.urls')),

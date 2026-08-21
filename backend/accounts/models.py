@@ -66,6 +66,28 @@ class User(AbstractUser):
         return f"{self.username} ({self.tenant_id})"
 
 
+class BrandSettings(models.Model):
+    """Cau hinh thuong hieu (UI dot 1 - Prompt_UI_Dot1_Theme.md muc 3c): mau/logo/ten he thong
+    ap dung runtime cho MOI tai khoan cua tenant. OneToOne theo Tenant o dot nay (chua thuc su
+    da-brand - `brand_key` de san cho tuong lai neu can tach nhieu thuong hieu trong CUNG 1
+    tenant, hien khong dung de loc gi ca)."""
+
+    class ThemeMode(models.TextChoices):
+        LIGHT = 'light', 'Light'
+        DARK = 'dark', 'Dark'
+
+    tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name='brand_settings')
+    system_name = models.CharField(max_length=255, blank=True)
+    logo_url = models.URLField(max_length=500, blank=True)
+    brand_hex = models.CharField(max_length=7, default='#1e6f5c')
+    brand_key = models.CharField(max_length=50, blank=True, null=True)
+    theme_mode = models.CharField(max_length=10, choices=ThemeMode.choices, default=ThemeMode.LIGHT)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.tenant_id} - {self.brand_hex}'
+
+
 class UserRestaurantAssignment(models.Model):
     """"Phan vung" cho KCS - 1 KCS co the phu trach nhieu nha hang. Port DB_AreaAssignment
     (UserService.gs::setUserAreas). Chi dung cho KCS hien tai (xem employees/permissions.py::

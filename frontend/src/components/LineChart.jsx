@@ -5,7 +5,17 @@ import {
 
 Chart.register(LineController, LineElement, PointElement, CategoryScale, LinearScale, Legend, Tooltip)
 
-const SERIES_COLORS = ['#2E6F40', '#68BA7F', '#C88A3C']
+// UI dot 1 (Prompt_UI_Dot1_Theme.md muc 3d): chuoi 1 doc --brand RUNTIME (khong hardcode nua,
+// doi theo thuong hieu tenant) - doc trong ham (khong phai hang so module-level) de luon lay
+// dung gia tri MOI NHAT cua bien CSS luc ve, khong bi "dong bang" gia tri luc file duoc import.
+// Chuoi phu (2, 3) la mau ngu nghia/phu - GIU NGUYEN, khong doi theo brand (dung y prompt).
+function seriesColor(i) {
+  if (i === 0) {
+    const brand = getComputedStyle(document.documentElement).getPropertyValue('--brand').trim()
+    return brand || '#2E6F40'
+  }
+  return ['#68BA7F', '#C88A3C'][i - 1] || '#68BA7F'
+}
 
 // Xu huong nhieu thang (1-3 chuoi) - dung truc tiep chart.js, cung quy uoc voi RadarChart.jsx.
 // series: [{ label, data: number[] }]
@@ -38,8 +48,8 @@ export default function LineChart({ labels, series, height = 260, max = 100 }) {
     chartRef.current.data.datasets = series.map((s, i) => ({
       label: s.label,
       data: s.data,
-      borderColor: SERIES_COLORS[i % SERIES_COLORS.length],
-      backgroundColor: SERIES_COLORS[i % SERIES_COLORS.length],
+      borderColor: seriesColor(i),
+      backgroundColor: seriesColor(i),
       pointRadius: 4,
       tension: 0.25,
     }))

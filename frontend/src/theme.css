@@ -1,16 +1,23 @@
-/* Lush forest design tokens - xem 03_THIET_KE_GIAO_DIEN.md muc 1 */
+/* Lush forest design tokens - xem 03_THIET_KE_GIAO_DIEN.md muc 1.
+   UI dot 1 (Prompt_UI_Dot1_Theme.md muc 3a): mau thuong hieu goc la --brand/--brand-dark/
+   --brand-soft, ghi de luc runtime boi utils/color.js::applyBrand() (doc tu API
+   /api/settings/brand/). --forest/--forest-dark/--mint GIU NGUYEN TEN de khong vo CSS cu khap
+   noi, chi doi thanh THAM CHIEU toi --brand* - doi 1 cho la doi ca he. */
 :root {
-  --forest: #2E6F40; /* PRIMARY: nut chinh, link, nav active, so lieu noi bat */
-  --forest-dark: #253D2C; /* chu dam/tieu de, hover nut, gradient toi */
-  --green: #68BA7F; /* phu/nhan: duoi gradient thanh tien do, vien nhan */
-  --mint: #CFFFDC; /* nen nhat: badge-soft, nen nav active, vung nhan nhe */
+  --brand: #2E6F40; /* mau thuong hieu goc - JS ghi de theo cau hinh, mac dinh khop mau rung cu */
+  --brand-dark: #253D2C; /* JS tinh = brand toi di ~14% */
+  --brand-soft: #CFFFDC; /* JS tinh = brand pha nen trang gan nhu tron */
+  --forest: var(--brand); /* PRIMARY: nut chinh, link, nav active, so lieu noi bat */
+  --forest-dark: var(--brand-dark); /* chu dam/tieu de, hover nut, gradient toi */
+  --green: #68BA7F; /* phu/nhan: duoi gradient thanh tien do, vien nhan - KHONG doi theo brand */
+  --mint: var(--brand-soft); /* nen nhat: badge-soft, nen nav active, vung nhan nhe */
   --page-bg: #F2F7F3; /* nen trang (mint pha rat nhat) */
   --card: #FFFFFF;
   --card-border: #E4EFE7;
   --text: #23302A;
   --muted: #7C8A82;
-  --danger: #C0392B;
-  --amber: #C88A3C; /* CHI dung cho so tien/hoa hong/cup */
+  --danger: #C0392B; /* mau ngu nghia (nguy co) - KHONG doi theo brand */
+  --amber: #C88A3C; /* CHI dung cho so tien/hoa hong/cup - mau ngu nghia (canh bao), KHONG doi theo brand */
 }
 
 * {
@@ -42,7 +49,7 @@ body {
   margin: 0;
   background: var(--page-bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-family: 'Be Vietnam Pro', Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 a {
