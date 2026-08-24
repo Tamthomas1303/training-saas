@@ -459,18 +459,18 @@ def _cls_exam_source_scores(employee, competency):
     ]
 
 
-DEFAULT_THEORY_WEIGHT = 50.0
-DEFAULT_PRACTICE_WEIGHT = 50.0
-
-
 def get_scoring_weights(tenant):
     """(trong_so_ly_thuyet, trong_so_thuc_hanh) - doc CompetencyScoringConfig cua tenant, mac
-    dinh 50/50 neu tenant CHUA cau hinh (khong tu tao dong - xem views.py::
-    CompetencyScoringConfigView, PATCH moi tao). Luu duoi dang % nhung khong bat buoc tong=100,
-    _combine_theory_practice tu chuan hoa theo ty le."""
+    dinh doc tu GradingConfig.weight_theory/weight_practical (UI dot 3 - mac dinh 50/50, giong
+    hang so cu) neu tenant CHUA cau hinh CompetencyScoringConfig rieng (khong tu tao dong - xem
+    views.py::CompetencyScoringConfigView, PATCH moi tao). Luu duoi dang % nhung khong bat buoc
+    tong=100, _combine_theory_practice tu chuan hoa theo ty le."""
     config = CompetencyScoringConfig.objects.filter(tenant=tenant).first()
     if not config:
-        return DEFAULT_THEORY_WEIGHT, DEFAULT_PRACTICE_WEIGHT
+        from accounts.services import get_grading_config
+
+        grading_config = get_grading_config(tenant)
+        return float(grading_config.weight_theory), float(grading_config.weight_practical)
     return float(config.theory_weight), float(config.practice_weight)
 
 
@@ -1043,6 +1043,14 @@ def _aggregate_context(user, month, year, restaurant):
 
     tenant = user.tenant
     month_start, month_end = _month_bounds(year, month)
+
+    # UI dot 3: "cham" GradingConfig 1 LAN CO DINH tai day (thay vi de lan dau cham vao no o bat
+    # ky nhanh nao ben duoi - kpi_bql_report_data/_dung_lo_trinh_trend deu doc qua no) - dam bao
+    # chi phi tao ban ghi lan dau (vai truy van) la CO DINH, KHONG phu thuoc thu tu/so luong
+    # nhan su cua tenant (giu dung bat bien cua AggregateDashboardQueryCountTests).
+    from accounts.services import get_grading_config
+
+    get_grading_config(tenant)
 
     # --- Onboarding: dung lo trinh + dat ky nang lan dau (tai dung kpi.services co san) ---
     kpi_data = kpi_bql_report_data(user, month, year)

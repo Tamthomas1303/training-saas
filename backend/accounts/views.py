@@ -11,10 +11,21 @@ from restaurants.models import Restaurant
 from .models import BrandSettings, User, UserRestaurantAssignment
 from .serializers import (
     BrandSettingsSerializer,
+    EmailSettingsSerializer,
+    GradingConfigHistorySerializer,
+    GradingConfigSerializer,
     TenantAwareTokenObtainPairSerializer,
     UserAdminSerializer,
     UserSerializer,
 )
+from .services import get_email_settings, get_grading_config, update_grading_config
+
+
+def _require_admin(request):
+    if (request.user.role or '').lower() != 'admin':
+        from rest_framework.exceptions import PermissionDenied
+
+        raise PermissionDenied('Chỉ Admin được thao tác Cài đặt.')
 
 
 class LoginView(TokenObtainPairView):
@@ -39,6 +50,65 @@ class BrandSettingsView(APIView):
             or BrandSettings(tenant=request.user.tenant)
         )
         return Response(BrandSettingsSerializer(settings_obj).data)
+
+    def put(self, request):
+        """PUT — chi Admin. Tao/cap nhat ban ghi BrandSettings cua tenant (khac GET, o day
+        THUC SU tao ban ghi trong DB de luu duoc gia tri da chinh)."""
+        _require_admin(request)
+        settings_obj, _created = BrandSettings.objects.get_or_create(tenant=request.user.tenant)
+        serializer = BrandSettingsSerializer(settings_obj, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+class GradingConfigView(APIView):
+    """GET/PUT /api/settings/grading/ — cau hinh thang danh gia & cong thuc (UI dot 3 muc B).
+    Chi Admin (ca doc lan ghi - day la du lieu nhay cam anh huong tinh luong/hoa hong)."""
+
+    def get(self, request):
+        _require_admin(request)
+        config = get_grading_config(request.user.tenant)
+        return Response(GradingConfigSerializer(config).data)
+
+    def put(self, request):
+        _require_admin(request)
+        current = get_grading_config(request.user.tenant)
+        validator = GradingConfigSerializer(current, data=request.data, partial=True)
+        validator.is_valid(raise_exception=True)
+        config, changed_count = update_grading_config(
+            request.user.tenant, request.user, validator.validated_data,
+        )
+        data = GradingConfigSerializer(config).data
+        data['_changed_count'] = changed_count
+        return Response(data)
+
+
+class GradingConfigHistoryView(APIView):
+    """GET /api/settings/grading/history/ — lich su thay doi GradingConfig (50 dong gan nhat)."""
+
+    def get(self, request):
+        _require_admin(request)
+        rows = request.user.tenant.grading_config_history.select_related('changed_by')[:50]
+        return Response(GradingConfigHistorySerializer(rows, many=True).data)
+
+
+class EmailSettingsView(APIView):
+    """GET/PUT /api/settings/email/ — nguoi nhan + lich gui bao cao qua email (UI dot 3 muc A2).
+    KHONG co truong SMTP/mat khau o day (giu bien moi truong - xem EmailSettings model)."""
+
+    def get(self, request):
+        _require_admin(request)
+        settings_obj = get_email_settings(request.user.tenant)
+        return Response(EmailSettingsSerializer(settings_obj).data)
+
+    def put(self, request):
+        _require_admin(request)
+        settings_obj = get_email_settings(request.user.tenant)
+        serializer = EmailSettingsSerializer(settings_obj, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
 
 class ChangeAvatarView(APIView):

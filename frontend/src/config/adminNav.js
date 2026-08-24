@@ -6,10 +6,15 @@
 // prompt). `roles` = giao cua roles that su cua route do (xem App.jsx::ProtectedRoute) voi tap
 // {admin, om, bod} - dam bao sidebar KHONG hien muc ngoai quyen (dung y "loc nhu getMenuForRole").
 //
-// Ghi chu pham vi dot 2: "Vi tri chuc danh"/"Co cau to chuc" (nhom 1) va "Cai dat"/"Lich su he
-// thong" (nhom 8) CHUA co route - de danh cho dot 3, khong dua vao day. "/commission" (Phu cap)
+// Ghi chu pham vi dot 2: "Vi tri chuc danh"/"Co cau to chuc" (nhom 1) CHUA co route - van chua
+// lam o dot 3 (ngoai pham vi Prompt_UI_Dot3_CaiDat_GradingConfig.md). "/commission" (Phu cap)
 // khong co trong bang 8 nhom cua prompt goc nen CHUA dua vao sidebar moi (da bao lai voi anh
 // Chung trong bao cao) - van vao duoc qua URL truc tiep, chi khong co lien ket nhanh.
+//
+// UI dot 3 (Prompt_UI_Dot3_CaiDat_GradingConfig.md muc A): nhom 8 them "Cai dat" (/settings).
+// "Lich su he thong" (audit trail rieng) VAN CHUA co - he thong chua co ha tang log dung duoc
+// cho muc dich nay (xem muc C cua prompt: chi lam neu DA CO san, chua co thi khong dung ra lam
+// moi o dot nay) - de lai cho dot sau.
 import {
   Award,
   BarChart3,
@@ -123,7 +128,10 @@ export const ADMIN_NAV = [
     title: 'Quản lý hệ thống',
     icon: Settings,
     items: [
-      { label: 'Cấu hình Dashboard', path: '/dashboard-config', icon: Settings, roles: ['admin'] },
+      { label: 'Cài đặt', path: '/settings', icon: Settings, roles: ['admin'] },
+      // "Lich su he thong" (audit trail) van CHUA co route - UI dot 3 muc C: he thong CHUA co
+      // ha tang log/audit dung duoc cho muc dich nay, khong tao moi o dot nay (xem bao cao ban
+      // giao) - de placeholder ghi chu nay lai cho dot sau, KHONG dua muc gia vao sidebar.
     ],
   },
 ]

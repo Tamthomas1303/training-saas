@@ -193,6 +193,27 @@ class ProgramEligibleTests(TestCase):
         self.assertTrue(ok)
         self.assertEqual(detail['positions_count'], 3)
 
+    def test_positions_count_defaults_to_grading_config_when_count_omitted(self):
+        """UI dot 3: neu rule_config khong co 'count', dung GradingConfig.cert_positions_required
+        (mac dinh 3 - giong hardcode cu) - khong con hardcode `count=3` trong program_eligible."""
+        from accounts.services import update_grading_config
+        from employees.models import LevelUpEnrollment
+
+        program = CertProgram.objects.create(
+            tenant=self.tenant, name='Chuyên môn', type=CertProgram.Type.CHUYEN_MON,
+            rule_config={'kind': 'positions_count'},
+        )
+        LevelUpEnrollment.objects.create(
+            tenant=self.tenant, employee=self.employee, target_position='Thu ngân', status='completed',
+        )
+        ok, detail = program_eligible(self.employee, program)
+        self.assertFalse(ok)  # 1 (vao lam) + 1 thang tien = 2 vi tri < mac dinh 3
+        self.assertEqual(detail['positions_count'], 2)
+
+        update_grading_config(self.tenant, None, {'cert_positions_required': 2})
+        ok, detail = program_eligible(self.employee, program)
+        self.assertTrue(ok)  # ha nguong xuong 2 -> dat
+
     def test_course_exam(self):
         program = CertProgram.objects.create(
             tenant=self.tenant, name='Train the trainer', type=CertProgram.Type.BQL,

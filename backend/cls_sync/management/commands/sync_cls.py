@@ -22,6 +22,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from accounts.models import Tenant
+from accounts.services import get_grading_config
 from cls_sync.models import CourseResult, ExamResult
 from cls_sync.services import onboarding_eligible
 from employees.models import Employee
@@ -239,10 +240,10 @@ def sync_exams(tenant, base_url, secret_key, start_date, probation_types, stdout
                 defaults={
                     'score': entry['score'],
                     # /user/result-exams khong tra co isPassed - suy tu diem so voi nguong
-                    # thi thu viec chuan (COMMISSION_EXAM_THRESHOLD); truong nay chi de hien
-                    # thi/tuong thich nguoc, logic pass thuc te dung final_score (xem
-                    # employees/services.py::exam_pass), khong doc truong nay.
-                    'passed': entry['score'] >= settings.COMMISSION_EXAM_THRESHOLD,
+                    # thi thu viec chuan (GradingConfig.exam_pass_percent - UI dot 3); truong
+                    # nay chi de hien thi/tuong thich nguoc, logic pass thuc te dung final_score
+                    # (xem employees/services.py::exam_pass), khong doc truong nay.
+                    'passed': entry['score'] >= get_grading_config(tenant).exam_pass_percent,
                     'exam_full_name': entry['exam_full_name'],
                     'exam_date': entry['exam_date'],
                 },

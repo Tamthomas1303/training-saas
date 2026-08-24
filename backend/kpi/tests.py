@@ -91,6 +91,40 @@ class ParseHelpersTests(TestCase):
         self.assertFalse(_is_boh_position(None))
 
 
+class KpiTierDaysGradingConfigTests(TestCase):
+    """UI dot 3: so ngay 'dung lo trinh' theo cap (15/30/60) doc tu GradingConfig thay vi
+    hardcode - doi days_manager_chef phai lam doi ket qua cohort ngay lap tuc (khong can restart/
+    deploy lai)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='NH1', name='NH Demo', brand='Kampong')
+
+    def test_changing_days_manager_chef_moves_deadline_into_or_out_of_period(self):
+        from accounts.services import update_grading_config
+
+        # Vi tri 'Bếp trưởng' vao lam 2026-07-01: han mac dinh 60 ngay -> 2026-08-30 (trong ky
+        # thang 8/2026). Neu ha days_manager_chef xuong 45 -> han thanh 2026-08-15 (van trong
+        # ky) - can chon vi du RO RANG doi ky de kiem tra thay doi thuc su xay ra: dung 45 ngay
+        # cho han roi sang thang 9 dung nguoc lai. Chon start_date de 60 ngay -> thang 8, 45
+        # ngay -> thang 9 KHONG dung (45<60 se han SOM hon). Dao lai: chon start_date sao cho
+        # han mac dinh (60) RƠI NGOAI ky thang 8 (vd 2026-07-15 -> han 2026-09-13, ngoai ky), va
+        # han moi (45 ngay) RƠI VAO ky thang 8 (2026-07-15+45=2026-08-29, trong ky).
+        e = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='NV1', restaurant=self.restaurant,
+            position='Bếp trưởng', operation_unit=Employee.OperationUnit.RESTAURANT,
+            start_date=datetime.date(2026, 7, 15),
+        )
+
+        by_restaurant = _bql_cohort_stats([e], 8, 2026)
+        self.assertEqual(by_restaurant, {})  # han mac dinh 60 ngay roi sang thang 9, ngoai ky 8
+
+        update_grading_config(self.tenant, None, {'days_manager_chef': 45})
+
+        by_restaurant = _bql_cohort_stats([e], 8, 2026)
+        self.assertIn(self.restaurant.id, by_restaurant)  # han 45 ngay roi dung vao ky 8
+
+
 class BqlCohortStatsTests(TestCase):
     """Cong thuc bao cao KPI BQL (Phan 1 - Prompt v2.1_Port_va_LamDep_Form 07.08.2026)."""
 

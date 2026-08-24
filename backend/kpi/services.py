@@ -187,8 +187,11 @@ def kpi_stats(user):
 
 def recompute_commission(employee):
     """Tinh lai hoa hong cho 1 nhan su. Port CommissionService.gs::recompute."""
+    from accounts.services import get_grading_config
+
     tenant = employee.tenant
-    allowlist = settings.COMMISSION_RESTAURANT_ALLOWLIST
+    config = get_grading_config(tenant)
+    allowlist = config.allowance_scope
 
     existing = Commission.objects.filter(employee=employee).first()
 
@@ -222,7 +225,7 @@ def recompute_commission(employee):
         status = Commission.Status.PAID  # sticky - da chi thi giu nguyen
 
     commission.trainer = trainer
-    commission.amount = settings.COMMISSION_AMOUNT
+    commission.amount = config.allowance_per_person
     commission.cond_lms = conditions['lms']
     commission.cond_exam = conditions['exam']
     commission.cond_training = conditions['training']
@@ -261,14 +264,19 @@ def mark_commission_paid(commission):
     return commission
 
 
-def _kpi_tier_days(position):
-    """Han "dung lo trinh" theo vi tri. Port KpiReportService.gs::TIER (S=15, O2=30, O3=60)."""
+def _kpi_tier_days(tenant, position):
+    """Han "dung lo trinh" theo vi tri. Port KpiReportService.gs::TIER (S=15, O2=30, O3=60).
+    UI dot 3: so ngay doc tu GradingConfig cua tenant (days_staff/days_supervisor_deputy/
+    days_manager_chef), khong con hardcode."""
+    from accounts.services import get_grading_config
+
+    config = get_grading_config(tenant)
     p = (position or '').lower()
     if 'giám sát' in p or 'bếp phó' in p:
-        return 30
+        return config.days_supervisor_deputy
     if 'quản lý' in p or 'bếp trưởng' in p:
-        return 60
-    return 15
+        return config.days_manager_chef
+    return config.days_staff
 
 
 def _is_parttime_p(employee):
@@ -298,7 +306,7 @@ def _is_boh_position(position):
     return any(kw in normalized for kw in BOH_KEYWORDS)
 
 
-def _bql_cohort_stats(employees, month, year):
+def _bql_cohort_stats(employees, month, year, tenant=None):
     """Cohort BQL KPI (port Apps Script 05-07/08/2026): nhan su co HAN DANH GIA (start_date +
     so ngay theo cap - xem _kpi_tier_days) roi TRONG ky bao cao, VA thuoc Khoi Nha hang
     (operation_unit='restaurant' - LOAI HAN Khoi Van phong/San xuat va nhan su khong co phong
@@ -311,8 +319,20 @@ def _bql_cohort_stats(employees, month, year):
 
     Nha hang van xuat hien du cohort = 0/0, kem so nhan su bi loai (excl_resigned/
     excl_next_period) cho nhung nguoi VAO TRONG KY nay nhung nghi viec hoac han danh gia roi
-    sang ky sau - de bao cao khong "bien mat" nha hang do."""
+    sang ky sau - de bao cao khong "bien mat" nha hang do.
+
+    `tenant`: UI dot 3 - GradingConfig.days_* doc qua _kpi_tier_days(tenant, ...) can 1 Tenant
+    INSTANCE; TRUYEN SAN tu goi ham (moi nguoi goi deu biet tenant, vd user.tenant) de tranh
+    N+1 (moi Employee trong `employees` deu CUNG 1 tenant, khong can e.tenant tung dong - truoc
+    day se fetch lai FK tenant MOI LAN duyet vi scoped_employees()/... khong select_related
+    'tenant', va ham nay bi goi lai NHIEU LAN cho xu huong nhieu thang -
+    dashboard._dung_lo_trinh_trend). Khong truyen -> tu suy tu employees[0].tenant (tien cho
+    goi truc tiep tu test/script, chi 1 lan cho ca ham)."""
     from evaluation.models import Evaluation
+
+    employees = list(employees)
+    if tenant is None and employees:
+        tenant = employees[0].tenant
 
     by_restaurant = {}
 
@@ -330,7 +350,7 @@ def _bql_cohort_stats(employees, month, year):
     for e in employees:
         if not e.start_date or e.operation_unit != Employee.OperationUnit.RESTAURANT:
             continue
-        tier = _kpi_tier_days(e.position)
+        tier = _kpi_tier_days(tenant, e.position)
         deadline = e.start_date + datetime.timedelta(days=tier)
         in_period = deadline.month == month and deadline.year == year
         hired_this_period = e.start_date.month == month and e.start_date.year == year
@@ -369,10 +389,12 @@ def _bql_cohort_stats(employees, month, year):
     return by_restaurant
 
 
-def _bql_person_totals(employees, month, year):
+def _bql_person_totals(employees, month, year, tenant=None):
     """Gop so lieu cohort THEO NHAN SU (tong tu so/mau so tren toan bo pham vi truyen vao,
-    KHONG PHAI trung binh cong ty le tung nha hang) - dung cho khoi 'Thong ke theo AM/KCS/OM'."""
-    by_restaurant = _bql_cohort_stats(employees, month, year)
+    KHONG PHAI trung binh cong ty le tung nha hang) - dung cho khoi 'Thong ke theo AM/KCS/OM'.
+    `tenant`: xem _bql_cohort_stats - truyen san de tranh N+1 khi ham nay bi goi lap lai (vd
+    _kpi_bql_am_kcs_om_stats goi 1 lan/nguoi phu trach)."""
+    by_restaurant = _bql_cohort_stats(employees, month, year, tenant=tenant)
     totals = {'on_num': 0, 'on_den': 0, 'skill_pass': 0, 'skill_total': 0}
     for row in by_restaurant.values():
         for key in totals:
@@ -387,7 +409,7 @@ def kpi_bql_totals(user, month, year):
     rows chi tiet tung nha hang + khoi 'Thong ke theo AM/KCS/OM') - nhe hon, dung cho bieu do xu
     huong nhieu thang (Dashboard Phan B) de tranh goi lai _kpi_bql_am_kcs_om_stats khong can
     thiet cho tung thang trong chuoi xu huong."""
-    return _bql_person_totals(scoped_employees(user), month, year)
+    return _bql_person_totals(scoped_employees(user), month, year, tenant=user.tenant)
 
 
 def _kpi_bql_am_kcs_om_stats(tenant, month, year):
@@ -405,7 +427,7 @@ def _kpi_bql_am_kcs_om_stats(tenant, month, year):
 
     rows = []
     for u in User.objects.filter(tenant=tenant, role__in=('am', 'om')).order_by('username'):
-        totals = _bql_person_totals(all_employees, month, year)
+        totals = _bql_person_totals(all_employees, month, year, tenant=tenant)
         rows.append({
             'role': (u.role or '').upper(), 'name': u.full_name or u.username,
             'scope': 'Toàn hệ thống (BOH + FOH)', 'emp_count': totals['on_den'], **totals,
@@ -419,7 +441,7 @@ def _kpi_bql_am_kcs_om_stats(tenant, month, year):
             e for e in all_employees
             if e.restaurant_id in restaurant_ids and _is_boh_position(e.position)
         ]
-        totals = _bql_person_totals(kitchen_employees, month, year)
+        totals = _bql_person_totals(kitchen_employees, month, year, tenant=tenant)
         rows.append({
             'role': 'KCS', 'name': u.full_name or u.username,
             'scope': f'{len(restaurant_ids)} nhà hàng (chỉ bếp)', 'emp_count': totals['on_den'], **totals,
@@ -433,7 +455,7 @@ def kpi_bql_report_data(user, month, year):
     lan dau, gom theo nha hang (chi Khoi Nha hang) + khoi 'Thong ke theo AM/KCS/OM'. Port
     KpiReportService.gs::trainingKpiData + cap nhat cong thuc theo Apps Script 05-07/08/2026
     (xem _bql_cohort_stats)."""
-    by_restaurant = _bql_cohort_stats(scoped_employees(user), month, year)
+    by_restaurant = _bql_cohort_stats(scoped_employees(user), month, year, tenant=user.tenant)
 
     rows = []
     totals = {

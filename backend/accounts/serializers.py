@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from .models import BrandSettings, User
+from .models import BrandSettings, EmailSettings, GradingConfig, GradingConfigHistory, User
 
 DEFAULT_PASSWORD = 'Anhminh@12345'
 
@@ -72,7 +72,37 @@ class UserSerializer(serializers.ModelSerializer):
 class BrandSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = BrandSettings
-        fields = ['system_name', 'logo_url', 'brand_hex', 'theme_mode']
+        fields = ['system_name', 'logo_url', 'favicon_url', 'brand_hex', 'theme_mode']
+
+
+class GradingConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GradingConfig
+        fields = [
+            'exam_pass_percent', 'skill_pass_percent', 'weight_exam', 'weight_practice',
+            'weight_theory', 'weight_practical', 'days_staff', 'days_supervisor_deputy',
+            'days_manager_chef', 'probation_pass_rule', 'allowance_per_person',
+            'allowance_exam_min', 'allowance_skill_min', 'allowance_scope',
+            'cert_positions_required', 'cert_program_rule', 'updated_at',
+        ]
+        read_only_fields = ['updated_at']
+
+
+class GradingConfigHistorySerializer(serializers.ModelSerializer):
+    changed_by_name = serializers.CharField(source='changed_by.full_name', read_only=True, default='')
+
+    class Meta:
+        model = GradingConfigHistory
+        fields = ['id', 'changed_at', 'changed_by_name', 'field', 'old_value', 'new_value']
+
+
+class EmailSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EmailSettings
+        fields = [
+            'from_display_name', 'recipients', 'cc', 'weekly_enabled', 'weekly_weekday',
+            'weekly_hour', 'monthly_enabled', 'monthly_day', 'monthly_hour', 'timezone',
+        ]
 
 
 class TenantAwareTokenObtainPairSerializer(TokenObtainPairSerializer):

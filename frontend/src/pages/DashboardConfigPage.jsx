@@ -169,7 +169,11 @@ function TrainingCostSourceCard() {
   )
 }
 
-export default function DashboardConfigPage() {
+// UI dot 3 (Prompt_UI_Dot3_CaiDat_GradingConfig.md muc A): noi dung man nay doi vao lam the
+// "Cau hinh Dashboard" trong /settings (SettingsPage.jsx) - tach rieng khoi AppShell de dung
+// duoc CA hai noi (AppShell rieng cua trang nay - giu de tuong thich - VA nhung ben trong tab
+// cua SettingsPage, tranh long 2 lan AppShell).
+export function DashboardConfigContent() {
   const [indicators, setIndicators] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -210,8 +214,7 @@ export default function DashboardConfigPage() {
   const groups = [...new Set(indicators.map((i) => i.group_label))]
 
   return (
-    <AppShell>
-      <h2>Cấu hình Dashboard</h2>
+    <>
       <p className="muted-note">
         Bật/tắt từng chỉ số, chọn màn hiển thị (Hồ sơ 360 / CEO / GĐĐT) và ngưỡng tô màu. Chỉ số tắt sẽ
         không hiện; chỉ số bật nhưng chưa có dữ liệu hiện nhãn "Chờ dữ liệu".
@@ -244,6 +247,15 @@ export default function DashboardConfigPage() {
           </Table>
         </div>
       ))}
+    </>
+  )
+}
+
+export default function DashboardConfigPage() {
+  return (
+    <AppShell>
+      <h2>Cấu hình Dashboard</h2>
+      <DashboardConfigContent />
     </AppShell>
   )
 }

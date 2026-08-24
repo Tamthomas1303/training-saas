@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
@@ -79,6 +81,7 @@ class BrandSettings(models.Model):
     tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name='brand_settings')
     system_name = models.CharField(max_length=255, blank=True)
     logo_url = models.URLField(max_length=500, blank=True)
+    favicon_url = models.URLField(max_length=500, blank=True)
     brand_hex = models.CharField(max_length=7, default='#1e6f5c')
     brand_key = models.CharField(max_length=50, blank=True, null=True)
     theme_mode = models.CharField(max_length=10, choices=ThemeMode.choices, default=ThemeMode.LIGHT)
@@ -103,3 +106,123 @@ class UserRestaurantAssignment(models.Model):
 
     def __str__(self):
         return f'{self.user_id} -> {self.restaurant_id}'
+
+
+class GradingConfig(models.Model):
+    """UI dot 3 (Prompt_UI_Dot3_CaiDat_GradingConfig.md muc B) - externalize cac tham so nghiep
+    vu TRUOC DAY hardcode rai rac (diem dat thi/ky nang, trong so cong thuc, so ngay theo cap,
+    phu cap, dieu kien chung chi) ve 1 noi CAU HINH DUOC qua man Cai dat, khong can sua code.
+
+    Gia tri mac dinh cua CAC TRUONG DUOI DAY (field default o model) PHAI khop dung hang so dang
+    hardcode HIEN TAI de dam bao KHONG doi ket qua nghiep vu (regression) khi lan dau bat ky
+    tenant nao duoc doc qua accounts.services.get_grading_config() (tu tao ban ghi neu chua co).
+    Voi cac truong TRUOC DAY doc tu bien moi truong (COMMISSION_*), get_grading_config() uu tien
+    seed tu GIA TRI DANG CHAY THAT cua bien moi truong do (khong phai default() o day) luc tao
+    ban ghi dau tien - de dung voi MOI deployment, ke ca deployment da tung chinh .env khac
+    mac dinh trong settings.py (xem accounts/services.py)."""
+
+    tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name='grading_config')
+
+    # Nhom "Thi" - Chấm thi đạt/không (exams: employees.services.exam_pass/batch_lms_marks,
+    # cls_sync, integration 'course_exam', career.py, employees/detail.py).
+    exam_pass_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('80'))
+    # Nhom "Ky nang" - hien chi la truong luu cau hinh (chua co ham dung rieng ngoai allowance_*
+    # o duoi, vi trong code that hien tai nguong ky nang CHI duoc dung boi luong phu cap - xem
+    # allowance_skill_min). Giu de du bang B cua prompt + san sang cho tuong lai.
+    skill_pass_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('85'))
+
+    # Nhom "Diem tong hop" - phieu ket qua thu viec (employees.detail.export_probation_result_pdf).
+    weight_exam = models.DecimalField(max_digits=4, decimal_places=2, default=Decimal('0.4'))
+    weight_practice = models.DecimalField(max_digits=4, decimal_places=2, default=Decimal('0.6'))
+
+    # Nhom "Nang luc (radar)" - fallback khi tenant CHUA co CompetencyScoringConfig rieng (xem
+    # dashboard.services.get_scoring_weights - CompetencyScoringConfig van la nguon uu tien neu
+    # da ton tai, KHONG doi hanh vi do).
+    weight_theory = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('50'))
+    weight_practical = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('50'))
+
+    # Nhom "Lo trinh" - han "dung lo trinh" theo cap (kpi.services._kpi_tier_days).
+    days_staff = models.PositiveIntegerField(default=15)
+    days_supervisor_deputy = models.PositiveIntegerField(default=30)
+    days_manager_chef = models.PositiveIntegerField(default=60)
+
+    # Mo ta ngưỡng thu viec (khong dung tinh toan tu dong o dot nay - chi de tham chieu/ghi chu
+    # quy che, xem prompt muc B "probation_pass_rule (mo ta/nguong)").
+    probation_pass_rule = models.TextField(
+        blank=True,
+        default=(
+            '5 điều kiện hoa hồng trainer: hoàn thành LMS + thi đạt (exam_pass_percent) + '
+            'checklist đào tạo 100% + đánh giá kỹ năng đạt (skill_pass_percent) + làm đủ '
+            '1 tháng.'
+        ),
+    )
+
+    # Nhom "Phu cap" - kpi.services.recompute_commission.
+    allowance_per_person = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('300000'))
+    allowance_exam_min = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('80'))
+    allowance_skill_min = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('85'))
+    # Danh sach Restaurant.code duoc ap dung hoa hong; RONG = ap dung TAT CA nha hang (dung mac
+    # dinh HIEN TAI cua settings.COMMISSION_RESTAURANT_ALLOWLIST trong he thong nay - KHONG phai
+    # "4 co so Kampong" cua ban Apps Script goc, xem ghi chu trong settings.py).
+    allowance_scope = models.JSONField(default=list, blank=True)
+
+    # Nhom "Chung chi" - integration.services.program_eligible (rule kind='positions_count').
+    cert_positions_required = models.PositiveIntegerField(default=3)
+    cert_program_rule = models.TextField(
+        blank=True,
+        default='Đủ số vị trí tối thiểu (cert_positions_required) đã hoàn thành để đạt điều kiện chương trình chứng chỉ theo vị trí.',
+    )
+
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, related_name='+', null=True, blank=True)
+
+    def __str__(self):
+        return f'GradingConfig({self.tenant_id})'
+
+
+class GradingConfigHistory(models.Model):
+    """1 dong = 1 lan doi 1 field cua GradingConfig - xem accounts.services.update_grading_config
+    (PUT /api/settings/grading/ ghi 1 dong cho MOI field thuc su doi gia tri)."""
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='grading_config_history')
+    changed_by = models.ForeignKey(User, on_delete=models.SET_NULL, related_name='+', null=True, blank=True)
+    changed_at = models.DateTimeField(auto_now_add=True)
+    field = models.CharField(max_length=50)
+    old_value = models.CharField(max_length=500, blank=True)
+    new_value = models.CharField(max_length=500, blank=True)
+    # Snapshot TOAN BO GradingConfig NGAY SAU lan doi nay (JSON) - de doi chieu/khoi phuc du khong
+    # co API "revert" o dot nay.
+    snapshot_json = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ['-changed_at']
+
+    def __str__(self):
+        return f'{self.tenant_id} - {self.field}: {self.old_value} -> {self.new_value}'
+
+
+class EmailSettings(models.Model):
+    """UI dot 3 (Prompt_UI_Dot3_CaiDat_GradingConfig.md muc A2) - cau hinh NGUOI NHAN + LICH GUI
+    bao cao dao tao qua email. KHONG co SMTP/mat khau/khoa o day (giu nguyen o bien moi truong
+    EMAIL_* - xem config/settings.py) - dung y "Rang buoc bao mat" cua prompt.
+
+    LUU Y: dot nay CHI luu cau hinh (nguoi nhan/lich) de nhap qua UI; CHUA dung 1 tien trinh tu
+    dong (cron/scheduler) de THAT SU gui theo dung lich da luu - viec gui van qua
+    reports.views.TrainingReportSendView (goi tay/kich hoat tu noi khac) nhu truoc. Tu dong hoa
+    theo lich la viec rieng, ngoai pham vi dot 3 (xem bao cao ban giao)."""
+
+    tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name='email_settings')
+    from_display_name = models.CharField(max_length=255, blank=True, default='Phòng Đào tạo')
+    recipients = models.JSONField(default=list, blank=True)
+    cc = models.JSONField(default=list, blank=True)
+    weekly_enabled = models.BooleanField(default=False)
+    weekly_weekday = models.PositiveSmallIntegerField(default=0)  # 0=Thu Hai .. 6=Chu Nhat
+    weekly_hour = models.PositiveSmallIntegerField(default=8)
+    monthly_enabled = models.BooleanField(default=False)
+    monthly_day = models.PositiveSmallIntegerField(default=1)
+    monthly_hour = models.PositiveSmallIntegerField(default=8)
+    timezone = models.CharField(max_length=50, default='Asia/Ho_Chi_Minh')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'EmailSettings({self.tenant_id})'

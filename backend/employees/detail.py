@@ -54,13 +54,12 @@ def student_checklist(employee):
 
 
 def student_lms(employee):
-    from django.conf import settings
-
+    from accounts.services import get_grading_config
     from cls_sync.models import CourseResult, ExamResult
 
     courses = CourseResult.objects.filter(employee=employee).order_by('course_name')
     exams = ExamResult.objects.filter(employee=employee).order_by('exam_name', 'attempt')
-    threshold = settings.COMMISSION_EXAM_THRESHOLD
+    threshold = get_grading_config(employee.tenant).exam_pass_percent
     return {
         'course_done': courses.filter(status='Đạt').exists(),
         'courses': [
@@ -159,6 +158,7 @@ def export_probation_result_pdf(employee):
     from django.conf import settings
     from django.utils import timezone
 
+    from accounts.services import get_grading_config
     from checklist.storage import delete_by_url, upload_pdf_bytes
     from evaluation.models import Evaluation
 
@@ -172,7 +172,11 @@ def export_probation_result_pdf(employee):
         .order_by('-completed_at').first()
     )
     score_practice = float(latest_skill.percent) if latest_skill else None
-    score_final = round(score_exam * 0.4 + score_practice * 0.6) if score_practice is not None else None
+    config = get_grading_config(employee.tenant)
+    score_final = (
+        round(score_exam * float(config.weight_exam) + score_practice * float(config.weight_practice))
+        if score_practice is not None else None
+    )
 
     pdf_bytes = build_probation_result_pdf({
         'record_no': f'{employee.id}/{timezone.now().year}',

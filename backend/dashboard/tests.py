@@ -1186,10 +1186,18 @@ class AggregateDashboardQueryCountTests(TestCase):
     cohort thang nay, khong phai toan bo roster)."""
 
     def setUp(self):
+        from accounts.services import get_grading_config
+
         self.tenant = Tenant.objects.create(name='Demo Tenant')
         self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
         seed_dashboard_indicators(self.tenant)
         seed_competency_framework(self.tenant)
+        # UI dot 3: GradingConfig la ban ghi tao-luoi-lan-dau-cham-vao (giong BrandSettings/
+        # CompetencyScoringConfig) - trong THUC TE, tenant da tung tao ban ghi nay truoc do (vd
+        # mo man Cai dat) truoc khi co nhieu nhan su de xem dashboard tong hop. "Cham" san o day
+        # de phep do query-count nay chi do dung bat bien "khong tang theo so nhan su", khong
+        # lan ca chi phi tao ban ghi lan dau (mot lan duy nhat trong doi tenant).
+        get_grading_config(self.tenant)
         self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='R1', name='NH 1', brand='Kampong')
 
     def _add_noise_employee(self, code):

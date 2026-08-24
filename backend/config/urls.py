@@ -17,7 +17,12 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import include, path
 
-from accounts.views import BrandSettingsView
+from accounts.views import (
+    BrandSettingsView,
+    EmailSettingsView,
+    GradingConfigHistoryView,
+    GradingConfigView,
+)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -25,6 +30,10 @@ urlpatterns = [
     # UI dot 1 (Prompt_UI_Dot1_Theme.md) - dung URL dung nhu prompt yeu cau, KHONG nam duoi
     # prefix api/auth/ cua accounts.urls (de khop dung "/api/settings/brand/").
     path('api/settings/brand/', BrandSettingsView.as_view(), name='brand-settings'),
+    # UI dot 3 (Prompt_UI_Dot3_CaiDat_GradingConfig.md) - cung nam duoi /api/settings/ nhu brand/.
+    path('api/settings/grading/', GradingConfigView.as_view(), name='grading-config'),
+    path('api/settings/grading/history/', GradingConfigHistoryView.as_view(), name='grading-config-history'),
+    path('api/settings/email/', EmailSettingsView.as_view(), name='email-settings'),
     path('api/restaurants/', include('restaurants.urls')),
     path('api/employees/', include('employees.urls')),
     path('api/checklist/', include('checklist.urls')),

@@ -67,6 +67,21 @@ class ExamRegradeServiceTests(TestCase):
         )
         self.assertEqual(best_exam_score(self.employee), 95.0)
 
+    def test_exam_pass_default_threshold_follows_grading_config_not_hardcode(self):
+        """UI dot 3 (Kiem thu dot 3, muc 2): doi GradingConfig.exam_pass_percent 80->75 phai lam
+        lat ket qua dat/truot cua 1 diem thi bien (78 - truoc day truot vi < 80, sau khi ha
+        nguong xuong 75 thi dat) - KHONG can truyen threshold= tay, dung mac dinh tu config."""
+        from accounts.services import update_grading_config
+
+        ExamResult.objects.create(
+            tenant=self.tenant, employee=self.employee, exam_name='15N', attempt=1,
+            score=Decimal('78.00'),
+        )
+        self.assertFalse(exam_pass(self.employee))  # 78 < 80 (mac dinh, khop hardcode cu)
+
+        update_grading_config(self.tenant, None, {'exam_pass_percent': 75})
+        self.assertTrue(exam_pass(self.employee))  # 78 >= 75 sau khi doi cau hinh
+
 
 class ExamRegradeApiTests(TestCase):
     """API phuc khao diem thi: GET danh sach + POST sua diem, chi Admin/OM."""
@@ -427,6 +442,37 @@ class RecomputeFinalResultNoBackfillTests(TestCase):
         recompute_final_result(e)  # operation_unit rong -> roi vao nhanh "Tiep tuc thu viec"
         self.assertNotEqual(e.final_result, 'Pass thử việc')
         self.assertIsNone(e.pass_date)
+
+
+class ComputeFinalResultSkillThresholdGradingConfigTests(TestCase):
+    """UI dot 3: nguong 'ky nang dat' (85) trong compute_final_result (cap Nhan vien thuong -
+    cot Ket qua thu viec) phai doc GradingConfig.skill_pass_percent thay vi hardcode 85, cung mot
+    khai niem voi cai da wire o probation_conditions() (dong bo, tranh admin doi 1 noi nhung noi
+    khac van dung so cu)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.employee = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='A', position='NV Phục vụ',
+            operation_unit=Employee.OperationUnit.RESTAURANT, skill_score=Decimal('0.82'),
+        )
+
+    def _compute(self):
+        from employees.services import compute_final_result
+
+        with patch('employees.services.lms_done', return_value=True), \
+             patch('employees.services.checklist_progress_percent', return_value=100), \
+             patch('employees.services.exam_pass', return_value=True):
+            return compute_final_result(self.employee)
+
+    def test_82_percent_skill_fails_default_85_threshold(self):
+        self.assertEqual(self._compute(), 'Tiếp tục thử việc')  # 82 < 85 (mac dinh, khop hardcode cu)
+
+    def test_82_percent_skill_passes_after_lowering_threshold(self):
+        from accounts.services import update_grading_config
+
+        update_grading_config(self.tenant, None, {'skill_pass_percent': 80})
+        self.assertEqual(self._compute(), 'Pass thử việc')  # 82 >= 80 sau khi ha nguong
 
 
 class ChangeEmployeeStatusResignedAtTests(TestCase):

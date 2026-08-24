@@ -45,7 +45,7 @@ def diagnose_cohort(tenant, month, year):
     for e in Employee.objects.filter(tenant=tenant, is_legacy=False).select_related('restaurant'):
         if not e.start_date or e.operation_unit != Employee.OperationUnit.RESTAURANT:
             continue
-        tier = _kpi_tier_days(e.position)
+        tier = _kpi_tier_days(e.tenant, e.position)
         deadline = e.start_date + datetime.timedelta(days=tier)
         if not (deadline.month == month and deadline.year == year):
             continue

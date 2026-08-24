@@ -168,15 +168,16 @@ def lms_done(employee):
 
 
 def exam_pass(employee, threshold=None):
-    """Port ProbationService.gs::_examPass (Config.examPass(), mac dinh 80). Dung final_score
-    (COALESCE score_adjusted, score) de diem phuc khao (neu co) uu tien hon diem CLS goc -
-    khong con doi hoi passed=True cua CLS, vi phuc khao co the lat 1 luot truot thanh dat."""
-    from django.conf import settings
+    """Port ProbationService.gs::_examPass (Config.examPass(), mac dinh doc tu GradingConfig -
+    UI dot 3). Dung final_score (COALESCE score_adjusted, score) de diem phuc khao (neu co) uu
+    tien hon diem CLS goc - khong con doi hoi passed=True cua CLS, vi phuc khao co the lat 1
+    luot truot thanh dat."""
     from django.db.models.functions import Coalesce
 
+    from accounts.services import get_grading_config
     from cls_sync.models import ExamResult
 
-    threshold = settings.COMMISSION_EXAM_THRESHOLD if threshold is None else threshold
+    threshold = get_grading_config(employee.tenant).exam_pass_percent if threshold is None else threshold
     return (
         ExamResult.objects.filter(employee=employee)
         .annotate(computed_score=Coalesce('score_adjusted', 'score'))
@@ -188,13 +189,14 @@ def exam_pass(employee, threshold=None):
 def batch_lms_marks(employees, threshold=None):
     """3 dau LMS/Danh gia (hoc/thi/ky nang) cho nhieu nhan su cung luc - tranh N+1 khi liet
     ke danh sach nhan su. Dung chung dieu kien voi lms_done/exam_pass (final_score, xem do)."""
-    from django.conf import settings
     from django.db.models.functions import Coalesce
 
+    from accounts.services import get_grading_config
     from cls_sync.models import CourseResult, ExamResult
 
-    threshold = settings.COMMISSION_EXAM_THRESHOLD if threshold is None else threshold
     employees = list(employees)
+    if threshold is None:
+        threshold = get_grading_config(employees[0].tenant).exam_pass_percent if employees else None
     employee_ids = [e.id for e in employees]
 
     course_done_ids = set(
@@ -344,8 +346,10 @@ def compute_final_result(employee):
         return 'Tiếp tục thử việc'
     if not exam_pass(employee):
         return 'Tiếp tục thử việc'
+    from accounts.services import get_grading_config
+
     skill_percent = float(employee.skill_score) * 100 if employee.skill_score is not None else 0
-    if skill_percent < 85:  # đạt đánh giá thực hành ≥ 85% (khớp hệ cũ)
+    if skill_percent < get_grading_config(employee.tenant).skill_pass_percent:  # UI dot 3
         return 'Tiếp tục thử việc'
     return 'Pass thử việc'
 
@@ -431,14 +435,22 @@ def _close_open_enrollments_on_resign(employee):
 
 def probation_conditions(employee):
     """5 dieu kien hoa hong trainer. Port ProbationService.gs::getConditions (chi phan
-    lien quan hoa hong: khong tinh final_result/computeFinalResult - thuoc sprint khac)."""
+    lien quan hoa hong: khong tinh final_result/computeFinalResult - thuoc sprint khac).
+    UI dot 3: nguong thi/ky nang dung rieng allowance_exam_min/allowance_skill_min cua
+    GradingConfig (nhom "Phu cap"), doc lap voi exam_pass_percent/skill_pass_percent (nhom
+    "Thi"/"Ky nang" dung cho cac noi goi exam_pass() khac khong truyen threshold) - dong y
+    ban gia tri mac dinh giong nhau (deu seed tu COMMISSION_EXAM/SKILL_THRESHOLD) nen KHONG
+    doi ket qua hien tai."""
     from django.conf import settings
 
+    from accounts.services import get_grading_config
+
+    config = get_grading_config(employee.tenant)
     lms = lms_done(employee)
-    exam = exam_pass(employee)
+    exam = exam_pass(employee, threshold=config.allowance_exam_min)
     training = checklist_progress_percent(employee) >= 100
     skill_percent = latest_skill_eval_percent(employee)
-    skill_pass = skill_percent is not None and skill_percent >= settings.COMMISSION_SKILL_THRESHOLD
+    skill_pass = skill_percent is not None and skill_percent >= config.allowance_skill_min
     days = worked_days(employee)
     worked_1month = days is not None and days >= settings.COMMISSION_WORKED_DAYS
 

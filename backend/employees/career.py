@@ -522,12 +522,12 @@ def competency_gap(tenant, gap, scope_ids=None, level_group=None, cohort_id=None
     elif gap == 'interview':
         emps = [e for e in emps if not (e.interview_result or '').strip()]
     elif gap == 'exam':
-        from django.conf import settings
         from django.db.models.functions import Coalesce
 
+        from accounts.services import get_grading_config
         from cls_sync.models import ExamResult
 
-        thr = settings.COMMISSION_EXAM_THRESHOLD
+        thr = get_grading_config(tenant).exam_pass_percent
         passed = set(
             ExamResult.objects.filter(employee__in=emps)
             .annotate(computed_score=Coalesce('score_adjusted', 'score'))

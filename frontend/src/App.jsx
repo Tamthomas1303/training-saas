@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import ProtectedRoute from './auth/ProtectedRoute'
 import LoginPage from './pages/LoginPage'
@@ -43,7 +43,7 @@ import CertProgramsAdminPage from './pages/CertProgramsAdminPage'
 import CertificatesAdminPage from './pages/CertificatesAdminPage'
 import MyCertificatesPage from './pages/MyCertificatesPage'
 import Employee360Page from './pages/Employee360Page'
-import DashboardConfigPage from './pages/DashboardConfigPage'
+import SettingsPage from './pages/SettingsPage'
 import CompetencyFrameworkAdminPage from './pages/CompetencyFrameworkAdminPage'
 import DashboardOverviewPage from './pages/DashboardOverviewPage'
 import api from './api/client'
@@ -391,11 +391,15 @@ function App() {
               </ProtectedRoute>
             }
           />
+          {/* UI dot 3 (Prompt_UI_Dot3_CaiDat_GradingConfig.md muc A): "Cau hinh Dashboard" doi
+              vao the trong /settings - giu route cu song duoi dang redirect de link/bookmark cu
+              khong gay loi. */}
+          <Route path="/dashboard-config" element={<Navigate to="/settings?tab=dashboard" replace />} />
           <Route
-            path="/dashboard-config"
+            path="/settings"
             element={
               <ProtectedRoute roles={['admin']}>
-                <DashboardConfigPage />
+                <SettingsPage />
               </ProtectedRoute>
             }
           />

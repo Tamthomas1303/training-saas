@@ -128,15 +128,17 @@ def program_eligible(employee, program):
     kind = cfg.get('kind')
 
     if kind == 'positions_count':
+        from accounts.services import get_grading_config
         from employees.career import positions_achieved_count
 
         count = positions_achieved_count(employee)
-        return count >= cfg.get('count', 3), {'positions_count': count}
+        required = cfg.get('count', get_grading_config(employee.tenant).cert_positions_required)
+        return count >= required, {'positions_count': count}
 
     if kind == 'course_exam':
-        from django.conf import settings
         from django.db.models.functions import Coalesce
 
+        from accounts.services import get_grading_config
         from cls_sync.models import CourseResult, ExamResult
 
         course_ok = not cfg.get('course') or CourseResult.objects.filter(
@@ -145,7 +147,7 @@ def program_eligible(employee, program):
         exam_ok = not cfg.get('exam') or (
             ExamResult.objects.filter(employee=employee, exam_name=cfg['exam'])
             .annotate(computed_score=Coalesce('score_adjusted', 'score'))
-            .filter(computed_score__gte=settings.COMMISSION_EXAM_THRESHOLD)
+            .filter(computed_score__gte=get_grading_config(employee.tenant).exam_pass_percent)
             .exists()
         )
         return (course_ok and exam_ok), {'course_ok': course_ok, 'exam_ok': exam_ok}
