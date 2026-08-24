@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { CheckCircle2, ChevronDown, FileText, XCircle } from 'lucide-react'
 import AppShell from '../components/AppShell'
 import BackButton from '../components/BackButton'
 import Badge from '../components/Badge'
@@ -60,9 +61,10 @@ const EMPTY_EMP = {
 }
 
 function LmsMark({ ok }) {
+  const Icon = ok ? CheckCircle2 : XCircle
   return (
-    <span style={{ color: ok ? 'var(--forest-dark)' : 'var(--danger)', fontSize: 15 }} title={ok ? 'Đã hoàn thành' : 'Chưa hoàn thành'}>
-      {ok ? '✅' : '☒'}
+    <span style={{ display: 'inline-flex', color: ok ? 'var(--forest-dark)' : 'var(--danger)' }} title={ok ? 'Đã hoàn thành' : 'Chưa hoàn thành'}>
+      <Icon size={16} />
     </span>
   )
 }
@@ -249,7 +251,9 @@ export default function EmployeesPage() {
         <h2 style={{ margin: 0 }}>Danh sách nhân sự mới</h2>
         {isAdmin && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button className="btn-outline" onClick={() => setShowImport((v) => !v)}>Nhập dữ liệu ▾</button>
+            <button className="btn-outline" onClick={() => setShowImport((v) => !v)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              Nhập dữ liệu <ChevronDown size={14} />
+            </button>
             <button onClick={() => { setForm({ ...EMPTY_EMP }); setFormError('') }}>+ Thêm nhân sự</button>
           </div>
         )}
@@ -394,7 +398,9 @@ export default function EmployeesPage() {
                   <td>
                     {e.name} - {e.code}
                     {e.result_exported && (
-                      <span title="Đã xuất phiếu kết quả thử việc" style={{ marginLeft: 6, color: 'var(--forest-dark)' }}>📄</span>
+                      <span title="Đã xuất phiếu kết quả thử việc" style={{ marginLeft: 6, display: 'inline-flex', verticalAlign: 'middle', color: 'var(--forest-dark)' }}>
+                        <FileText size={14} />
+                      </span>
                     )}
                     <ProbationDeadlineBadge employee={e} />
                   </td>

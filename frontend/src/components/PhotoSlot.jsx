@@ -24,24 +24,24 @@ export default function PhotoSlot({ label, value, onChange }) {
         style={{
           width: 140,
           height: 105,
-          border: '2px dashed #999',
+          border: '2px dashed var(--card-border)',
           borderRadius: 6,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           cursor: 'pointer',
           overflow: 'hidden',
-          background: '#fafafa',
+          background: 'var(--page-bg)',
         }}
       >
         {value ? (
           <img src={value} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         ) : (
-          <span style={{ color: '#999', fontSize: 13 }}>+ Chụp / Tải ảnh</span>
+          <span style={{ color: 'var(--muted)', fontSize: 13 }}>+ Chụp / Tải ảnh</span>
         )}
       </div>
       <div style={{ marginTop: 4, fontSize: 13 }}>{label}</div>
-      {error && <div style={{ color: 'red', fontSize: 11 }}>{error}</div>}
+      {error && <div style={{ color: 'var(--danger)', fontSize: 11 }}>{error}</div>}
       {/* Bỏ 'capture' để trên điện thoại hiện lựa chọn Chụp ảnh HOẶC chọn ảnh có sẵn trong máy */}
       <input
         ref={inputRef}

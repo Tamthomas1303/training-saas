@@ -78,31 +78,31 @@ export default function CouncilForm({ employeeId }) {
   if (!summary) return <p>Đang tải hội đồng...</p>
 
   return (
-    <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 16, marginTop: 16, background: '#fbfbfe' }}>
+    <div style={{ border: '1px solid var(--card-border)', borderRadius: 8, padding: 16, marginTop: 16, background: 'var(--page-bg)' }}>
       <h4>Hội đồng đánh giá cấp quản lý</h4>
 
       <div style={{ display: 'flex', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
         {summary.aspects.map((a) => (
-          <div key={a.id} style={{ border: '1px solid #eee', borderRadius: 6, padding: 8, minWidth: 140, textAlign: 'center' }}>
-            <div style={{ fontSize: 12, color: '#666' }}>{a.name}</div>
+          <div key={a.id} style={{ border: '1px solid var(--card-border)', borderRadius: 6, padding: 8, minWidth: 140, textAlign: 'center' }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>{a.name}</div>
             <div style={{ fontSize: 20, fontWeight: 'bold' }}>{a.avg}%</div>
-            <div style={{ fontSize: 11, color: '#999' }}>{a.count} giám khảo</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>{a.count} giám khảo</div>
           </div>
         ))}
-        <div style={{ border: '1px solid #eee', borderRadius: 6, padding: 8, minWidth: 140, textAlign: 'center' }}>
-          <div style={{ fontSize: 12, color: '#666' }}>Tổng hợp</div>
+        <div style={{ border: '1px solid var(--card-border)', borderRadius: 6, padding: 8, minWidth: 140, textAlign: 'center' }}>
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>Tổng hợp</div>
           <div style={{ fontSize: 20, fontWeight: 'bold' }}>{summary.overall}%</div>
-          <div style={{ fontSize: 11, color: '#999' }}>{summary.judge_count} giám khảo</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)' }}>{summary.judge_count} giám khảo</div>
         </div>
       </div>
 
       <div style={{ marginBottom: 12 }}>
-        <div style={{ fontSize: 13, color: '#666', marginBottom: 4 }}>Giám khảo đã chấm:</div>
-        {summary.judges.length === 0 && <div style={{ fontSize: 13, color: '#999' }}>Chưa có giám khảo nào chấm.</div>}
+        <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 4 }}>Giám khảo đã chấm:</div>
+        {summary.judges.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)' }}>Chưa có giám khảo nào chấm.</div>}
         {summary.judges.map((j) => (
           <div key={j.evaluator_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
             <span>
-              {j.name} <span style={{ color: '#999' }}>({j.role})</span>
+              {j.name} <span style={{ color: 'var(--muted)' }}>({j.role})</span>
             </span>
             <span style={{ fontWeight: 'bold' }}>{j.overall}%</span>
           </div>
@@ -114,7 +114,7 @@ export default function CouncilForm({ employeeId }) {
           <h5>Chấm điểm của bạn ({role.toUpperCase()})</h5>
           {myAspects.map((a) => (
             <div key={a.id} style={{ marginBottom: 8 }}>
-              <label style={{ display: 'block', fontSize: 13, color: '#666' }}>{a.name} (0–100)</label>
+              <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)' }}>{a.name} (0–100)</label>
               <input
                 type="number"
                 min="0"
@@ -148,8 +148,8 @@ export default function CouncilForm({ employeeId }) {
         <button onClick={finalize}>Chốt hội đồng</button>
       </div>
 
-      {error && <p style={{ color: 'red' }}>{error}</p>}
-      {message && <p style={{ color: 'green' }}>{message}</p>}
+      {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
+      {message && <p style={{ color: 'var(--forest-dark)' }}>{message}</p>}
     </div>
   )
 }

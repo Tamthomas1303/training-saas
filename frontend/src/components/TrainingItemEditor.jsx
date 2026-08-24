@@ -56,8 +56,8 @@ export default function TrainingItemEditor({ employeeId, checklist, progress, po
   }
 
   return (
-    <div style={{ border: '1px solid #ddd', borderRadius: 8, padding: 16, marginTop: 8, background: '#fcfcfc' }}>
-      <p style={{ fontSize: 13, color: '#666' }}>
+    <div style={{ border: '1px solid var(--card-border)', borderRadius: 8, padding: 16, marginTop: 8, background: 'var(--page-bg)' }}>
+      <p style={{ fontSize: 13, color: 'var(--muted)' }}>
         Mỗi buổi cần đủ 3 ảnh (tài liệu, lý thuyết, thực hành) + 2 chữ ký để hoàn thành.
       </p>
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
@@ -102,12 +102,12 @@ export default function TrainingItemEditor({ employeeId, checklist, progress, po
         </button>
       </div>
       {saving && <p>Đang lưu...</p>}
-      {error && <p style={{ color: 'red' }}>{error}</p>}
+      {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
       {message && message.status === 'offline' && (
-        <p style={{ color: '#92400e' }}>Mất mạng - đã lưu nháp offline, sẽ tự đồng bộ khi có mạng.</p>
+        <p style={{ color: 'var(--amber)' }}>Mất mạng - đã lưu nháp offline, sẽ tự đồng bộ khi có mạng.</p>
       )}
       {message && message.status !== 'offline' && (
-        <p style={{ color: 'green' }}>
+        <p style={{ color: 'var(--forest-dark)' }}>
           Đã lưu ({message.status}).{' '}
           {message.pdf_url && (
             <a href={message.pdf_url} target="_blank" rel="noreferrer">

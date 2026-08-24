@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Search } from 'lucide-react'
 import api from '../api/client'
 
 export default function HeaderSearch() {
@@ -43,7 +44,9 @@ export default function HeaderSearch() {
 
   return (
     <div ref={boxRef} className="header-search">
-      <span className="header-search-icon">🔍</span>
+      <span className="header-search-icon" style={{ display: 'inline-flex' }}>
+        <Search size={14} />
+      </span>
       <input
         className="header-search-input"
         placeholder="Tìm nhân sự theo tên / mã..."

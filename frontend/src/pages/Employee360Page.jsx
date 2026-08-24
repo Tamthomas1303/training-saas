@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import {
+  BookOpen, Circle, DoorOpen, Flag, FileText, PencilLine, Target, Video, CheckCircle2,
+} from 'lucide-react'
 import AppShell from '../components/AppShell'
 import Badge from '../components/Badge'
 import ProgressBar from '../components/ProgressBar'
@@ -10,7 +13,9 @@ import * as s from './listPageStyles'
 
 const COLOR_BADGE = { green: 'success', yellow: 'warning', red: 'danger' }
 
-const TIMELINE_ICON = { joined: '🚪', course: '🎬', exam: '📝', evaluation: '✅', pass: '🏁' }
+const TIMELINE_ICON = {
+  joined: DoorOpen, course: Video, exam: PencilLine, evaluation: CheckCircle2, pass: Flag,
+}
 
 function fmtDate(d) {
   if (!d) return ''
@@ -122,14 +127,14 @@ export default function Employee360Page() {
           </div>
 
           <div className="stat-grid" style={{ marginBottom: 16 }}>
-            <StatCard icon="🎯" label="Chỉ số năng lực (CI)" value={profile.ci ?? 'Chờ dữ liệu'} />
-            <StatCard icon="🏁" label="Lộ trình thử việc" value={profile.employee.final_result || 'Chờ dữ liệu'} />
+            <StatCard icon={<Target size={16} />} label="Chỉ số năng lực (CI)" value={profile.ci ?? 'Chờ dữ liệu'} />
+            <StatCard icon={<Flag size={16} />} label="Lộ trình thử việc" value={profile.employee.final_result || 'Chờ dữ liệu'} />
             <StatCard
-              icon="📚" label="Tiến độ học"
+              icon={<BookOpen size={16} />} label="Tiến độ học"
               value={`${profile.study.done}/${profile.study.total}`}
             />
             <StatCard
-              icon="🧪" label="Điểm thi TB"
+              icon={<FileText size={16} />} label="Điểm thi TB"
               value={profile.exam.avg_percent != null ? `${profile.exam.avg_percent}%` : 'Chờ dữ liệu'}
             />
           </div>
@@ -196,13 +201,16 @@ export default function Employee360Page() {
 
           <div className="card">
             <h3 style={{ marginTop: 0 }}>Dòng thời gian</h3>
-            {profile.timeline.map((ev, i) => (
-              <div key={i} style={{ display: 'flex', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--card-border)' }}>
-                <span>{TIMELINE_ICON[ev.type] || '•'}</span>
-                <span className="muted-note" style={{ minWidth: 90 }}>{fmtDate(ev.date)}</span>
-                <span>{ev.label}</span>
-              </div>
-            ))}
+            {profile.timeline.map((ev, i) => {
+              const EvIcon = TIMELINE_ICON[ev.type] || Circle
+              return (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--card-border)' }}>
+                  <EvIcon size={14} color="var(--muted)" />
+                  <span className="muted-note" style={{ minWidth: 90 }}>{fmtDate(ev.date)}</span>
+                  <span>{ev.label}</span>
+                </div>
+              )
+            })}
           </div>
         </>
       )}

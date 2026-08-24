@@ -1,5 +1,6 @@
 import { Fragment, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import AppShell from '../components/AppShell'
 import { useAuth } from '../auth/AuthContext'
 import { DOMAINS, visibleChildren } from '../config/domains'
@@ -35,13 +36,17 @@ export default function HubPage() {
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 26 }}>{d.icon}</span>
+                  <d.icon size={26} color="var(--forest)" />
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 16 }}>{d.title}</div>
                     <div className="muted-note" style={{ fontSize: 12 }}>{d.desc}</div>
                   </div>
                 </div>
-                {!disabled && <span style={{ fontSize: 18 }}>{open ? '▾' : '▸'}</span>}
+                {!disabled && (
+                  <span style={{ display: 'inline-flex' }}>
+                    {open ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                  </span>
+                )}
                 {d.comingSoon && <span className="badge badge-warning">Sắp có</span>}
               </div>
 
@@ -65,7 +70,7 @@ export default function HubPage() {
                         style={{ padding: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
                         onClick={() => navigate(c.path)}
                       >
-                        <span style={{ fontSize: 18 }}>{c.icon}</span>
+                        <c.icon size={18} color="var(--forest)" />
                         <span style={{ fontWeight: 600 }}>{c.label}</span>
                       </div>
                     </Fragment>

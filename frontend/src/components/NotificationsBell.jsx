@@ -65,7 +65,7 @@ export default function NotificationsBell() {
       {open && (
         <div style={{
           position: 'absolute', right: 0, top: 28, width: 320, maxHeight: 420, overflow: 'auto',
-          background: 'var(--card-bg, #fff)', border: '1px solid var(--card-border)', borderRadius: 8,
+          background: 'var(--card)', border: '1px solid var(--card-border)', borderRadius: 8,
           boxShadow: '0 8px 24px rgba(0,0,0,0.15)', zIndex: 1000,
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', borderBottom: '1px solid var(--card-border)' }}>
@@ -79,7 +79,7 @@ export default function NotificationsBell() {
               onClick={() => openItem(n)}
               style={{
                 padding: '8px 10px', borderBottom: '1px solid var(--card-border)', cursor: 'pointer',
-                background: n.is_read ? 'transparent' : 'var(--badge-mint-bg, rgba(0,128,0,0.06))',
+                background: n.is_read ? 'transparent' : 'var(--mint)',
               }}
             >
               <div style={{ fontWeight: n.is_read ? 400 : 700, fontSize: 14 }}>{n.title}</div>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { GripVertical, X } from 'lucide-react'
 import AppShell from '../components/AppShell'
 import CompetencySelect from '../components/CompetencySelect'
 import Modal from '../components/Modal'
@@ -274,8 +275,8 @@ function ModuleBlock({ module, index, onDragHandlers, onChanged }) {
       onDrop={onDragHandlers.onDropAt(index)}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <span title="Kéo để sắp xếp lại" style={{ cursor: 'grab' }}>
-          ⠿
+        <span title="Kéo để sắp xếp lại" style={{ cursor: 'grab', display: 'inline-flex' }}>
+          <GripVertical size={16} color="var(--muted)" />
         </span>
         {renaming ? (
           <>
@@ -309,7 +310,7 @@ function ModuleBlock({ module, index, onDragHandlers, onChanged }) {
             borderBottom: '1px solid var(--card-border)', cursor: 'grab',
           }}
         >
-          <span>⠿</span>
+          <span style={{ display: 'inline-flex' }}><GripVertical size={16} color="var(--muted)" /></span>
           <span style={{ flex: 1 }}>
             {lesson.title} <span className="muted-note">({LESSON_TYPES.find((t) => t.value === lesson.type)?.label})</span>
           </span>
@@ -434,10 +435,10 @@ function AssignModal({ courseId, open, onClose }) {
               <span key={e.id} className="badge badge-neutral">
                 {e.code}{' '}
                 <span
-                  style={{ cursor: 'pointer' }}
+                  style={{ cursor: 'pointer', display: 'inline-flex', verticalAlign: 'middle' }}
                   onClick={() => setSelected((prev) => prev.filter((x) => x.id !== e.id))}
                 >
-                  ✕
+                  <X size={12} />
                 </span>
               </span>
             ))}

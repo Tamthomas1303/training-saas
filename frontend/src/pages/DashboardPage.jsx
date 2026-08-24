@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { CheckCircle2, Hourglass, Target, Trophy, UserPlus, Wallet } from 'lucide-react'
 import AppShell from '../components/AppShell'
 import Badge from '../components/Badge'
 import MiniCalendar from '../components/MiniCalendar'
@@ -57,19 +58,19 @@ export default function DashboardPage() {
         <>
           <div className="stat-grid" style={{ marginBottom: 16 }}>
             <StatCard
-              icon="🧑‍🍳" label="Tổng nhân viên mới (tháng này)" value={data.stats.total_new}
+              icon={<UserPlus size={16} />} label="Tổng nhân viên mới (tháng này)" value={data.stats.total_new}
               delta={data.stats.total_new_delta ?? undefined}
               trend={[data.stats.total_new_prev, data.stats.total_new]}
             />
-            <StatCard icon="⏳" label="Đang thử việc" value={data.stats.probation} />
-            <StatCard icon="✅" label="Hoàn thành thử việc" value={data.stats.completed} />
-            <StatCard icon="🎯" label="Tỷ lệ đạt thử việc level S trong tháng" value={`${data.stats.pass_rate}%`}>
+            <StatCard icon={<Hourglass size={16} />} label="Đang thử việc" value={data.stats.probation} />
+            <StatCard icon={<CheckCircle2 size={16} />} label="Hoàn thành thử việc" value={data.stats.completed} />
+            <StatCard icon={<Target size={16} />} label="Tỷ lệ đạt thử việc level S trong tháng" value={`${data.stats.pass_rate}%`}>
               <ProgressBar percent={data.stats.pass_rate} />
               <div className="muted-note" style={{ marginTop: 4 }}>
                 {data.stats.num}/{data.stats.den} · vào tháng {data.stats.joined}, nghỉ {data.stats.resigned}, đánh giá tháng sau {data.stats.eval_next}
               </div>
             </StatCard>
-            <StatCard icon="💰" amber label="Chi phí phụ cấp trainer" value={fmtMoney(data.allowance_cost)} />
+            <StatCard icon={<Wallet size={16} />} amber label="Chi phí phụ cấp trainer" value={fmtMoney(data.allowance_cost)} />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16, alignItems: 'start' }}>
@@ -174,7 +175,7 @@ export default function DashboardPage() {
                 <h3 style={{ marginTop: 0 }}>Trainer xuất sắc</h3>
                 {data.top_trainer ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontSize: 28 }}>🏆</span>
+                    <Trophy size={28} color="var(--amber)" />
                     <div>
                       <div style={{ fontWeight: 600 }}>{data.top_trainer.name}</div>
                       <div className="stat-num amber" style={{ fontSize: '1.2rem' }}>

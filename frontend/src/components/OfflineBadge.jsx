@@ -28,7 +28,7 @@ export default function OfflineBadge() {
         padding: '2px 8px',
         borderRadius: 12,
         fontSize: 12,
-        background: online ? 'var(--mint)' : '#fbe9d0',
+        background: online ? 'var(--mint)' : 'var(--amber-soft)',
         color: online ? 'var(--forest-dark)' : 'var(--amber)',
       }}
     >

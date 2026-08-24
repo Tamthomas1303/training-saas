@@ -18,6 +18,10 @@
   --muted: #7C8A82;
   --danger: #C0392B; /* mau ngu nghia (nguy co) - KHONG doi theo brand */
   --amber: #C88A3C; /* CHI dung cho so tien/hoa hong/cup - mau ngu nghia (canh bao), KHONG doi theo brand */
+  /* UI dot 4 (Prompt_UI_Dot4_ApDungManHinh.md): gop --amber-soft tu 2 noi da hardcode DUNG 1
+     GIA TRI (#fbe9d0) - .badge-warning va components/OfflineBadge.jsx - thanh 1 bien, dung
+     tinh than --brand-soft da co (nen nhat cho mau ngu nghia). */
+  --amber-soft: #fbe9d0;
 }
 
 * {
@@ -283,7 +287,7 @@ textarea:focus {
   color: var(--danger);
 }
 .badge-warning {
-  background: #fbe9d0;
+  background: var(--amber-soft);
   color: var(--amber);
 }
 

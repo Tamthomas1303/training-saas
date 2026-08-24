@@ -55,7 +55,7 @@ function ScormContent({ lesson }) {
       key={progressId}
       src={src}
       title={lesson.title}
-      style={{ width: '100%', height: '70vh', border: 0, background: '#fff' }}
+      style={{ width: '100%', height: '70vh', border: 0, background: 'var(--card)' }}
     />
   )
 }
@@ -410,7 +410,7 @@ export default function CoursePlayerPage() {
                   onClick={() => setActiveLessonId(l.id)}
                   style={{
                     padding: '6px 8px', cursor: 'pointer', borderRadius: 6,
-                    background: l.id === activeLessonId ? 'var(--card-hover, #eef3f1)' : 'transparent',
+                    background: l.id === activeLessonId ? 'var(--mint)' : 'transparent',
                     display: 'flex', gap: 6, alignItems: 'center',
                   }}
                 >

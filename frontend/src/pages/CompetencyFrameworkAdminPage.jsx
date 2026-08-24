@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import AppShell from '../components/AppShell'
 import CompetencySelect from '../components/CompetencySelect'
 import Table from '../components/Table'
@@ -50,7 +51,9 @@ function ImportCard({ title, hint, endpoint, onDone }) {
             {result.positions ? ` (${result.positions} vị trí)` : ''}.
           </div>
           {(result.warnings || []).map((w, i) => (
-            <div key={i} className="muted-note">⚠ {w}</div>
+            <div key={i} className="muted-note" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <AlertTriangle size={13} color="var(--amber)" /> {w}
+            </div>
           ))}
         </div>
       )}

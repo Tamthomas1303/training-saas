@@ -105,11 +105,11 @@ export default function SignaturePad({ label, existingUrl, value, onChange }) {
           alt={label}
           style={{
             width: '100%', maxWidth: 320, height: 110, objectFit: 'contain',
-            border: '1px solid #999', borderRadius: 6, background: '#fff',
+            border: '1px solid var(--card-border)', borderRadius: 6, background: 'var(--card)',
           }}
         />
         <div style={{ marginTop: 4, fontSize: 13 }}>
-          {label} <span style={{ color: 'green' }}>(đã ký)</span>
+          {label} <span style={{ color: 'var(--forest-dark)' }}>(đã ký)</span>
         </div>
         <button type="button" onClick={() => setMode('draw')} style={{ fontSize: 12 }}>
           Ký lại
@@ -124,11 +124,11 @@ export default function SignaturePad({ label, existingUrl, value, onChange }) {
         ref={canvasRef}
         style={{
           width: '100%', maxWidth: 320, height: 110, display: 'block', margin: '0 auto',
-          border: '1px solid #999', borderRadius: 6, touchAction: 'none', background: '#fff',
+          border: '1px solid var(--card-border)', borderRadius: 6, touchAction: 'none', background: 'var(--card)',
         }}
       />
       <div style={{ marginTop: 4, fontSize: 13 }}>
-        {label} {value && <span style={{ color: 'green' }}>(đã ký)</span>}
+        {label} {value && <span style={{ color: 'var(--forest-dark)' }}>(đã ký)</span>}
       </div>
       <button type="button" onClick={clear} style={{ fontSize: 12 }}>
         Xóa

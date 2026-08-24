@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from 'react'
+import { X } from 'lucide-react'
 import AppShell from '../components/AppShell'
 import Badge from '../components/Badge'
 import Table from '../components/Table'
@@ -140,7 +141,9 @@ function CreateSessionForm({ onCreated }) {
             {selected.map((e) => (
               <span key={e.id} className="badge badge-neutral">
                 {e.code}{' '}
-                <span style={{ cursor: 'pointer' }} onClick={() => setSelected((prev) => prev.filter((x) => x.id !== e.id))}>✕</span>
+                <span style={{ cursor: 'pointer', display: 'inline-flex', verticalAlign: 'middle' }} onClick={() => setSelected((prev) => prev.filter((x) => x.id !== e.id))}>
+                  <X size={12} />
+                </span>
               </span>
             ))}
           </div>
