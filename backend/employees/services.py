@@ -189,14 +189,20 @@ def exam_pass(employee, threshold=None):
 def batch_lms_marks(employees, threshold=None):
     """3 dau LMS/Danh gia (hoc/thi/ky nang) cho nhieu nhan su cung luc - tranh N+1 khi liet
     ke danh sach nhan su. Dung chung dieu kien voi lms_done/exam_pass (final_score, xem do)."""
+    employees = list(employees)
+    if not employees:
+        # UI Nhom 1 muc A: 1 trang co the loc list_tab ra 0 dong (vd tenant khong con ai dang
+        # 'probation') - truoc day hau nhu khong xay ra nen chua lo, nhung KHONG duoc de threshold
+        # roi thanh None (Django bao 'Cannot use None as a query value' o computed_score__gte).
+        return {}
+
     from django.db.models.functions import Coalesce
 
     from accounts.services import get_grading_config
     from cls_sync.models import CourseResult, ExamResult
 
-    employees = list(employees)
     if threshold is None:
-        threshold = get_grading_config(employees[0].tenant).exam_pass_percent if employees else None
+        threshold = get_grading_config(employees[0].tenant).exam_pass_percent
     employee_ids = [e.id for e in employees]
 
     course_done_ids = set(

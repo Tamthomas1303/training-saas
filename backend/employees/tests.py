@@ -475,6 +475,16 @@ class ComputeFinalResultSkillThresholdGradingConfigTests(TestCase):
         self.assertEqual(self._compute(), 'Pass thử việc')  # 82 >= 80 sau khi ha nguong
 
 
+class BatchLmsMarksEmptyListTests(TestCase):
+    """Hoi quy: batch_lms_marks([]) phai tra ve {} thay vi crash (xem EmployeeListTabTests.
+    test_tab_with_zero_matches_returns_empty_list_not_500 cho kich ban qua API that su)."""
+
+    def test_empty_list_returns_empty_dict(self):
+        from employees.services import batch_lms_marks
+
+        self.assertEqual(batch_lms_marks([]), {})
+
+
 class EmployeeListTabTests(TestCase):
     """Nhom 1 muc A (Prompt_Nhom1_NhanSu_NguoiDung.md): 3 tab danh sach nhan su qua ?list_tab=."""
 
@@ -512,6 +522,16 @@ class EmployeeListTabTests(TestCase):
 
     def test_no_list_tab_returns_everyone(self):
         self.assertEqual(self._codes(''), {'NV1', 'NV2', 'NV3'})
+
+    def test_tab_with_zero_matches_returns_empty_list_not_500(self):
+        """Hoi quy: neu list_tab loc ra 0 dong (vd tenant khong con ai dang 'probation' - het
+        han thoi diem nhieu nguoi da qua thu viec), API phai tra ve danh sach RONG, KHONG duoc
+        500 (xem fix batch_lms_marks - truoc day threshold=None khi employees rong lam
+        computed_score__gte=None → ValueError 'Cannot use None as a query value')."""
+        Employee.objects.filter(code__in=['NV1']).delete()  # xoa nguoi DUY NHAT dang probation
+        resp = self.client.get(reverse('employee-list'), {'list_tab': 'new', 'page_size': 50})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['results'], [])
 
     def test_active_and_management_rows_expose_exam_score(self):
         from decimal import Decimal as D
