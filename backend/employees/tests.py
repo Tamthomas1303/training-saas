@@ -486,7 +486,9 @@ class BatchLmsMarksEmptyListTests(TestCase):
 
 
 class EmployeeListTabTests(TestCase):
-    """Nhom 1 muc A (Prompt_Nhom1_NhanSu_NguoiDung.md): 3 tab danh sach nhan su qua ?list_tab=."""
+    """Nhom 1 muc A + Prompt_Fix_3Tab_NhanSu.md: 3 tab danh sach nhan su qua ?list_tab=, dinh
+    nghia LAI theo is_legacy (dinh nghia cu dung employee_status='probation' cho tab 'new' lam
+    tab trong tren tenant that vi hau het nhan su moi da qua thu viec - xem fix)."""
 
     def setUp(self):
         self.tenant = Tenant.objects.create(name='Demo Tenant')
@@ -494,41 +496,61 @@ class EmployeeListTabTests(TestCase):
         self.client = APIClient()
         self.client.force_authenticate(self.admin)
 
-        self.new_emp = Employee.objects.create(
-            tenant=self.tenant, code='NV1', name='Nhân sự mới',
+        # Nhan su moi (tu 1/7/2026), dang thu viec - CHI o tab 'new'.
+        self.probation_emp = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='Dang thu viec', is_legacy=False,
             employee_status=Employee.EmployeeStatus.PROBATION,
         )
-        self.active_emp = Employee.objects.create(
-            tenant=self.tenant, code='NV2', name='Nhân sự đang làm',
+        # Nhan su moi DA PASS thu viec - phai xuat hien o CA 'new' VA 'active' (dung y prompt:
+        # "1 nguoi co the o CA 2 tab").
+        self.new_passed_emp = Employee.objects.create(
+            tenant=self.tenant, code='NV2', name='Moi da pass', is_legacy=False,
             employee_status=Employee.EmployeeStatus.ACTIVE, position='Phục vụ', level_group='S',
         )
+        # Nhan su CU (truoc 1/7/2026, nap tu lich su) - CHI o tab 'active', KHONG o tab 'new'.
+        self.legacy_emp = Employee.objects.create(
+            tenant=self.tenant, code='NV4', name='Nhan su cu', is_legacy=True,
+            employee_status=Employee.EmployeeStatus.ACTIVE, position='Phục vụ', level_group='S',
+        )
+        # Cap O (Ban quan ly) - CHI o tab 'management', khong o 'active' du employee_status=active.
         self.mgmt_emp = Employee.objects.create(
-            tenant=self.tenant, code='NV3', name='Quản lý nhà hàng',
+            tenant=self.tenant, code='NV3', name='Quản lý nhà hàng', is_legacy=False,
             employee_status=Employee.EmployeeStatus.ACTIVE, position='Quản lý nhà hàng', level_group='O',
+        )
+        # Da nghi viec - KHONG o 'active' lan 'management' du truoc do la cap O/active.
+        self.resigned_emp = Employee.objects.create(
+            tenant=self.tenant, code='NV5', name='Da nghi viec', is_legacy=True,
+            employee_status=Employee.EmployeeStatus.RESIGNED, level_group='S',
         )
 
     def _codes(self, list_tab):
         resp = self.client.get(reverse('employee-list'), {'list_tab': list_tab, 'page_size': 50})
         return {row['code'] for row in resp.data['results']}
 
-    def test_new_tab_is_probation_only(self):
-        self.assertEqual(self._codes('new'), {'NV1'})
+    def test_new_tab_is_all_non_legacy_regardless_of_status(self):
+        """Dinh nghia moi: is_legacy=False - gom CA dang thu viec LAN da pass (khong loc theo
+        employee_status), KHONG con bi trong khi tenant da qua thu viec het."""
+        self.assertEqual(self._codes('new'), {'NV1', 'NV2', 'NV3'})
 
-    def test_active_tab_excludes_management(self):
-        self.assertEqual(self._codes('active'), {'NV2'})
+    def test_active_tab_includes_legacy_and_passed_new_excludes_management_and_resigned(self):
+        self.assertEqual(self._codes('active'), {'NV2', 'NV4'})
+
+    def test_new_passed_employee_appears_in_both_new_and_active_tabs(self):
+        """Dung y prompt: 1 nhan su moi da pass phai co mat o CA 2 tab, khong loai tru nhau."""
+        self.assertIn('NV2', self._codes('new'))
+        self.assertIn('NV2', self._codes('active'))
 
     def test_management_tab_is_level_group_o(self):
         self.assertEqual(self._codes('management'), {'NV3'})
 
     def test_no_list_tab_returns_everyone(self):
-        self.assertEqual(self._codes(''), {'NV1', 'NV2', 'NV3'})
+        self.assertEqual(self._codes(''), {'NV1', 'NV2', 'NV3', 'NV4', 'NV5'})
 
     def test_tab_with_zero_matches_returns_empty_list_not_500(self):
-        """Hoi quy: neu list_tab loc ra 0 dong (vd tenant khong con ai dang 'probation' - het
-        han thoi diem nhieu nguoi da qua thu viec), API phai tra ve danh sach RONG, KHONG duoc
-        500 (xem fix batch_lms_marks - truoc day threshold=None khi employees rong lam
+        """Hoi quy: neu list_tab loc ra 0 dong, API phai tra ve danh sach RONG, KHONG duoc 500
+        (xem fix batch_lms_marks - truoc day threshold=None khi employees rong lam
         computed_score__gte=None → ValueError 'Cannot use None as a query value')."""
-        Employee.objects.filter(code__in=['NV1']).delete()  # xoa nguoi DUY NHAT dang probation
+        Employee.objects.all().delete()  # khong con ai -> ca 3 tab deu ra 0 dong
         resp = self.client.get(reverse('employee-list'), {'list_tab': 'new', 'page_size': 50})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data['results'], [])
@@ -537,7 +559,7 @@ class EmployeeListTabTests(TestCase):
         from decimal import Decimal as D
 
         ExamResult.objects.create(
-            tenant=self.tenant, employee=self.active_emp, exam_name='15N', attempt=1, score=D('88.00'),
+            tenant=self.tenant, employee=self.new_passed_emp, exam_name='15N', attempt=1, score=D('88.00'),
         )
         resp = self.client.get(reverse('employee-list'), {'list_tab': 'active', 'page_size': 50})
         row = next(r for r in resp.data['results'] if r['code'] == 'NV2')

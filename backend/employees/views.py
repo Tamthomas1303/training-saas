@@ -1,3 +1,4 @@
+from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
 from rest_framework.parsers import FormParser, MultiPartParser
@@ -19,15 +20,19 @@ STUDENT_ADMIN_ROLES = {'admin', 'om', 'bql', 'trainer'}
 
 TRAINING_STATUS_FILTERS = {'in_progress', 'not_started', 'done'}
 QUICK_FILTERS = {'no_training', 's_deadline_soon', 's_overdue'}
-# Nhom 1 muc A (Prompt_Nhom1_NhanSu_NguoiDung.md): 3 tab man Danh sach nhan su, theo dung lo
-# trinh "du 3 vi tri NV -> nhan su nguon -> du vi tri -> cap O":
-#   new        = Nhan su moi   -> employee_status='probation' (dang hoc/thi/danh gia thu viec).
-#   active     = Dang lam viec -> employee_status='active' VA KHONG phai cap O (level_group='O'
-#                la field DA duoc tu dong tinh lai moi lan luu, xem EmployeeSerializer.
-#                _sync_level_group/services.derive_level_group - uu tien vi tri quan ly/giam
-#                sat/bep truong/bep pho, KHAC voi emp_type() chi doc chu dau job_level).
-#   management = Ban quan ly   -> level_group='O' (chua nghi viec) - DUNG field nay (khong phai
-#                emp_type(e)=='O') de dong bo voi danh sach "#7 Ban quan ly" da co san
+# Nhom 1 + Fix (Prompt_Fix_3Tab_NhanSu.md): 3 tab man Danh sach nhan su - dinh nghia LAI theo
+# is_legacy (dinh nghia cu dung employee_status='probation' cho tab 'new' SAI, lam tab trong
+# tren tenant that vi hau het nhan su moi da qua thu viec). Luong nghiep vu dung: nhan su moi
+# vao -> "Nhan su moi"; sau khi Pass thuc hanh -> DONG THOI xuat hien them o "Dang lam viec" (de
+# dao tao tiep len level) - 1 nguoi co the o CA 2 tab, khong loai tru nhau.
+#   new        = Nhan su moi     -> is_legacy=False (toan bo nhan su onboarding tu 1/7/2026, KE
+#                CA dang probation VA da pass) - KHONG loc theo employee_status.
+#   active     = Dang lam viec   -> (is_legacy=True) HOAC (is_legacy=False VA employee_status=
+#                active); loai cap O (level_group='O' - field DA duoc tu dong tinh lai moi lan
+#                luu, xem EmployeeSerializer._sync_level_group/services.derive_level_group) va
+#                loai nghi viec.
+#   management = Ban quan ly     -> level_group='O' (chua nghi viec) - DUNG field nay (khong
+#                phai emp_type(e)=='O') de dong bo voi danh sach "#7 Ban quan ly" da co san
 #                (MgmtDevelopmentListView).
 LIST_TABS = {'new', 'active', 'management'}
 
@@ -50,9 +55,13 @@ class EmployeeViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
         list_tab = self.request.query_params.get('list_tab')
         if list_tab in LIST_TABS:
             if list_tab == 'new':
-                qs = qs.filter(employee_status=Employee.EmployeeStatus.PROBATION)
+                qs = qs.filter(is_legacy=False)
             elif list_tab == 'active':
-                qs = qs.filter(employee_status=Employee.EmployeeStatus.ACTIVE).exclude(level_group='O')
+                qs = (
+                    qs.exclude(level_group='O')
+                    .exclude(employee_status=Employee.EmployeeStatus.RESIGNED)
+                    .filter(Q(is_legacy=True) | Q(employee_status=Employee.EmployeeStatus.ACTIVE))
+                )
             elif list_tab == 'management':
                 qs = qs.filter(level_group='O').exclude(employee_status=Employee.EmployeeStatus.RESIGNED)
 
