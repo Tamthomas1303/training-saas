@@ -475,6 +475,83 @@ class ComputeFinalResultSkillThresholdGradingConfigTests(TestCase):
         self.assertEqual(self._compute(), 'Pass thử việc')  # 82 >= 80 sau khi ha nguong
 
 
+class EmployeeListTabTests(TestCase):
+    """Nhom 1 muc A (Prompt_Nhom1_NhanSu_NguoiDung.md): 3 tab danh sach nhan su qua ?list_tab=."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.client = APIClient()
+        self.client.force_authenticate(self.admin)
+
+        self.new_emp = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='Nhân sự mới',
+            employee_status=Employee.EmployeeStatus.PROBATION,
+        )
+        self.active_emp = Employee.objects.create(
+            tenant=self.tenant, code='NV2', name='Nhân sự đang làm',
+            employee_status=Employee.EmployeeStatus.ACTIVE, position='Phục vụ', level_group='S',
+        )
+        self.mgmt_emp = Employee.objects.create(
+            tenant=self.tenant, code='NV3', name='Quản lý nhà hàng',
+            employee_status=Employee.EmployeeStatus.ACTIVE, position='Quản lý nhà hàng', level_group='O',
+        )
+
+    def _codes(self, list_tab):
+        resp = self.client.get(reverse('employee-list'), {'list_tab': list_tab, 'page_size': 50})
+        return {row['code'] for row in resp.data['results']}
+
+    def test_new_tab_is_probation_only(self):
+        self.assertEqual(self._codes('new'), {'NV1'})
+
+    def test_active_tab_excludes_management(self):
+        self.assertEqual(self._codes('active'), {'NV2'})
+
+    def test_management_tab_is_level_group_o(self):
+        self.assertEqual(self._codes('management'), {'NV3'})
+
+    def test_no_list_tab_returns_everyone(self):
+        self.assertEqual(self._codes(''), {'NV1', 'NV2', 'NV3'})
+
+    def test_active_and_management_rows_expose_exam_score(self):
+        from decimal import Decimal as D
+
+        ExamResult.objects.create(
+            tenant=self.tenant, employee=self.active_emp, exam_name='15N', attempt=1, score=D('88.00'),
+        )
+        resp = self.client.get(reverse('employee-list'), {'list_tab': 'active', 'page_size': 50})
+        row = next(r for r in resp.data['results'] if r['code'] == 'NV2')
+        self.assertEqual(float(row['exam_score']), 88.0)
+
+
+class StudentDetailCoursesExamAttemptsTests(TestCase):
+    """Nhom 1 muc B.2/B.3: /employees/<id>/detail/ tra them 'courses' + 'exam_attempts'."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.employee = Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1')
+        self.client = APIClient()
+        self.client.force_authenticate(self.admin)
+
+    def test_detail_includes_courses_and_exam_attempts_keys(self):
+        resp = self.client.get(reverse('employee-student-detail', args=[self.employee.id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('courses', resp.data)
+        self.assertIn('exam_attempts', resp.data)
+        self.assertEqual(resp.data['courses'], [])
+        self.assertEqual(resp.data['exam_attempts'], [])
+
+    def test_detail_includes_enrolled_course_progress(self):
+        from courses.models import Course, Enrollment
+
+        course = Course.objects.create(tenant=self.tenant, title='Khóa demo', status='published')
+        Enrollment.objects.create(tenant=self.tenant, course=course, employee=self.employee)
+        resp = self.client.get(reverse('employee-student-detail', args=[self.employee.id]))
+        self.assertEqual(len(resp.data['courses']), 1)
+        self.assertEqual(resp.data['courses'][0]['title'], 'Khóa demo')
+
+
 class ChangeEmployeeStatusResignedAtTests(TestCase):
     """resigned_at CHI duoc set khi employee_status THAT SU chuyen sang resigned - cung 1 loi
     (va cach sua) nhu pass_date."""

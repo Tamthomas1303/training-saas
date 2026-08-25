@@ -44,6 +44,7 @@ import CertificatesAdminPage from './pages/CertificatesAdminPage'
 import MyCertificatesPage from './pages/MyCertificatesPage'
 import Employee360Page from './pages/Employee360Page'
 import SettingsPage from './pages/SettingsPage'
+import ForcedPasswordChangeGate from './components/ForcedPasswordChangeGate'
 import CompetencyFrameworkAdminPage from './pages/CompetencyFrameworkAdminPage'
 import DashboardOverviewPage from './pages/DashboardOverviewPage'
 import api from './api/client'
@@ -90,6 +91,7 @@ function App() {
     <BrowserRouter>
       <AuthProvider>
         <InitialRedirect />
+        <ForcedPasswordChangeGate />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/council-guest/:token" element={<GuestCouncilPage />} />

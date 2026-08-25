@@ -208,6 +208,8 @@ def export_probation_result_pdf(employee):
 
 def student_detail(employee):
     from checklist.models import TrainingProgress
+    from courses.services import my_courses
+    from exams.services import employee_attempts_review
 
     progress_percent = checklist_progress_percent(employee)
     items = matching_checklist_items(employee)
@@ -222,4 +224,10 @@ def student_detail(employee):
         'lms': student_lms(employee),
         'evaluations': student_evaluations(employee),
         'council': student_council(employee),
+        # Nhom 1 muc B.2/B.3 (Prompt_Nhom1_NhanSu_NguoiDung.md): khoa hoc truc tuyen da ghi danh
+        # + tien do (courses.services.my_courses, TAI DUNG nguyen ham dung cho MyCoursesPage) va
+        # lich su lam bai Ngan hang de thi kem chi tiet dung/sai tung cau (khac 'lms.exams' o
+        # tren - do la du lieu CLS/lich su nhap, con day la de thi tao trong he thong hien tai).
+        'courses': my_courses(employee),
+        'exam_attempts': employee_attempts_review(employee),
     }

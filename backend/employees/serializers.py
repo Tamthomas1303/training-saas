@@ -16,6 +16,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
     emp_type = serializers.SerializerMethodField()
     days_left = serializers.SerializerMethodField()
     login_username = serializers.CharField(source='user.username', read_only=True, default='')
+    exam_score = serializers.SerializerMethodField()
 
     class Meta:
         model = Employee
@@ -25,7 +26,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'skill_score', 'skill_result', 'shift_ops', 'office_result', 'final_result',
             'trainer', 'trainer_name', 'commission_status', 'retrain_deadline', 'progress_percent',
             'lms_marks', 'is_legacy', 'result_exported', 'result_pdf_url', 'emp_type', 'days_left',
-            'login_username',
+            'login_username', 'exam_score',
         ]
 
     def get_result_exported(self, obj):
@@ -53,6 +54,16 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'exam': exam_pass(obj),
             'skill': obj.skill_result == 'Đạt',
         }
+
+    def get_exam_score(self, obj):
+        """Nhom 1 muc A - diem thi CAO NHAT (cot 'Ket qua thi' tab Dang lam viec/Ban quan ly).
+        Doc tu context (tinh hang loat, xem EmployeeViewSet.list) khi co de tranh N+1."""
+        score_map = self.context.get('exam_score_map')
+        if score_map is not None:
+            return score_map.get(obj.id)
+        from .services import best_exam_score
+
+        return best_exam_score(obj) or None
 
     def get_emp_type(self, obj):
         from .services import emp_type

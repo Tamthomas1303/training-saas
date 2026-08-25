@@ -540,6 +540,55 @@ def attempt_result_payload(attempt):
     return base
 
 
+def employee_attempts_review(employee):
+    """Nhom 1 muc B.3 (Prompt_Nhom1_NhanSu_NguoiDung.md) - toan bo lich su lam bai (Ngan hang
+    de thi) cua 1 nhan su, KEM chi tiet dung/sai + dap an da chon tung cau. Dung cho man Chi
+    tiet nhan su (Admin/OM/BQL/Trainer xem lai KET QUA DA CHAM) - KHAC attempt_result_payload
+    (danh cho chinh nguoi thi, bi gioi han boi show_result_mode/review_mode cua de): o day LUON
+    tra ve day du, khong ap dung gioi han hien thi cua de, vi day la man tra cuu quan tri, khong
+    phai man xem lai cua thi sinh."""
+    attempts = (
+        Attempt.objects.filter(employee=employee, status=Attempt.Status.GRADED)
+        .select_related('assessment').order_by('-submitted_at')
+    )
+    result = []
+    for attempt in attempts:
+        questions = {
+            q.id: q for q in Question.objects.filter(id__in=attempt.question_ids).prefetch_related('options')
+        }
+        answers = {a.question_id: a for a in attempt.answers.all()}
+        details = []
+        for qid in attempt.question_ids:
+            question = questions.get(qid)
+            if not question:
+                continue
+            answer = answers.get(qid)
+            is_option_based = question.type in (
+                Question.Type.SINGLE, Question.Type.MULTIPLE, Question.Type.TRUEFALSE,
+            )
+            details.append({
+                'question_id': qid, 'type': question.type, 'stem_html': question.stem_html,
+                'points': question.points,
+                'options': [
+                    {'id': o.id, 'content_html': o.content_html, 'is_correct': o.is_correct}
+                    for o in question.options.all()
+                ] if is_option_based else [],
+                'response': answer.response_json if answer else None,
+                'is_correct': answer.is_correct if answer else None,
+                'score': (
+                    answer.manual_score if answer and answer.manual_score is not None
+                    else answer.auto_score if answer else None
+                ),
+            })
+        result.append({
+            'attempt_id': attempt.id, 'assessment_title': attempt.assessment.title,
+            'attempt_no': attempt.attempt_no, 'submitted_at': attempt.submitted_at,
+            'score': attempt.score, 'max_score': attempt.max_score, 'percent': attempt.percent,
+            'passed': attempt.passed, 'details': details,
+        })
+    return result
+
+
 def reorder_assessment_questions(tenant, items):
     """Cap nhat 'order' hang loat cho AssessmentQuestion. items: [{id, order}, ...] - giong het
     courses.services.reorder_items, viet rieng vi khong muon exams phu thuoc nguoc vao courses."""

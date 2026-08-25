@@ -69,10 +69,28 @@ function LmsMark({ ok }) {
   )
 }
 
+// Nhom 1 muc A (Prompt_Nhom1_NhanSu_NguoiDung.md): 3 tab theo dung lo trinh nhan su ("du 3 vi
+// tri NV -> nhan su nguon -> du vi tri -> cap O") - xem dinh nghia khop voi backend
+// (employees/views.py::LIST_TABS) o comment tung tab duoi day.
+const LIST_TABS = [
+  { value: 'new', label: 'Nhân sự mới' }, // employee_status='probation' (dang hoc/thi/danh gia thu viec)
+  { value: 'active', label: 'Nhân sự đang làm việc' }, // employee_status='active' VA KHONG phai cap O
+  { value: 'management', label: 'Ban quản lý' }, // level_group='O' (chua nghi viec)
+]
+
+function TrainingContentMark({ done }) {
+  return (
+    <span style={{ display: 'inline-flex', color: done ? 'var(--forest-dark)' : 'var(--muted)' }}>
+      {done ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
+    </span>
+  )
+}
+
 export default function EmployeesPage() {
   const { user } = useAuth()
   const isAdmin = ['admin', 'om'].includes((user?.role || '').toLowerCase())
 
+  const [listTab, setListTab] = useState('new')
   const [search, setSearch] = useState('')
   const [restaurant, setRestaurant] = useState('')
   const [employeeStatus, setEmployeeStatus] = useState('')
@@ -131,12 +149,13 @@ export default function EmployeesPage() {
 
   const params = {
     search,
+    list_tab: listTab,
     restaurant: restaurant || undefined,
-    employee_status: employeeStatus || undefined,
-    training_status: trainingStatus || undefined,
-    quick_filter: quickFilter || undefined,
-    is_legacy: staffKind === 'new' ? false : staffKind === 'legacy' ? true : undefined,
-    result_exported: resultExported || undefined,
+    employee_status: listTab === 'new' ? employeeStatus || undefined : undefined,
+    training_status: listTab === 'new' ? trainingStatus || undefined : undefined,
+    quick_filter: listTab === 'new' ? quickFilter || undefined : undefined,
+    is_legacy: listTab === 'new' ? (staffKind === 'new' ? false : staffKind === 'legacy' ? true : undefined) : undefined,
+    result_exported: listTab === 'new' ? resultExported || undefined : undefined,
     ordering: order === 'newest' ? '-start_date' : 'start_date',
     page,
     page_size: PAGE_SIZE,
@@ -149,6 +168,11 @@ export default function EmployeesPage() {
       setter(e.target.value)
       setPage(1)
     }
+  }
+
+  function changeTab(tab) {
+    setListTab(tab)
+    setPage(1)
   }
 
   async function saveEmployee() {
@@ -248,7 +272,7 @@ export default function EmployeesPage() {
     <AppShell>
       <BackButton />
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-        <h2 style={{ margin: 0 }}>Danh sách nhân sự mới</h2>
+        <h2 style={{ margin: 0 }}>Danh sách nhân sự</h2>
         {isAdmin && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button className="btn-outline" onClick={() => setShowImport((v) => !v)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -257,6 +281,18 @@ export default function EmployeesPage() {
             <button onClick={() => { setForm({ ...EMPTY_EMP }); setFormError('') }}>+ Thêm nhân sự</button>
           </div>
         )}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, margin: '12px 0', flexWrap: 'wrap' }}>
+        {LIST_TABS.map((t) => (
+          <button
+            key={t.value}
+            className={`btn-sm ${listTab === t.value ? '' : 'btn-outline'}`}
+            onClick={() => changeTab(t.value)}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
       {isAdmin && showImport && (
@@ -337,38 +373,46 @@ export default function EmployeesPage() {
 
       <FilterBar>
         <input style={s.input} placeholder="Tìm theo mã / tên nhân viên..." value={search} onChange={onFilterChange(setSearch)} />
-        <select style={s.select} value={staffKind} onChange={onFilterChange(setStaffKind)}>
-          <option value="new">Nhân sự mới</option>
-          <option value="legacy">Nhân sự cũ</option>
-          <option value="">Tất cả</option>
-        </select>
-        <select style={s.select} value={resultExported} onChange={onFilterChange(setResultExported)}>
-          <option value="">Phiếu KQ: tất cả</option>
-          <option value="yes">Đã xuất phiếu</option>
-          <option value="no">Chưa xuất phiếu</option>
-        </select>
+        {listTab === 'new' && (
+          <>
+            <select style={s.select} value={staffKind} onChange={onFilterChange(setStaffKind)}>
+              <option value="new">Nhân sự mới</option>
+              <option value="legacy">Nhân sự cũ</option>
+              <option value="">Tất cả</option>
+            </select>
+            <select style={s.select} value={resultExported} onChange={onFilterChange(setResultExported)}>
+              <option value="">Phiếu KQ: tất cả</option>
+              <option value="yes">Đã xuất phiếu</option>
+              <option value="no">Chưa xuất phiếu</option>
+            </select>
+          </>
+        )}
         <select style={s.select} value={restaurant} onChange={onFilterChange(setRestaurant)}>
           <option value="">Tất cả nhà hàng</option>
           {restaurantOptions.results.map((r) => (
             <option key={r.id} value={r.id}>{r.name}</option>
           ))}
         </select>
-        <select style={s.select} value={employeeStatus} onChange={onFilterChange(setEmployeeStatus)}>
-          <option value="">Tất cả trạng thái</option>
-          {Object.entries(STATUS_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>{label}</option>
-          ))}
-        </select>
-        <select style={s.select} value={trainingStatus} onChange={onFilterChange(setTrainingStatus)}>
-          {TRAINING_STATUS_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
-        <select style={s.select} value={quickFilter} onChange={onFilterChange(setQuickFilter)}>
-          {QUICK_FILTER_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
+        {listTab === 'new' && (
+          <>
+            <select style={s.select} value={employeeStatus} onChange={onFilterChange(setEmployeeStatus)}>
+              <option value="">Tất cả trạng thái</option>
+              {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+            <select style={s.select} value={trainingStatus} onChange={onFilterChange(setTrainingStatus)}>
+              {TRAINING_STATUS_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+            <select style={s.select} value={quickFilter} onChange={onFilterChange(setQuickFilter)}>
+              {QUICK_FILTER_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </>
+        )}
         <button className={`btn-sm ${order === 'oldest' ? '' : 'btn-outline'}`} onClick={() => { setOrder('oldest'); setPage(1) }}>Cũ nhất</button>
         <button className={`btn-sm ${order === 'newest' ? '' : 'btn-outline'}`} onClick={() => { setOrder('newest'); setPage(1) }}>Mới nhất</button>
       </FilterBar>
@@ -376,7 +420,54 @@ export default function EmployeesPage() {
       {loading && <p className="muted-note">Đang tải...</p>}
       {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
 
-      {!loading && !error && (
+      {!loading && !error && listTab !== 'new' && (
+        <>
+          <div className="table-sticky"><Table>
+            <thead>
+              <tr>
+                <th>Họ tên</th>
+                <th>Nhà hàng</th>
+                <th>Vị trí đang làm</th>
+                <th>Nội dung đã đào tạo</th>
+                <th>Kết quả thi</th>
+                <th>Kết quả đánh giá kỹ năng</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.results.map((e) => (
+                <tr key={e.id}>
+                  <td>{e.name} - {e.code}</td>
+                  <td>{e.restaurant_name}</td>
+                  <td>{e.position}{e.emp_type && ` (${e.emp_type})`}</td>
+                  <td>
+                    <TrainingContentMark done={e.lms_marks?.course} /> {e.progress_percent}%
+                  </td>
+                  <td>{e.exam_score != null ? `${e.exam_score} điểm` : '—'}</td>
+                  <td>
+                    <Badge variant={e.skill_result === 'Đạt' ? 'success' : e.skill_result ? 'danger' : 'neutral'}>
+                      {e.skill_result || 'Chưa đánh giá'}
+                    </Badge>
+                  </td>
+                  <td style={{ display: 'flex', gap: 6 }}>
+                    <Link to={`/employees/${e.id}`}>
+                      <button className="btn-outline btn-sm">Chi tiết</button>
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+              {data.results.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="muted-note">Không có dữ liệu.</td>
+                </tr>
+              )}
+            </tbody>
+          </Table></div>
+          <Pager page={page} pageSize={PAGE_SIZE} count={data.count} onChange={setPage} />
+        </>
+      )}
+
+      {!loading && !error && listTab === 'new' && (
         <>
           <div className="table-sticky"><Table>
             <thead>

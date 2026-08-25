@@ -241,3 +241,156 @@ class EmailSettingsApiTests(TestCase):
         self.assertTrue(resp.data['weekly_enabled'])
         obj = get_email_settings(self.tenant)
         self.assertEqual(obj.cc, ['c@x.com'])
+
+
+class UserResetPasswordTests(TestCase):
+    """Nhom 1 muc C.3 (Prompt_Nhom1_NhanSu_NguoiDung.md): POST /api/auth/users/<id>/reset-
+    password/ sinh mat khau tam, hien 1 lan, bat co bat buoc doi mat khau lan dang nhap ke tiep."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.trainer = User.objects.create_user(username='trainer1', password='OldPass!23', tenant=self.tenant, role='trainer')
+        self.client = APIClient()
+
+    def test_requires_admin(self):
+        self.client.force_authenticate(self.trainer)
+        resp = self.client.post(reverse('user-reset-password', args=[self.trainer.id]))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_generates_temp_password_shown_once_and_sets_must_change_flag(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(reverse('user-reset-password', args=[self.trainer.id]))
+        self.assertEqual(resp.status_code, 200)
+        temp_password = resp.data['password']
+        self.assertEqual(resp.data['username'], 'trainer1')
+        self.assertTrue(temp_password)
+
+        self.trainer.refresh_from_db()
+        self.assertTrue(self.trainer.must_change_password)
+        self.assertTrue(self.trainer.check_password(temp_password))
+        self.assertFalse(self.trainer.check_password('OldPass!23'))  # mat khau cu khong con dung
+
+    def test_login_response_exposes_must_change_password(self):
+        self.client.force_authenticate(self.admin)
+        self.client.post(reverse('user-reset-password', args=[self.trainer.id]))
+        # force_authenticate dung THANG doi tuong Python truyen vao (khong tu doc lai DB) - phai
+        # refresh_from_db() de lay dung must_change_password/password vua bi reset_user_password
+        # ghi (qua 1 instance KHAC, lay tu get_object() cua UserViewSet).
+        self.trainer.refresh_from_db()
+        # /auth/me/ dung UserSerializer - can field nay de FE hien modal bat buoc doi mat khau.
+        self.client.force_authenticate(self.trainer)
+        resp = self.client.get(reverse('me'))
+        self.assertTrue(resp.data['must_change_password'])
+
+    def test_change_password_clears_must_change_flag(self):
+        self.client.force_authenticate(self.admin)
+        temp_password = self.client.post(reverse('user-reset-password', args=[self.trainer.id])).data['password']
+
+        self.trainer.refresh_from_db()  # xem ghi chu o test_login_response_exposes_...
+        self.client.force_authenticate(self.trainer)
+        resp = self.client.post(reverse('me-change-password'), {
+            'old_password': temp_password, 'new_password': 'BrandNewPass!456',
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.trainer.refresh_from_db()
+        self.assertFalse(self.trainer.must_change_password)
+        self.assertTrue(self.trainer.check_password('BrandNewPass!456'))
+
+
+class UserArchiveRestoreTests(TestCase):
+    """Nhom 1 muc D.1: Luu tru an khoi danh sach mac dinh, GIU du lieu, khoi phuc duoc."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.trainer = User.objects.create_user(username='trainer1', password='x', tenant=self.tenant, role='trainer')
+        self.client = APIClient()
+        self.client.force_authenticate(self.admin)
+
+    def test_archive_hides_from_default_list_but_keeps_row_in_db(self):
+        resp = self.client.post(reverse('user-archive', args=[self.trainer.id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNotNone(resp.data['archived_at'])
+
+        listing = self.client.get(reverse('user-list'))
+        usernames = [u['username'] for u in listing.data['results']]
+        self.assertNotIn('trainer1', usernames)
+        self.assertTrue(User.objects.filter(id=self.trainer.id).exists())  # van con trong DB
+
+    def test_archived_toggle_shows_only_archived(self):
+        self.client.post(reverse('user-archive', args=[self.trainer.id]))
+        listing = self.client.get(reverse('user-list'), {'archived': 'true'})
+        usernames = [u['username'] for u in listing.data['results']]
+        self.assertIn('trainer1', usernames)
+        self.assertNotIn('admin1', usernames)
+
+    def test_restore_brings_account_back_to_default_list(self):
+        self.client.post(reverse('user-archive', args=[self.trainer.id]))
+        resp = self.client.post(reverse('user-restore', args=[self.trainer.id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.data['archived_at'])
+
+        listing = self.client.get(reverse('user-list'))
+        usernames = [u['username'] for u in listing.data['results']]
+        self.assertIn('trainer1', usernames)
+
+
+class UserHardDeleteTests(TestCase):
+    """Nhom 1 muc D.2: xoa cung can xac nhan kep (go lai username) + chan neu da phat sinh du
+    lieu nghiep vu tham chieu toi user do (vd dang la trainer cua 1 nhan su)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.trainer = User.objects.create_user(username='trainer1', password='x', tenant=self.tenant, role='trainer')
+        self.client = APIClient()
+        self.client.force_authenticate(self.admin)
+
+    def test_requires_matching_username_confirmation(self):
+        resp = self.client.delete(
+            reverse('user-detail', args=[self.trainer.id]), {'confirm_username': 'sai-ten'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertTrue(User.objects.filter(id=self.trainer.id).exists())
+
+    def test_deletes_when_no_referenced_data(self):
+        resp = self.client.delete(
+            reverse('user-detail', args=[self.trainer.id]), {'confirm_username': 'trainer1'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(User.objects.filter(id=self.trainer.id).exists())
+
+    def test_blocked_when_user_is_trainer_of_an_employee(self):
+        from employees.models import Employee
+
+        Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1', trainer=self.trainer)
+        resp = self.client.delete(
+            reverse('user-detail', args=[self.trainer.id]), {'confirm_username': 'trainer1'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('trainer', resp.data['detail'].lower())
+        self.assertTrue(User.objects.filter(id=self.trainer.id).exists())
+
+    def test_blocked_when_user_graded_an_exam_answer(self):
+        from exams.models import Answer, Assessment, AssessmentQuestion, Attempt, Question, QuestionBank
+
+        bank = QuestionBank.objects.create(tenant=self.tenant, name='Bank')
+        question = Question.objects.create(
+            tenant=self.tenant, bank=bank, type=Question.Type.ESSAY, stem_html='Q1', points=10,
+        )
+        assessment = Assessment.objects.create(tenant=self.tenant, title='De', status=Assessment.Status.PUBLISHED)
+        AssessmentQuestion.objects.create(tenant=self.tenant, assessment=assessment, question=question)
+        employee_user = User.objects.create_user(
+            username='nv1', password='x', tenant=self.tenant, role=User.Role.EMPLOYEE,
+        )
+        from employees.models import Employee
+
+        employee = Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1', user=employee_user)
+        attempt = Attempt.objects.create(tenant=self.tenant, assessment=assessment, employee=employee, attempt_no=1)
+        Answer.objects.create(tenant=self.tenant, attempt=attempt, question=question, graded_by=self.trainer)
+
+        resp = self.client.delete(
+            reverse('user-detail', args=[self.trainer.id]), {'confirm_username': 'trainer1'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)

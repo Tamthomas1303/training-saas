@@ -1,5 +1,6 @@
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
@@ -18,7 +19,15 @@ from .serializers import (
     UserAdminSerializer,
     UserSerializer,
 )
-from .services import get_email_settings, get_grading_config, update_grading_config
+from .services import (
+    archive_user,
+    check_user_deletable,
+    get_email_settings,
+    get_grading_config,
+    reset_user_password,
+    restore_user,
+    update_grading_config,
+)
 
 
 def _require_admin(request):
@@ -145,12 +154,19 @@ class ChangePasswordView(APIView):
         except DjangoValidationError as exc:
             return Response({'detail': ' '.join(exc.messages)}, status=400)
         request.user.set_password(new_password)
-        request.user.save(update_fields=['password'])
+        # Nhom 1 muc C.3: neu mat khau nay la mat khau tam do Admin reset, doi thanh cong xong
+        # thi HET bi ep doi nua (must_change_password=False).
+        request.user.must_change_password = False
+        request.user.save(update_fields=['password', 'must_change_password'])
         return Response({'detail': 'Đã đổi mật khẩu.'})
 
 
 class UserViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
-    """CRUD nguoi dung - man 5.9, chi Admin. Port UserService.gs::upsertUser/listUsers."""
+    """CRUD nguoi dung - man 5.9, chi Admin. Port UserService.gs::upsertUser/listUsers.
+
+    Nhom 1 muc D.1: danh sach mac dinh AN tai khoan da luu tru (archived_at khong null) - truyen
+    ?archived=true de xem NGUOC LAI (chi tai khoan da luu tru, dung cho nut "Hien tai khoan da
+    luu tru"). Muc C/D con them 3 action rieng: reset-password/archive/restore (huong duoi)."""
 
     serializer_class = UserAdminSerializer
     queryset = User.objects.select_related('restaurant').all()
@@ -166,6 +182,54 @@ class UserViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
             from rest_framework.exceptions import PermissionDenied
 
             raise PermissionDenied('Chỉ Admin được quản trị người dùng.')
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # Chi loc theo archived_at o danh sach (list) - cac thao tac tren 1 ban ghi cu the
+        # (retrieve/update/destroy/reset-password/archive/restore) PHAI tim duoc ca tai khoan DA
+        # luu tru (vd /restore/ can lay dung user dang archived_at != null qua get_object()).
+        if self.action != 'list':
+            return qs
+        show_archived = (self.request.query_params.get('archived') or '').lower() == 'true'
+        if show_archived:
+            return qs.filter(archived_at__isnull=False)
+        return qs.filter(archived_at__isnull=True)
+
+    def destroy(self, request, *args, **kwargs):
+        """Xoa cung - muc D.2: bat buoc go lai username de xac nhan kep + chan neu da phat sinh
+        du lieu nghiep vu (xem accounts.services.check_user_deletable)."""
+        user = self.get_object()
+        confirm_username = (request.data.get('confirm_username') or '').strip()
+        if confirm_username != user.username:
+            return Response(
+                {'detail': 'Vui lòng gõ đúng tên tài khoản để xác nhận xóa cứng.'}, status=400,
+            )
+        ok, reason = check_user_deletable(user)
+        if not ok:
+            return Response({'detail': reason}, status=400)
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=['post'], url_path='reset-password')
+    def reset_password(self, request, pk=None):
+        """POST /api/auth/users/<id>/reset-password/ — sinh mat khau tam, tra ve HIEN THI 1 LAN
+        cho Admin copy dua nguoi dung (khong luu lai dang doc duoc - xem services.reset_user_
+        password). Bat co bat buoc doi mat khau o lan dang nhap ke tiep."""
+        user = self.get_object()
+        password = reset_user_password(user)
+        return Response({'username': user.username, 'password': password})
+
+    @action(detail=True, methods=['post'])
+    def archive(self, request, pk=None):
+        """POST /api/auth/users/<id>/archive/ — Luu tru (muc D.1): an khoi danh sach mac dinh,
+        GIU nguyen du lieu trong DB, khoi phuc duoc qua /restore/."""
+        user = archive_user(self.get_object())
+        return Response(UserAdminSerializer(user, context=self.get_serializer_context()).data)
+
+    @action(detail=True, methods=['post'])
+    def restore(self, request, pk=None):
+        """POST /api/auth/users/<id>/restore/ — khoi phuc tai khoan da luu tru."""
+        user = restore_user(self.get_object())
+        return Response(UserAdminSerializer(user, context=self.get_serializer_context()).data)
 
 
 class UserAreasView(APIView):

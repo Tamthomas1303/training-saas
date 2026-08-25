@@ -63,6 +63,13 @@ class User(AbstractUser):
     google_email = models.EmailField(blank=True, null=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
     avatar_url = models.URLField(max_length=500, blank=True)
+    # Nhom 1 muc C.3 (Prompt_Nhom1_NhanSu_NguoiDung.md) - dat True khi Admin reset mat khau tam;
+    # ep doi mat khau o lan dang nhap ke tiep (xem ChangePasswordView, MeView/UserSerializer).
+    must_change_password = models.BooleanField(default=False)
+    # Nhom 1 muc D.1 - "Luu tru" (an khoi danh sach, GIU nguyen du lieu trong DB, khoi phuc duoc)
+    # - KHAC voi status='inactive' (nghi viec/ngung hoat dong van con hien trong danh sach mac
+    # dinh, chi loc rieng qua UI). None = khong luu tru (mac dinh, hien binh thuong).
+    archived_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.username} ({self.tenant_id})"

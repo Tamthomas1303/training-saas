@@ -19,6 +19,17 @@ STUDENT_ADMIN_ROLES = {'admin', 'om', 'bql', 'trainer'}
 
 TRAINING_STATUS_FILTERS = {'in_progress', 'not_started', 'done'}
 QUICK_FILTERS = {'no_training', 's_deadline_soon', 's_overdue'}
+# Nhom 1 muc A (Prompt_Nhom1_NhanSu_NguoiDung.md): 3 tab man Danh sach nhan su, theo dung lo
+# trinh "du 3 vi tri NV -> nhan su nguon -> du vi tri -> cap O":
+#   new        = Nhan su moi   -> employee_status='probation' (dang hoc/thi/danh gia thu viec).
+#   active     = Dang lam viec -> employee_status='active' VA KHONG phai cap O (level_group='O'
+#                la field DA duoc tu dong tinh lai moi lan luu, xem EmployeeSerializer.
+#                _sync_level_group/services.derive_level_group - uu tien vi tri quan ly/giam
+#                sat/bep truong/bep pho, KHAC voi emp_type() chi doc chu dau job_level).
+#   management = Ban quan ly   -> level_group='O' (chua nghi viec) - DUNG field nay (khong phai
+#                emp_type(e)=='O') de dong bo voi danh sach "#7 Ban quan ly" da co san
+#                (MgmtDevelopmentListView).
+LIST_TABS = {'new', 'active', 'management'}
 
 
 class EmployeeViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
@@ -35,6 +46,15 @@ class EmployeeViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
         loat roi loc lai theo id, xem batch_checklist_progress_percent) - dung chung khai
         niem voi khoi dashboard."""
         qs = super().get_queryset()
+
+        list_tab = self.request.query_params.get('list_tab')
+        if list_tab in LIST_TABS:
+            if list_tab == 'new':
+                qs = qs.filter(employee_status=Employee.EmployeeStatus.PROBATION)
+            elif list_tab == 'active':
+                qs = qs.filter(employee_status=Employee.EmployeeStatus.ACTIVE).exclude(level_group='O')
+            elif list_tab == 'management':
+                qs = qs.filter(level_group='O').exclude(employee_status=Employee.EmployeeStatus.RESIGNED)
 
         # Lọc theo phạm vi nhà hàng: BQL/Trainer/KCS chỉ thấy nhân sự nhà hàng mình phụ trách
         # (port tinh thần scope hệ cũ). Admin/OM/BOD/AM = toàn hệ thống.
@@ -115,7 +135,7 @@ class EmployeeViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
         """Batch tinh progress_percent + lms_marks cho ca trang (thay vi tung dong trong
         serializer) de tranh N+1 - xem services.batch_checklist_progress_percent/
         batch_lms_marks."""
-        from .services import batch_checklist_progress_percent, batch_lms_marks
+        from .services import batch_checklist_progress_percent, batch_exam_score, batch_lms_marks
 
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
@@ -124,6 +144,7 @@ class EmployeeViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
         context = self.get_serializer_context()
         context['progress_map'] = batch_checklist_progress_percent(objects)
         context['lms_marks_map'] = batch_lms_marks(objects)
+        context['exam_score_map'] = batch_exam_score(objects)
         serializer = self.get_serializer(objects, many=True, context=context)
 
         if page is not None:

@@ -18,7 +18,12 @@ class UserAdminSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'username', 'password', 'full_name', 'role', 'job_title', 'restaurant',
             'restaurant_name', 'trainer_zone', 'google_email', 'status',
+            'must_change_password', 'archived_at',
         ]
+        # must_change_password/archived_at CHI doi qua action rieng (reset-password/archive/
+        # restore ben duoi) - khong cho sua truc tiep qua form Sua thong tin thuong, tranh Admin
+        # vo tinh bat/tat co nay khi chi dinh sua ten/vai tro.
+        read_only_fields = ['must_change_password', 'archived_at']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -65,6 +70,7 @@ class UserSerializer(serializers.ModelSerializer):
             'tenant_name',
             'restaurant',
             'restaurant_name',
+            'must_change_password',
         ]
         read_only_fields = fields
 

@@ -1638,3 +1638,85 @@ class A1BasicControlsRegressionTests(ProctoringBaseTestCase):
         second_resp = self._start()
         self.assertEqual(second_resp.status_code, 400)
         self.assertIn('hết số lần', second_resp.data['detail'])
+
+
+class EmployeeAttemptsReviewTests(TestCase):
+    """Nhom 1 muc B.3 (Prompt_Nhom1_NhanSu_NguoiDung.md): exams.services.employee_attempts_review
+    - lich su lam bai KEM chi tiet dung/sai + dap an da chon tung cau, dung cho man Chi tiet
+    nhan su (KHONG bi gioi han boi show_result_mode/review_mode cua de, khac attempt_result_
+    payload danh cho chinh nguoi thi)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.bank = QuestionBank.objects.create(tenant=self.tenant, name='Bank demo')
+        self.question = Question.objects.create(
+            tenant=self.tenant, bank=self.bank, type=Question.Type.SINGLE, stem_html='Câu 1?', points=10,
+        )
+        self.correct_opt = QuestionOption.objects.create(
+            tenant=self.tenant, question=self.question, content_html='Đúng', is_correct=True,
+        )
+        self.wrong_opt = QuestionOption.objects.create(
+            tenant=self.tenant, question=self.question, content_html='Sai', is_correct=False,
+        )
+        # show_result_mode='score_only'/review_mode='none' - CO Y de chung minh
+        # employee_attempts_review KHONG bi gioi han boi 2 cau hinh nay (khac attempt_result_
+        # payload).
+        self.assessment = Assessment.objects.create(
+            tenant=self.tenant, title='Đề 1 câu', status=Assessment.Status.PUBLISHED,
+            show_result_mode=Assessment.ShowResultMode.SCORE_ONLY, review_mode=Assessment.ReviewMode.NONE,
+        )
+        AssessmentQuestion.objects.create(tenant=self.tenant, assessment=self.assessment, question=self.question)
+        self.learner_user = User.objects.create_user(
+            username='nv1', password='x', tenant=self.tenant, role=User.Role.EMPLOYEE,
+        )
+        self.employee = Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1', user=self.learner_user)
+        AssessmentAssignment.objects.create(tenant=self.tenant, assessment=self.assessment, employee=self.employee)
+        self.client = APIClient()
+
+    def _submit(self, option):
+        self.client.force_authenticate(self.learner_user)
+        attempt_id = self.client.post(reverse('exam-start', args=[self.assessment.id])).data['attempt_id']
+        self.client.post(
+            reverse('exam-attempt-answer', args=[attempt_id]),
+            {'question': self.question.id, 'response': {'option_id': option.id}}, format='json',
+        )
+        self.client.post(reverse('exam-attempt-submit', args=[attempt_id]))
+        return attempt_id
+
+    def test_returns_full_detail_regardless_of_show_result_mode(self):
+        from .services import employee_attempts_review
+
+        self._submit(self.correct_opt)
+        rows = employee_attempts_review(self.employee)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row['assessment_title'], 'Đề 1 câu')
+        self.assertTrue(row['passed'])
+        self.assertEqual(len(row['details']), 1)
+        detail = row['details'][0]
+        self.assertEqual(detail['stem_html'], 'Câu 1?')
+        self.assertTrue(detail['is_correct'])
+        self.assertEqual(detail['response'], {'option_id': self.correct_opt.id})
+        option_ids = {o['id'] for o in detail['options']}
+        self.assertEqual(option_ids, {self.correct_opt.id, self.wrong_opt.id})
+        # Options tra ve KEM is_correct - khac attempt_question_payload (danh cho nguoi dang
+        # thi, KHONG kem dap an dung) - day la diem khac biet CHINH cua ham nay.
+        correct_flags = {o['id']: o['is_correct'] for o in detail['options']}
+        self.assertTrue(correct_flags[self.correct_opt.id])
+        self.assertFalse(correct_flags[self.wrong_opt.id])
+
+    def test_wrong_answer_marked_incorrect(self):
+        from .services import employee_attempts_review
+
+        self._submit(self.wrong_opt)
+        row = employee_attempts_review(self.employee)[0]
+        self.assertFalse(row['passed'])
+        self.assertFalse(row['details'][0]['is_correct'])
+        self.assertEqual(row['details'][0]['response'], {'option_id': self.wrong_opt.id})
+
+    def test_in_progress_attempt_excluded(self):
+        from .services import employee_attempts_review
+
+        self.client.force_authenticate(self.learner_user)
+        self.client.post(reverse('exam-start', args=[self.assessment.id]))
+        self.assertEqual(employee_attempts_review(self.employee), [])

@@ -219,6 +219,25 @@ def batch_lms_marks(employees, threshold=None):
     }
 
 
+def batch_exam_score(employees):
+    """Nhom 1 muc A - diem thi CAO NHAT (best_exam_score, xem ham do) cho nhieu nhan su cung
+    luc, tranh N+1 o cot 'Ket qua thi' cua tab 'Dang lam viec'/'Ban quan ly' (danh sach nhan su).
+    Tra ve {employee_id: diem hoac None neu chua thi lan nao}."""
+    from django.db.models import Max
+    from django.db.models.functions import Coalesce
+
+    from cls_sync.models import ExamResult
+
+    employee_ids = [e.id for e in employees]
+    rows = (
+        ExamResult.objects.filter(employee_id__in=employee_ids)
+        .annotate(computed_score=Coalesce('score_adjusted', 'score'))
+        .values('employee_id')
+        .annotate(best=Max('computed_score'))
+    )
+    return {row['employee_id']: row['best'] for row in rows}
+
+
 def latest_skill_eval_percent(employee):
     """% cua lan danh gia ky nang BQL (Skill_BQL) gan nhat da Hoan thanh."""
     from evaluation.models import Evaluation

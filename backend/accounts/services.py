@@ -101,3 +101,87 @@ def update_grading_config(tenant, user, changes):
 def get_email_settings(tenant):
     settings_obj, _created = EmailSettings.objects.get_or_create(tenant=tenant)
     return settings_obj
+
+
+# ============================================================ Nhom 1 muc C/D (Prompt_Nhom1_
+# NhanSu_NguoiDung.md) - man Nguoi dung: dat lai mat khau tam + luu tru/xoa cung tai khoan.
+
+def generate_temp_password():
+    """Mat khau tam ngau nhien khi Admin reset cho user quen mat khau - CHI tra ve 1 LAN de
+    Admin copy dua cho user (khong luu dang doc duoc - DB chi giu ban hash qua set_password,
+    giong moi mat khau khac)."""
+    import secrets
+    import string
+
+    alphabet = string.ascii_letters + string.digits
+    # 12 ky tu ngau nhien du manh, tranh ky tu de nham (l/1/O/0) de Admin doc/go lai cho user
+    # khong bi loi neu can nhap tay thay vi copy-paste.
+    alphabet = ''.join(c for c in alphabet if c not in 'l1O0')
+    return ''.join(secrets.choice(alphabet) for _ in range(12))
+
+
+def reset_user_password(user):
+    """Sinh mat khau tam, dat cho user + bat co must_change_password (ep doi o lan dang nhap
+    ke tiep - xem ChangePasswordView). Tra ve mat khau tam (plaintext) DE ADMIN XEM 1 LAN NGAY
+    LUC NAY - goi ham nay xong PHAI tra ve luon cho response, khong luu lai o dau khac."""
+    password = generate_temp_password()
+    user.set_password(password)
+    user.must_change_password = True
+    user.save(update_fields=['password', 'must_change_password'])
+    return password
+
+
+def archive_user(user):
+    from django.utils import timezone
+
+    user.archived_at = timezone.now()
+    user.save(update_fields=['archived_at'])
+    return user
+
+
+def restore_user(user):
+    user.archived_at = None
+    user.save(update_fields=['archived_at'])
+    return user
+
+
+# (model, field_tren_model_tro_toi_User, nhan hien thi loi) - danh sach cac noi "da phat sinh
+# du lieu dao tao/thi/hoa hong/danh gia" tham chieu toi 1 User (tai khoan nhan vien quan tri/
+# trainer...), dung de CHAN xoa cung (muc D.2). Liet ke tuong minh (khong tu do quet moi FK
+# trong project) de chi chan dung nhung tham chieu THAT SU la "du lieu nghiep vu" - loai tru cac
+# FK chi la audit metadata (vd GradingConfigHistory.changed_by, da SET_NULL, khong phai du lieu
+# dao tao/thi/danh gia theo dung nghia prompt muc D.2).
+def _user_delete_blockers():
+    from checklist.models import TrainingProgress
+    from courses.models import Enrollment
+    from employees.models import Employee, LevelUpEnrollment, TalentReview
+    from evaluation.models import Evaluation
+    from exams.models import AssessmentAssignment, Answer
+    from kpi.models import Commission, KpiSession
+
+    return [
+        (Employee, 'trainer', 'đang là trainer phụ trách nhân sự'),
+        (TrainingProgress, 'trainer', 'đã ghi nhận đào tạo (checklist)'),
+        (KpiSession, 'trainer', 'đã tổ chức buổi đào tạo KPI'),
+        (Commission, 'trainer', 'có hoa hồng/phụ cấp trainer'),
+        (Evaluation, 'evaluator', 'đã chấm đánh giá'),
+        (Answer, 'graded_by', 'đã chấm bài thi'),
+        (TalentReview, 'reviewed_by', 'đã đánh giá nhân sự nguồn'),
+        (LevelUpEnrollment, 'registered_by', 'đã đăng ký lộ trình thăng tiến'),
+        (Enrollment, 'assigned_by', 'đã gán khóa học'),
+        (AssessmentAssignment, 'assigned_by', 'đã gán đề thi'),
+    ]
+
+
+def check_user_deletable(user):
+    """Tra ve (True, '') neu XOA CUNG duoc (chua co du lieu nghiep vu nao tham chieu toi), hoac
+    (False, ly_do) - ly_do liet ke RO cac loai du lieu con vuong (muc D.2: "tra loi ro neu vuong
+    khoa ngoai"). Chi kiem cac FK CO Y NGHIA nghiep vu (xem _user_delete_blockers), khong phai
+    quet toan bo FK trong DB (vd audit-only nhu updated_by/changed_by khong tinh)."""
+    reasons = [
+        label for model, field, label in _user_delete_blockers()
+        if model.objects.filter(**{field: user}).exists()
+    ]
+    if reasons:
+        return False, 'Tài khoản đã phát sinh dữ liệu (' + '; '.join(reasons) + '). Dùng Lưu trữ thay vì xóa cứng.'
+    return True, ''

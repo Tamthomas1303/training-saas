@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import AppShell from '../components/AppShell'
 import Badge from '../components/Badge'
 import Modal from '../components/Modal'
 import ProgressBar from '../components/ProgressBar'
+import RadarChart from '../components/RadarChart'
 import Table from '../components/Table'
 import { useAuth } from '../auth/AuthContext'
 import api from '../api/client'
@@ -16,6 +17,10 @@ const EXAM_REGRADE_ROLES = ADMIN_ROLES
 // Đổi trạng thái làm việc: Admin/OM (panel đầy đủ) và cả BQL/Trainer (chỉ control gọn).
 const STATUS_UPDATE_ROLES = new Set(['admin', 'om', 'bql', 'trainer'])
 const COUNCIL_FINALIZE_ROLES = new Set(['admin', 'om', 'am', 'kcs'])
+// Nhom 1 muc B.1 (Prompt_Nhom1_NhanSu_NguoiDung.md): radar tai dung GET /dashboard/employee/
+// <id>/ (Employee360View) - endpoint do CHI cho phep admin/om/bod (DASHBOARD_VIEW_ROLES o
+// backend), nen chi goi/hien cho dung 3 role nay de tranh loi 403 voi BQL/Trainer/AM/KCS.
+const RADAR_ROLES = new Set(['admin', 'om', 'bod'])
 
 const CHECKLIST_STATUS_VARIANTS = { pending: 'neutral', in_progress: 'mint', done: 'success' }
 const CHECKLIST_STATUS_LABELS = { pending: 'Chưa bắt đầu', in_progress: 'Đang thực hiện', done: 'Hoàn thành' }
@@ -55,12 +60,17 @@ export default function StudentDetailPage() {
   const [loginResult, setLoginResult] = useState(null)
   const [loginError, setLoginError] = useState('')
 
+  const [radar, setRadar] = useState(null)
+  const [radarError, setRadarError] = useState('')
+  const [expandedAttemptId, setExpandedAttemptId] = useState(null)
+
   const role = (user.role || '').toLowerCase()
   const isBod = role === 'bod'
   const isAdminPanel = ADMIN_ROLES.has(role)
   const canUpdateStatus = STATUS_UPDATE_ROLES.has(role)
   const canFinalizeCouncil = COUNCIL_FINALIZE_ROLES.has(role)
   const canRegradeExam = EXAM_REGRADE_ROLES.has(role)
+  const canSeeRadar = RADAR_ROLES.has(role)
 
   function load() {
     api
@@ -71,6 +81,15 @@ export default function StudentDetailPage() {
       })
       .catch(() => setError('Không tải được thông tin học viên.'))
   }
+
+  useEffect(() => {
+    if (!canSeeRadar) return
+    api
+      .get(`/dashboard/employee/${id}/`)
+      .then(({ data }) => setRadar(data))
+      .catch(() => setRadarError('Không tải được dữ liệu năng lực.'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
 
   useEffect(load, [id])
 
@@ -213,7 +232,7 @@ export default function StudentDetailPage() {
     )
   }
 
-  const { info, progress, checklist, lms, evaluations, council } = data
+  const { info, progress, checklist, lms, evaluations, council, courses, exam_attempts: examAttempts } = data
 
   return (
     <AppShell>
@@ -253,6 +272,24 @@ export default function StudentDetailPage() {
           <Badge variant="neutral">Thử việc {info.probation_days ?? '—'} ngày</Badge>
         </div>
       </div>
+
+      {canSeeRadar && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <h3 style={{ marginTop: 0 }}>Radar năng lực</h3>
+          {radarError && <p style={{ color: 'var(--danger)' }}>{radarError}</p>}
+          {!radarError && !radar && <p className="muted-note">Đang tải...</p>}
+          {radar && radar.groups.length === 0 && (
+            <p className="muted-note">Chưa cấu hình khung năng lực.</p>
+          )}
+          {radar && radar.groups.length > 0 && (
+            <RadarChart
+              labels={radar.groups.map((g) => g.name)}
+              actual={radar.groups.map((g) => g.score)}
+              target={radar.groups.map((g) => g.target)}
+            />
+          )}
+        </div>
+      )}
 
       {isAdminPanel && (
         <div className="card" style={{ marginBottom: 16 }}>
@@ -427,6 +464,113 @@ export default function StudentDetailPage() {
             ))}
           </div>
         </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <h3 style={{ marginTop: 0 }}>Khóa học đã tham gia</h3>
+        {(!courses || courses.length === 0) && <p className="muted-note">Chưa ghi danh khóa học nào.</p>}
+        {courses && courses.length > 0 && (
+          <Table>
+            <thead>
+              <tr><th>Khóa học</th><th>Trạng thái</th><th>Tiến độ</th><th>Hạn</th></tr>
+            </thead>
+            <tbody>
+              {courses.map((c) => (
+                <tr key={c.enrollment_id}>
+                  <td>{c.title}</td>
+                  <td><Badge variant={c.status === 'completed' ? 'success' : 'neutral'}>{c.status_display}</Badge></td>
+                  <td style={{ minWidth: 120 }}>
+                    <ProgressBar percent={c.progress_percent} />
+                    <div className="muted-note" style={{ fontSize: 12 }}>{c.progress_percent}%</div>
+                  </td>
+                  <td>{c.due_date || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </div>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <h3 style={{ marginTop: 0 }}>Các bài đã thi (Ngân hàng đề thi)</h3>
+        {(!examAttempts || examAttempts.length === 0) && <p className="muted-note">Chưa có lượt thi nào đã chấm xong.</p>}
+        {examAttempts && examAttempts.length > 0 && (
+          <Table>
+            <thead>
+              <tr><th>Đề thi</th><th>Lần</th><th>Nộp lúc</th><th>Điểm</th><th>Kết quả</th><th></th></tr>
+            </thead>
+            <tbody>
+              {examAttempts.map((a) => (
+                <Fragment key={a.attempt_id}>
+                  <tr>
+                    <td>{a.assessment_title}</td>
+                    <td>{a.attempt_no}</td>
+                    <td>{a.submitted_at ? new Date(a.submitted_at).toLocaleString('vi-VN') : '—'}</td>
+                    <td>{a.score ?? '—'}/{a.max_score ?? '—'} ({a.percent ?? '—'}%)</td>
+                    <td><Badge variant={a.passed ? 'success' : 'danger'}>{a.passed ? 'Đạt' : 'Không đạt'}</Badge></td>
+                    <td>
+                      <button
+                        className="btn-outline btn-sm"
+                        onClick={() => setExpandedAttemptId(expandedAttemptId === a.attempt_id ? null : a.attempt_id)}
+                      >
+                        {expandedAttemptId === a.attempt_id ? 'Ẩn chi tiết' : 'Xem chi tiết từng câu'}
+                      </button>
+                    </td>
+                  </tr>
+                  {expandedAttemptId === a.attempt_id && (
+                    <tr>
+                      <td colSpan={6}>
+                        <div style={{ display: 'grid', gap: 10, padding: '8px 0' }}>
+                          {a.details.map((d, i) => (
+                            <div key={d.question_id} className="card" style={{ padding: 10 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                                <strong>Câu {i + 1}</strong>
+                                <Badge variant={d.is_correct === null ? 'neutral' : d.is_correct ? 'success' : 'danger'}>
+                                  {d.is_correct === null ? 'Chưa chấm' : d.is_correct ? 'Đúng' : 'Sai'}
+                                  {d.score != null ? ` · ${d.score}/${d.points} điểm` : ''}
+                                </Badge>
+                              </div>
+                              {/* eslint-disable-next-line react/no-danger */}
+                              <div dangerouslySetInnerHTML={{ __html: d.stem_html }} style={{ margin: '6px 0' }} />
+                              {d.options.length > 0 && (
+                                <div style={{ display: 'grid', gap: 4 }}>
+                                  {d.options.map((o) => {
+                                    const chosen = (d.response?.option_id === o.id)
+                                      || (d.response?.option_ids || []).includes(o.id)
+                                    return (
+                                      <div
+                                        key={o.id}
+                                        style={{
+                                          display: 'flex', alignItems: 'center', gap: 6, fontSize: 13,
+                                          color: o.is_correct ? 'var(--forest-dark)' : chosen ? 'var(--danger)' : 'var(--text)',
+                                          fontWeight: chosen || o.is_correct ? 700 : 400,
+                                        }}
+                                      >
+                                        <span>{chosen ? '●' : '○'}</span>
+                                        {/* eslint-disable-next-line react/no-danger */}
+                                        <span dangerouslySetInnerHTML={{ __html: o.content_html }} />
+                                        {o.is_correct && <span className="muted-note">(đáp án đúng)</span>}
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                              {d.options.length === 0 && (
+                                <div className="muted-note" style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>
+                                  Đáp án đã chọn: {d.response ? JSON.stringify(d.response) : '(chưa trả lời)'}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </Table>
+        )}
       </div>
 
       <Modal
