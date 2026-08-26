@@ -3,7 +3,7 @@ from rest_framework import serializers
 from accounts.models import User
 from restaurants.models import Restaurant
 
-from .models import Employee, LevelUpEnrollment
+from .models import AutomationSettings, Employee, LevelUpEnrollment, OnboardingCourseRule
 
 
 class EmployeeSerializer(serializers.ModelSerializer):
@@ -122,3 +122,23 @@ class LevelUpEnrollmentSerializer(serializers.ModelSerializer):
             'created_at', 'completed_at', 'proposal_pdf_url',
         ]
         read_only_fields = fields
+
+
+class AutomationSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AutomationSettings
+        fields = [
+            'auto_create_account', 'auto_enroll_onboarding', 'send_welcome_email',
+            'welcome_email_subject', 'welcome_email_body', 'sender_display_name',
+            'cc_recipients', 'updated_at',
+        ]
+        read_only_fields = ['updated_at']
+
+
+class OnboardingCourseRuleSerializer(serializers.ModelSerializer):
+    course_title = serializers.CharField(source='course.title', read_only=True, default='')
+
+    class Meta:
+        model = OnboardingCourseRule
+        fields = ['id', 'position', 'course', 'course_title', 'created_at']
+        read_only_fields = ['created_at']

@@ -301,6 +301,9 @@ EMAIL_BACKEND = (
     'django.core.mail.backends.smtp.EmailBackend' if EMAIL_HOST
     else 'django.core.mail.backends.console.EmailBackend'
 )
+# Goc URL frontend - dung de dung link cong khai gui qua email (vd link dat mat khau lan dau,
+# xem employees/automation.py). Mac dinh khop dev server Vite.
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
 
 # ---- Báo cáo đào tạo tuần/tháng (reports app) ----
 REPORT_TO = [e.strip() for e in os.environ.get('REPORT_TO', '').split(',') if e.strip()]

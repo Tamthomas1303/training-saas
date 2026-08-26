@@ -7,6 +7,7 @@ from .views import (
     ChangePasswordView,
     LoginView,
     MeView,
+    SetPasswordView,
     SyncDraftsView,
     UserAreasView,
     UserViewSet,
@@ -18,6 +19,7 @@ router.register('users', UserViewSet, basename='user')
 urlpatterns = [
     path('login/', LoginView.as_view(), name='login'),
     path('login/refresh/', TokenRefreshView.as_view(), name='login_refresh'),
+    path('set-password/', SetPasswordView.as_view(), name='set-password'),
     path('me/', MeView.as_view(), name='me'),
     path('me/avatar/', ChangeAvatarView.as_view(), name='me-avatar'),
     path('me/change-password/', ChangePasswordView.as_view(), name='me-change-password'),

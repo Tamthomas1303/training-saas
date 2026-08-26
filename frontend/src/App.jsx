@@ -47,6 +47,8 @@ import SettingsPage from './pages/SettingsPage'
 import ForcedPasswordChangeGate from './components/ForcedPasswordChangeGate'
 import CompetencyFrameworkAdminPage from './pages/CompetencyFrameworkAdminPage'
 import DashboardOverviewPage from './pages/DashboardOverviewPage'
+import AutomationPage from './pages/AutomationPage'
+import SetPasswordPage from './pages/SetPasswordPage'
 import api from './api/client'
 import { isMobileRole } from './config/menu'
 import { flushQueue, initOfflineSync } from './utils/offlineQueue'
@@ -65,7 +67,7 @@ function HomeRouter() {
 // #1: LẦN ĐẦU truy cập hệ thống (mở tab mới / vào lại sau khi đóng) → ép về Dashboard.
 // Refresh khi đang làm việc (cùng tab) thì GIỮ trang hiện tại — dùng sessionStorage (sống qua
 // refresh trong 1 tab, mất khi đóng tab / mở tab mới). Không đụng các trang công khai (guest).
-const PUBLIC_PREFIXES = ['/login', '/council-guest', '/attend', '/event']
+const PUBLIC_PREFIXES = ['/login', '/council-guest', '/attend', '/event', '/set-password']
 function InitialRedirect() {
   const { user, loading } = useAuth()
   const navigate = useNavigate()
@@ -94,6 +96,7 @@ function App() {
         <ForcedPasswordChangeGate />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/set-password" element={<SetPasswordPage />} />
           <Route path="/council-guest/:token" element={<GuestCouncilPage />} />
           <Route path="/attend/:token" element={<GuestAttendPage />} />
           <Route path="/event/:token" element={<GuestEventPage />} />
@@ -418,6 +421,14 @@ function App() {
             element={
               <ProtectedRoute roles={['admin', 'om', 'bod']}>
                 <DashboardOverviewPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/automation"
+            element={
+              <ProtectedRoute roles={['admin']}>
+                <AutomationPage />
               </ProtectedRoute>
             }
           />

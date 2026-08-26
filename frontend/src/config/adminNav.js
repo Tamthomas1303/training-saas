@@ -39,6 +39,7 @@ import {
   Target,
   TrendingUp,
   Users,
+  Zap,
 } from 'lucide-react'
 
 const ALL = ['admin', 'om', 'bod']
@@ -129,6 +130,9 @@ export const ADMIN_NAV = [
     icon: Settings,
     items: [
       { label: 'Cài đặt', path: '/settings', icon: Settings, roles: ['admin'] },
+      // Nhom 3A (Prompt_Nhom3A_Onboarding_TuDong.md muc 4) - cong tac + tham so onboarding tu
+      // dong khi import nhan su moi.
+      { label: 'Tự động hóa', path: '/automation', icon: Zap, roles: ['admin'] },
       // "Lich su he thong" (audit trail) van CHUA co route - UI dot 3 muc C: he thong CHUA co
       // ha tang log/audit dung duoc cho muc dich nay, khong tao moi o dot nay (xem bao cao ban
       // giao) - de placeholder ghi chu nay lai cho dot sau, KHONG dua muc gia vao sidebar.

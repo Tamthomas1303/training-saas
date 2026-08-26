@@ -145,6 +145,58 @@ class MgmtDevelopment(models.Model):
         return f'MgmtDev({self.employee_id}, {self.target_code})'
 
 
+class AutomationSettings(models.Model):
+    """Nhom 3A (Prompt_Nhom3A_Onboarding_TuDong.md muc 1/4) - 3 cong tac bat/tat + tham so cho
+    luong onboarding tu dong khi import nhan su moi (is_legacy=False, chua co user). SMTP/khoa
+    email GIU o bien moi truong (config/settings.py EMAIL_*) - o day CHI dat nguoi nhan/mau/ten
+    hien thi, KHONG BAO GIO luu thong tin dang nhap SMTP. Nguoi nhan CHINH cua email tiep nhan =
+    email cua Restaurant (QLNH phu trach nha hang nhan su, field co san Restaurant.email) -
+    cc_recipients chi la CC THEM (vd phong DT)."""
+
+    tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name='automation_settings')
+    auto_create_account = models.BooleanField(default=False)
+    auto_enroll_onboarding = models.BooleanField(default=False)
+    send_welcome_email = models.BooleanField(default=False)
+    welcome_email_subject = models.CharField(
+        max_length=255, blank=True, default='Chào mừng {ten_nhan_su} gia nhập {ten_he_thong}',
+    )
+    welcome_email_body = models.TextField(
+        blank=True,
+        default=(
+            'Xin chào {ten_nhan_su},\n\n'
+            'Bạn đã được tạo tài khoản đào tạo tại {ten_he_thong} (mã nhân sự {ma_nhan_su}, '
+            'nhà hàng {nha_hang}, vị trí {vi_tri}).\n\n'
+            'Tên đăng nhập: {ten_dang_nhap}\n'
+            'Vui lòng đặt mật khẩu lần đầu tại: {link_dat_mat_khau}\n\n'
+            'Trân trọng.'
+        ),
+    )
+    sender_display_name = models.CharField(max_length=255, blank=True, default='Phòng Đào tạo')
+    cc_recipients = models.JSONField(default=list, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, related_name='+', null=True, blank=True)
+
+    def __str__(self):
+        return f'AutomationSettings({self.tenant_id})'
+
+
+class OnboardingCourseRule(models.Model):
+    """Anh xa vi tri -> khoa hoi nhap de auto-enroll khi onboarding tu dong (Nhom 3A muc 1/2) -
+    1 vi tri co the co nhieu khoa (nhieu dong). course dung string ref 'courses.Course' de tranh
+    circular import (courses/models.py da import employees.models.Employee)."""
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='onboarding_course_rules')
+    position = models.CharField(max_length=100)
+    course = models.ForeignKey('courses.Course', on_delete=models.CASCADE, related_name='onboarding_rules')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('tenant', 'position', 'course')
+
+    def __str__(self):
+        return f'{self.position} -> {self.course_id}'
+
+
 class LevelUpEnrollment(models.Model):
     """Đợt đào tạo thăng tiến (v2.1 / M1): nhân sự học MỘT vị trí mới (BQL chọn) để lên major
     level (S1→S2→S3). Hoàn thành 1 vị trí = lên 1 level; đủ 3 vị trí (gồm vị trí vào làm) → S3."""

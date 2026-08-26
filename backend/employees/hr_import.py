@@ -158,4 +158,23 @@ def sync_roster(tenant):
                  'start_date', 'restaurant', 'employee_status', 'probation_days', 'is_legacy'],
                 batch_size=200,
             )
+
+    # Nhom 3A (Prompt_Nhom3A_Onboarding_TuDong.md muc 2): onboarding tu dong cho nhan su MOI TAO
+    # o lan sync nay ma is_legacy=False (bulk_create tra ve object da co id tren Postgres - xem
+    # Django docs bulk_create). Lap tuan tu + bat loi tung nguoi, khong chan ca lan sync.
+    if to_create:
+        from .automation import run_onboarding_for_new
+
+        for employee in to_create:
+            if employee.is_legacy:
+                continue
+            try:
+                run_onboarding_for_new(employee)
+            except Exception:  # noqa: BLE001
+                import logging
+
+                logging.getLogger(__name__).exception(
+                    'Onboarding tu dong that bai cho nhan su moi %s (id=%s).', employee.code, employee.id,
+                )
+
     return {'total': len(merged), 'created': created, 'updated': updated}

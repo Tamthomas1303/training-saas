@@ -11,8 +11,8 @@ from accounts.pagination import DefaultPagination
 from .dashboard import dashboard_payload
 from .detail import export_probation_result_pdf, student_detail
 from .home import home_payload
-from .models import Employee
-from .serializers import EmployeeSerializer
+from .models import Employee, OnboardingCourseRule
+from .serializers import EmployeeSerializer, OnboardingCourseRuleSerializer
 from .services import change_employee_status
 
 STUDENT_ADMIN_ROLES = {'admin', 'om', 'bql', 'trainer'}
@@ -914,3 +914,46 @@ class EmployeeCreateLoginView(APIView):
         employee.save(update_fields=['user'])
 
         return Response({'username': username, 'password': DEFAULT_PASSWORD})
+
+
+def _require_automation_admin(request):
+    if (request.user.role or '').lower() != 'admin':
+        from rest_framework.exceptions import PermissionDenied
+
+        raise PermissionDenied('Chỉ Admin được cấu hình Tự động hóa.')
+
+
+class AutomationSettingsView(APIView):
+    """GET/PUT /api/employees/automation-settings/ — 3 công tắc + tham số onboarding tự động
+    (Nhom 3A, Prompt_Nhom3A_Onboarding_TuDong.md muc 1/4). Chi Admin (ca doc lan ghi)."""
+
+    def get(self, request):
+        _require_automation_admin(request)
+        from .automation import get_automation_settings
+        from .serializers import AutomationSettingsSerializer
+
+        return Response(AutomationSettingsSerializer(get_automation_settings(request.user.tenant)).data)
+
+    def put(self, request):
+        _require_automation_admin(request)
+        from .automation import get_automation_settings
+        from .serializers import AutomationSettingsSerializer
+
+        settings_obj = get_automation_settings(request.user.tenant)
+        serializer = AutomationSettingsSerializer(settings_obj, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(updated_by=request.user)
+        return Response(serializer.data)
+
+
+class OnboardingCourseRuleViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
+    """CRUD anh xa vi tri -> khoa hoi nhap (Nhom 3A muc 1/4) - dung boi
+    employees.automation.run_onboarding_for_new khi auto-enroll. Chi Admin (doc lan ghi)."""
+
+    serializer_class = OnboardingCourseRuleSerializer
+    queryset = OnboardingCourseRule.objects.select_related('course').all()
+    ordering = ['position']
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        _require_automation_admin(request)

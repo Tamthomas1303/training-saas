@@ -9,6 +9,7 @@ Restaurant_ID (tùy chọn), Job_Position, Operation_Unit, Job_Level, Start_Date
 """
 import csv
 import io
+import logging
 import re
 from datetime import datetime
 
@@ -130,9 +131,16 @@ def load_rows_from_upload(uploaded_file):
 
 
 def ingest_employees(tenant, rows):
-    """Tạo/cập nhật nhân sự từ list[dict]. Trả thống kê. Dùng chung cho cả 3 cách nhập."""
+    """Tạo/cập nhật nhân sự từ list[dict]. Trả thống kê. Dùng chung cho cả 3 cách nhập.
+
+    Nhom 3A (Prompt_Nhom3A_Onboarding_TuDong.md muc 2): sau khi upsert xong, chay onboarding tu
+    dong (tao tai khoan/auto-enroll/email tiep nhan tuy cong tac AutomationSettings) cho CAC
+    NHAN SU MOI TAO o lan goi nay (is_legacy luon False o luong nay - model default, khong ai
+    set is_legacy=True qua ingest_employees). Lap tuan tu + bat loi TUNG NGUOI, khong chan ca
+    lo import neu 1 nguoi loi (email/SMTP lien mang ngoai co the that bai)."""
     resolve_restaurant = restaurant_resolver(tenant)
     created = updated = skipped = derived = unmatched = positions_added = 0
+    newly_created = []
 
     for row in rows:
         code = (row.get('Employee_ID') or '').strip()
@@ -175,16 +183,33 @@ def ingest_employees(tenant, rows):
         )
         created += int(was_created)
         updated += int(not was_created)
+        if was_created:
+            newly_created.append(employee)
 
         # Vị trí đã đạt (lịch sử thăng tiến) — tạo LevelUpEnrollment "hoàn thành" cho các vị trí
         # khác vị trí vào làm, để M1 (đếm vị trí / nhân sự nguồn) phản ánh đúng.
         positions_added += _sync_positions_achieved(employee, row.get('Positions_Achieved'))
+
+    onboarding_ok = onboarding_failed = 0
+    if newly_created:
+        from .automation import run_onboarding_for_new
+
+        for employee in newly_created:
+            try:
+                run_onboarding_for_new(employee)
+                onboarding_ok += 1
+            except Exception:  # noqa: BLE001
+                onboarding_failed += 1
+                logging.getLogger(__name__).exception(
+                    'Onboarding tu dong that bai cho nhan su moi %s (id=%s).', employee.code, employee.id,
+                )
 
     return {
         'created': created, 'updated': updated, 'skipped': skipped,
         'derived_restaurant': derived, 'unmatched_restaurant': unmatched,
         'positions_history': positions_added,
         'total': len(rows),
+        'onboarding_ok': onboarding_ok, 'onboarding_failed': onboarding_failed,
     }
 
 

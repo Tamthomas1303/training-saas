@@ -6,7 +6,15 @@ from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 
-from accounts.models import BrandSettings, EmailSettings, GradingConfig, GradingConfigHistory, Tenant, User
+from accounts.models import (
+    BrandSettings,
+    EmailSettings,
+    GradingConfig,
+    GradingConfigHistory,
+    PasswordSetToken,
+    Tenant,
+    User,
+)
 from accounts.services import get_email_settings, get_grading_config, update_grading_config
 
 
@@ -394,3 +402,61 @@ class UserHardDeleteTests(TestCase):
             reverse('user-detail', args=[self.trainer.id]), {'confirm_username': 'trainer1'}, format='json',
         )
         self.assertEqual(resp.status_code, 400)
+
+
+class SetPasswordViewTests(TestCase):
+    """Nhom 3A (Prompt_Nhom3A_Onboarding_TuDong.md muc 3): POST /api/auth/set-password/ - trang
+    cong khai (khong dang nhap) dat mat khau lan dau qua PasswordSetToken. Token 1 lan + het han."""
+
+    def setUp(self):
+        from django.utils import timezone
+
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.user = User.objects.create(username='nv1', tenant=self.tenant, role=User.Role.EMPLOYEE)
+        self.user.set_unusable_password()
+        self.user.save()
+        self.token = PasswordSetToken.objects.create(
+            user=self.user, token='tok-valid', expires_at=timezone.now() + timezone.timedelta(hours=72),
+        )
+        self.client = APIClient()
+
+    def test_set_password_success_without_authentication(self):
+        resp = self.client.post(
+            reverse('set-password'), {'token': 'tok-valid', 'new_password': 'MatKhauManh@123'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('MatKhauManh@123'))
+        self.token.refresh_from_db()
+        self.assertIsNotNone(self.token.used_at)
+
+    def test_reusing_token_fails(self):
+        self.client.post(reverse('set-password'), {'token': 'tok-valid', 'new_password': 'MatKhauManh@123'}, format='json')
+        resp = self.client.post(
+            reverse('set-password'), {'token': 'tok-valid', 'new_password': 'MatKhauKhac@456'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('đã được sử dụng', resp.data['detail'])
+
+    def test_invalid_token_fails(self):
+        resp = self.client.post(
+            reverse('set-password'), {'token': 'khong-ton-tai', 'new_password': 'MatKhauManh@123'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_expired_token_fails(self):
+        from django.utils import timezone
+
+        self.token.expires_at = timezone.now() - timezone.timedelta(hours=1)
+        self.token.save(update_fields=['expires_at'])
+        resp = self.client.post(
+            reverse('set-password'), {'token': 'tok-valid', 'new_password': 'MatKhauManh@123'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('hết hạn', resp.data['detail'])
+
+    def test_weak_password_rejected(self):
+        resp = self.client.post(reverse('set-password'), {'token': 'tok-valid', 'new_password': '123'}, format='json')
+        self.assertEqual(resp.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.has_usable_password())

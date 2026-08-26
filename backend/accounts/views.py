@@ -1,6 +1,7 @@
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
@@ -9,7 +10,7 @@ from accounts.mixins import TenantScopedViewSetMixin
 from accounts.pagination import DefaultPagination
 from restaurants.models import Restaurant
 
-from .models import BrandSettings, User, UserRestaurantAssignment
+from .models import BrandSettings, PasswordSetToken, User, UserRestaurantAssignment
 from .serializers import (
     BrandSettingsSerializer,
     EmailSettingsSerializer,
@@ -159,6 +160,44 @@ class ChangePasswordView(APIView):
         request.user.must_change_password = False
         request.user.save(update_fields=['password', 'must_change_password'])
         return Response({'detail': 'Đã đổi mật khẩu.'})
+
+
+class SetPasswordView(APIView):
+    """POST /api/auth/set-password/ — man cong khai dat mat khau lan dau (Nhom 3A muc 3,
+    Prompt_Nhom3A_Onboarding_TuDong.md), khong can dang nhap (tai khoan onboarding tu dong tao
+    ban dau set_unusable_password - xem employees/automation.py). Body: {token, new_password}.
+    Token 1 lan (used_at) + het han (PasswordSetToken.expires_at)."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        from django.contrib.auth.password_validation import validate_password
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        from django.utils import timezone
+
+        raw_token = (request.data.get('token') or '').strip()
+        new_password = request.data.get('new_password') or ''
+        token = PasswordSetToken.objects.filter(token=raw_token).select_related('user').first()
+        if not token:
+            return Response({'detail': 'Đường link không hợp lệ.'}, status=400)
+        if token.used_at:
+            return Response({'detail': 'Đường link này đã được sử dụng.'}, status=400)
+        if token.expires_at <= timezone.now():
+            return Response({'detail': 'Đường link đã hết hạn.'}, status=400)
+
+        try:
+            validate_password(new_password, user=token.user)
+        except DjangoValidationError as exc:
+            return Response({'detail': ' '.join(exc.messages)}, status=400)
+
+        user = token.user
+        user.set_password(new_password)
+        user.must_change_password = False
+        user.save(update_fields=['password', 'must_change_password'])
+        token.used_at = timezone.now()
+        token.save(update_fields=['used_at'])
+        return Response({'detail': 'Đã đặt mật khẩu. Bạn có thể đăng nhập.'})
 
 
 class UserViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):

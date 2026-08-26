@@ -75,6 +75,28 @@ class User(AbstractUser):
         return f"{self.username} ({self.tenant_id})"
 
 
+class PasswordSetToken(models.Model):
+    """Nhom 3A (Prompt_Nhom3A_Onboarding_TuDong.md muc 1/3) - token 1 lan de nguoi dung dat mat
+    khau lan dau (tai khoan tao tu dong khi onboarding, set_unusable_password luc tao - xem
+    employees.automation.run_onboarding_for_new); co the tai dung cho "quen mat khau" sau nay.
+    Token ngau nhien duy nhat, het han (mac dinh 72h - xem employees.automation), dung 1 lan
+    (used_at)."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='password_set_tokens')
+    token = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    def is_valid(self):
+        from django.utils import timezone
+
+        return self.used_at is None and self.expires_at > timezone.now()
+
+    def __str__(self):
+        return f'PasswordSetToken({self.user_id})'
+
+
 class BrandSettings(models.Model):
     """Cau hinh thuong hieu (UI dot 1 - Prompt_UI_Dot1_Theme.md muc 3c): mau/logo/ten he thong
     ap dung runtime cho MOI tai khoan cua tenant. OneToOne theo Tenant o dot nay (chua thuc su

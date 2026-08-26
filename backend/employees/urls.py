@@ -2,6 +2,7 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    AutomationSettingsView,
     CompetencyGapView,
     DashboardStatsView,
     EmployeeCreateLoginView,
@@ -14,6 +15,7 @@ from .views import (
     HrSyncSourceView,
     MgmtDevelopmentListView,
     HomeStatsView,
+    OnboardingCourseRuleViewSet,
     LevelUpCompleteView,
     LevelUpEligibleView,
     LevelUpEnrollmentListView,
@@ -42,7 +44,16 @@ from .views import (
 router = DefaultRouter()
 router.register('', EmployeeViewSet, basename='employee')
 
+# Router rieng, DAT TRUOC router cua EmployeeViewSet (prefix '') trong urlpatterns - tranh bi
+# pattern '^(?P<pk>[^/.]+)/$' cua EmployeeViewSet (prefix rong) nuot mat cac path co 1 doan nhu
+# 'onboarding-course-rules/' neu no dung SAU trong danh sach urlpatterns.
+automation_router = DefaultRouter()
+automation_router.register(
+    'onboarding-course-rules', OnboardingCourseRuleViewSet, basename='onboarding-course-rule',
+)
+
 urlpatterns = [
+    path('automation-settings/', AutomationSettingsView.as_view(), name='automation-settings'),
     path('positions/', PositionListView.as_view(), name='employee-positions'),
     path('recruitment-source/', RecruitmentSourceView.as_view(), name='recruitment-source'),
     path('sync-now/', RecruitmentSyncNowView.as_view(), name='recruitment-sync-now'),
@@ -98,4 +109,4 @@ urlpatterns = [
         name='employee-export-probation-result',
     ),
     path('<int:pk>/create-login/', EmployeeCreateLoginView.as_view(), name='employee-create-login'),
-] + router.urls
+] + automation_router.urls + router.urls

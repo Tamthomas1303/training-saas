@@ -1121,3 +1121,236 @@ class StudentDetailLoginUsernameTests(TestCase):
         self.client.force_authenticate(self.admin)
         resp = self.client.get(reverse('employee-student-detail', args=[self.employee.id]))
         self.assertEqual(resp.data['info']['login_username'], 'nv1')
+
+
+class OnboardingAutomationTests(TestCase):
+    """Nhom 3A (Prompt_Nhom3A_Onboarding_TuDong.md): run_onboarding_for_new - 3 cong tac
+    (tao tai khoan / auto-enroll / email tiep nhan), idempotent, bo qua nhan su cu."""
+
+    def setUp(self):
+        from courses.models import Course
+
+        from .models import AutomationSettings, OnboardingCourseRule
+
+        mail.outbox = []
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.restaurant = Restaurant.objects.create(
+            tenant=self.tenant, code='NH1', name='Nhà hàng 1', email='qlnh1@example.com',
+        )
+        self.course = Course.objects.create(tenant=self.tenant, title='Khóa hội nhập', status='published')
+        OnboardingCourseRule.objects.create(tenant=self.tenant, position='NV Phục vụ', course=self.course)
+        self.settings_obj = AutomationSettings.objects.create(
+            tenant=self.tenant,
+            auto_create_account=True, auto_enroll_onboarding=True, send_welcome_email=True,
+            welcome_email_subject='Chào {ten_nhan_su}',
+            welcome_email_body='Xin chào {ten_nhan_su}, đặt mật khẩu tại {link_dat_mat_khau} (đăng nhập: {ten_dang_nhap})',
+        )
+
+    def _new_employee(self, code='NV1'):
+        return Employee.objects.create(
+            tenant=self.tenant, code=code, name='Nhân sự mới', position='NV Phục vụ',
+            restaurant=self.restaurant, is_legacy=False,
+        )
+
+    def test_creates_account_enrolls_and_sends_welcome_email(self):
+        from courses.models import Enrollment
+        from accounts.models import PasswordSetToken
+
+        from .automation import run_onboarding_for_new
+
+        employee = self._new_employee()
+        result = run_onboarding_for_new(employee)
+
+        employee.refresh_from_db()
+        self.assertIsNotNone(employee.user_id)
+        self.assertEqual(employee.user.role, User.Role.EMPLOYEE)
+        self.assertFalse(employee.user.has_usable_password())
+
+        token = PasswordSetToken.objects.get(user=employee.user)
+        self.assertIsNone(token.used_at)
+        self.assertTrue(token.is_valid())
+
+        enrollment = Enrollment.objects.get(employee=employee, course=self.course)
+        self.assertEqual(enrollment.source, Enrollment.Source.AUTO)
+
+        self.assertTrue(result['account_created'])
+        self.assertEqual(result['enrolled_courses'], [self.course.id])
+        self.assertTrue(result['email_sent'])
+        self.assertEqual(len(mail.outbox), 1)
+        sent = mail.outbox[0]
+        self.assertEqual(sent.to, ['qlnh1@example.com'])
+        self.assertIn(f'token={token.token}', sent.body)
+        # Khong bao gio kem mat khau tho trong email - luong nay khong sinh mat khau nao ca
+        # (set_unusable_password() ngay tu dau, chi co link dat mat khau qua token).
+        self.assertNotIn('mật khẩu:', sent.body.lower())
+
+    def test_idempotent_rerun_does_not_duplicate(self):
+        from accounts.models import PasswordSetToken
+        from courses.models import Enrollment
+
+        from .automation import run_onboarding_for_new
+
+        employee = self._new_employee()
+        run_onboarding_for_new(employee)
+        employee.refresh_from_db()
+        first_user_id = employee.user_id
+
+        run_onboarding_for_new(employee)
+        employee.refresh_from_db()
+
+        self.assertEqual(employee.user_id, first_user_id)
+        self.assertEqual(User.objects.filter(id=first_user_id).count(), 1)
+        self.assertEqual(PasswordSetToken.objects.filter(user_id=first_user_id).count(), 1)
+        self.assertEqual(Enrollment.objects.filter(employee=employee, course=self.course).count(), 1)
+        # Lan 2 khong tao token moi nen KHONG gui lai email tiep nhan.
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_legacy_employee_is_skipped_entirely(self):
+        from courses.models import Enrollment
+
+        employee = Employee.objects.create(
+            tenant=self.tenant, code='NVCU', name='Nhân sự cũ', position='NV Phục vụ',
+            restaurant=self.restaurant, is_legacy=True,
+        )
+        from .automation import run_onboarding_for_new
+
+        result = run_onboarding_for_new(employee)
+
+        self.assertIsNone(result)
+        employee.refresh_from_db()
+        self.assertIsNone(employee.user_id)
+        self.assertFalse(Enrollment.objects.filter(employee=employee).exists())
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_toggle_off_auto_enroll_skips_enrollment(self):
+        from courses.models import Enrollment
+
+        self.settings_obj.auto_enroll_onboarding = False
+        self.settings_obj.save(update_fields=['auto_enroll_onboarding'])
+
+        from .automation import run_onboarding_for_new
+
+        employee = self._new_employee()
+        run_onboarding_for_new(employee)
+
+        employee.refresh_from_db()
+        self.assertIsNotNone(employee.user_id)
+        self.assertFalse(Enrollment.objects.filter(employee=employee).exists())
+
+    def test_no_email_when_restaurant_has_no_email(self):
+        self.restaurant.email = ''
+        self.restaurant.save(update_fields=['email'])
+
+        from .automation import run_onboarding_for_new
+
+        employee = self._new_employee()
+        result = run_onboarding_for_new(employee)
+
+        self.assertFalse(result['email_sent'])
+        self.assertEqual(len(mail.outbox), 0)
+
+
+class IngestEmployeesOnboardingHookTests(TestCase):
+    """Nhom 3A muc 2: ingest_employees (recruitment.py, dung boi RecruitmentSyncNowView/
+    RecruitmentImportFileView) phai chay onboarding tu dong cho nhan su MOI TAO, va KHONG chay
+    lai (khong tao trung tai khoan) khi import lai cung nhan su."""
+
+    def setUp(self):
+        from .models import AutomationSettings
+
+        mail.outbox = []
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.restaurant = Restaurant.objects.create(
+            tenant=self.tenant, code='NH1', name='Nhà hàng 1', email='qlnh1@example.com',
+        )
+        AutomationSettings.objects.create(tenant=self.tenant, auto_create_account=True)
+
+    def test_ingest_creates_account_for_newly_created_employee(self):
+        from .recruitment import ingest_employees
+
+        rows = [{
+            'Employee_ID': 'NV1', 'Employee_Name': 'Nhân sự mới',
+            'Restaurant_ID': str(self.restaurant.id), 'Job_Position': 'NV Phục vụ',
+        }]
+        stats = ingest_employees(self.tenant, rows)
+
+        self.assertEqual(stats['created'], 1)
+        self.assertEqual(stats['onboarding_ok'], 1)
+        self.assertEqual(stats['onboarding_failed'], 0)
+        employee = Employee.objects.get(tenant=self.tenant, code='NV1')
+        self.assertIsNotNone(employee.user_id)
+
+    def test_reimport_same_employee_does_not_duplicate_account(self):
+        from .recruitment import ingest_employees
+
+        rows = [{
+            'Employee_ID': 'NV1', 'Employee_Name': 'Nhân sự mới',
+            'Restaurant_ID': str(self.restaurant.id), 'Job_Position': 'NV Phục vụ',
+        }]
+        ingest_employees(self.tenant, rows)
+        employee = Employee.objects.get(tenant=self.tenant, code='NV1')
+        first_user_id = employee.user_id
+
+        stats2 = ingest_employees(self.tenant, rows)
+        employee.refresh_from_db()
+
+        self.assertEqual(stats2['created'], 0)
+        self.assertEqual(stats2['updated'], 1)
+        self.assertEqual(stats2['onboarding_ok'], 0)
+        self.assertEqual(employee.user_id, first_user_id)
+        self.assertEqual(User.objects.filter(tenant=self.tenant).count(), 1)
+
+
+class AutomationSettingsApiTests(TestCase):
+    """Nhom 3A muc 4: GET/PUT /api/employees/automation-settings/ + CRUD
+    /api/employees/onboarding-course-rules/ - chi Admin."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.om = User.objects.create_user(username='om1', password='x', tenant=self.tenant, role='om')
+        self.client = APIClient()
+
+    def test_get_creates_default_settings_for_tenant(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(reverse('automation-settings'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.data['auto_create_account'])
+
+    def test_put_updates_3_toggles_and_template(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.put(reverse('automation-settings'), {
+            'auto_create_account': True, 'auto_enroll_onboarding': True, 'send_welcome_email': True,
+            'welcome_email_body': 'Link: {link_dat_mat_khau}',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data['auto_create_account'])
+        self.assertTrue(resp.data['auto_enroll_onboarding'])
+        self.assertTrue(resp.data['send_welcome_email'])
+        self.assertIn('{link_dat_mat_khau}', resp.data['welcome_email_body'])
+
+    def test_non_admin_forbidden(self):
+        self.client.force_authenticate(self.om)
+        resp = self.client.get(reverse('automation-settings'))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_course_rule_crud(self):
+        from courses.models import Course
+
+        course = Course.objects.create(tenant=self.tenant, title='Khóa hội nhập', status='published')
+        self.client.force_authenticate(self.admin)
+
+        resp = self.client.post(
+            reverse('onboarding-course-rule-list'), {'position': 'NV Phục vụ', 'course': course.id}, format='json',
+        )
+        self.assertEqual(resp.status_code, 201)
+        rule_id = resp.data['id']
+        self.assertEqual(resp.data['course_title'], 'Khóa hội nhập')
+
+        list_resp = self.client.get(reverse('onboarding-course-rule-list'))
+        self.assertEqual(list_resp.status_code, 200)
+        results = list_resp.data.get('results', list_resp.data)
+        self.assertEqual(len(results), 1)
+
+        del_resp = self.client.delete(reverse('onboarding-course-rule-detail', args=[rule_id]))
+        self.assertEqual(del_resp.status_code, 204)
