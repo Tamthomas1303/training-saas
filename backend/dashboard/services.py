@@ -633,9 +633,12 @@ def _probation_deadline_days_left(employee):
 
 def _employee_warnings(employee):
     """Canh bao ca nhan (muc 4 cua prompt): qua han thu viec / nguy co khong pass (sap toi han
-    ma chua Pass). Doc Employee.final_result (san co, KHONG tinh lai)."""
+    ma chua Pass). Doc Employee.final_result (san co, KHONG tinh lai).
+    Nhom 2 (Prompt_Nhom2_HoSo360_NhanSuCu.md, Viec 1): nhan su cu (is_legacy) da duoc grandfather
+    "Pass thu viec" nhung thuong KHONG co pass_date thuc (nhap tu lich su) -> neu khong loai rieng
+    se tinh nham days_left am lon, hien "Qua han thu viec" mau thuan voi phieu da ghi Pass."""
     warnings = []
-    if employee.employee_status == 'resigned' or employee.pass_date:
+    if employee.employee_status == 'resigned' or employee.pass_date or getattr(employee, 'is_legacy', False):
         return warnings
     days_left = _probation_deadline_days_left(employee)
     if days_left is None:
@@ -701,6 +704,7 @@ def _resolve_indicator_value(key, context):
 def employee_360(employee):
     """Dashboard Phan A muc 4 - goi du lieu Ho so 360. CHI DOC (xem module docstring)."""
     from courses.models import Enrollment
+    from employees.career import achieved_positions
     from exams.models import Attempt
     from integration.models import CertificateIssued
 
@@ -711,6 +715,14 @@ def employee_360(employee):
     attempts = Attempt.objects.filter(employee=employee, status=Attempt.Status.GRADED)
     percents = [float(a.percent) for a in attempts if a.percent is not None]
     avg_percent = round(sum(percents) / len(percents), 1) if percents else None
+
+    is_legacy = getattr(employee, 'is_legacy', False)
+    # Nhom 2 Viec 2 (Prompt_Nhom2_HoSo360_NhanSuCu.md): phan biet "chua danh gia" voi "0 diem
+    # that". Nhan su cu LUON 'not_assessed' (chua tung lam Danh gia dau ky du co the co du lieu
+    # le te tu CLS) - hoac bat ky nhan su nao chua phat sinh nguon diem nao (LT/TH/thi) thi cung
+    # 'not_assessed' de FE hien empty-state thay vi so 0 gay hieu nham "yeu kem".
+    has_score_source = any(c['source_count'] > 0 for c in scores['competencies'])
+    competency_status = 'not_assessed' if (is_legacy or not (has_score_source or avg_percent is not None)) else 'assessed'
 
     certificates = [
         {
@@ -744,7 +756,9 @@ def employee_360(employee):
             'restaurant': employee.restaurant.name if employee.restaurant_id else '',
             'start_date': employee.start_date, 'employee_status': employee.employee_status,
             'final_result': employee.final_result, 'pass_date': employee.pass_date,
+            'is_legacy': is_legacy,
         },
+        'competency_status': competency_status,
         'ci': scores['ci'], 'position': scores['position'],
         'competencies': scores['competencies'], 'groups': scores['groups'],
         'gaps': gaps,
@@ -754,6 +768,7 @@ def employee_360(employee):
         'timeline': _build_timeline(employee, enrollments, attempts),
         'warnings': warnings,
         'indicators': indicators,
+        'achieved_positions': achieved_positions(employee),
     }
 
 

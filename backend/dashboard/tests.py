@@ -630,6 +630,49 @@ class Employee360ApiTests(TestCase):
         self.assertEqual(resp.status_code, 403)
 
 
+class Employee360LegacyTests(TestCase):
+    """Nhom 2 (Prompt_Nhom2_HoSo360_NhanSuCu.md): nhan su cu (is_legacy) het mau thuan trong
+    Ho so 360 - khong con canh bao qua han thu viec, hien empty-state 'Chua danh gia' thay vi
+    so 0, va khung 'Vi tri da trai qua' liet ket dung achieved_positions."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        seed_competency_framework(self.tenant)
+        self.legacy_emp = Employee.objects.create(
+            tenant=self.tenant, code='NV_LEGACY', name='Nhan su cu', position='NV Phục vụ',
+            is_legacy=True, employee_status=Employee.EmployeeStatus.ACTIVE,
+            start_date=None, final_result='Pass thử việc',
+        )
+        self.new_emp_no_data = Employee.objects.create(
+            tenant=self.tenant, code='NV_NEW', name='Nhan su moi', position='NV Phục vụ',
+            is_legacy=False, employee_status=Employee.EmployeeStatus.PROBATION,
+        )
+
+    def test_legacy_employee_has_no_probation_warnings(self):
+        profile = employee_360(self.legacy_emp)
+        self.assertEqual(profile['warnings'], [])
+
+    def test_legacy_employee_competency_status_not_assessed(self):
+        profile = employee_360(self.legacy_emp)
+        self.assertEqual(profile['competency_status'], 'not_assessed')
+        self.assertTrue(profile['employee']['is_legacy'])
+
+    def test_new_employee_without_data_also_not_assessed(self):
+        profile = employee_360(self.new_emp_no_data)
+        self.assertEqual(profile['competency_status'], 'not_assessed')
+        self.assertFalse(profile['employee']['is_legacy'])
+
+    def test_achieved_positions_lists_current_position_first(self):
+        from employees.models import LevelUpEnrollment
+
+        LevelUpEnrollment.objects.create(
+            tenant=self.tenant, employee=self.legacy_emp, target_position='Giám sát',
+            zone='FOH', status=LevelUpEnrollment.Status.COMPLETED,
+        )
+        profile = employee_360(self.legacy_emp)
+        self.assertEqual(profile['achieved_positions'], ['NV Phục vụ', 'Giám sát'])
+
+
 class CompetencyFrameworkCrudApiTests(TestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name='Demo Tenant')

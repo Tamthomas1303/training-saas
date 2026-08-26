@@ -69,8 +69,14 @@ export default function Employee360Page() {
 
   const groups = profile?.groups || []
   const radarLabels = groups.map((g) => g.name)
-  const radarActual = groups.map((g) => g.score)
+  const notAssessed = profile?.competency_status === 'not_assessed'
+  const radarActual = notAssessed ? groups.map(() => null) : groups.map((g) => g.score)
   const radarTarget = groups.map((g) => g.target)
+  const isLegacy = !!profile?.employee?.is_legacy
+  const probationStatusLabel = isLegacy
+    ? 'Đã pass — công nhận theo thâm niên'
+    : (profile?.employee?.final_result || 'Chưa có kết quả')
+  const achievedPositions = profile?.achieved_positions || []
 
   return (
     <AppShell>
@@ -112,8 +118,8 @@ export default function Employee360Page() {
                 </div>
               </div>
               <div>
-                <Badge variant={profile.employee.pass_date ? 'success' : 'neutral'}>
-                  {profile.employee.final_result || 'Chưa có kết quả'}
+                <Badge variant={isLegacy || profile.employee.pass_date ? 'success' : 'neutral'}>
+                  {probationStatusLabel}
                 </Badge>
               </div>
             </div>
@@ -127,15 +133,15 @@ export default function Employee360Page() {
           </div>
 
           <div className="stat-grid" style={{ marginBottom: 16 }}>
-            <StatCard icon={<Target size={16} />} label="Chỉ số năng lực (CI)" value={profile.ci ?? 'Chờ dữ liệu'} />
-            <StatCard icon={<Flag size={16} />} label="Lộ trình thử việc" value={profile.employee.final_result || 'Chờ dữ liệu'} />
+            <StatCard icon={<Target size={16} />} label="Chỉ số năng lực (CI)" value={notAssessed ? 'Chưa đánh giá' : (profile.ci ?? 'Chờ dữ liệu')} />
+            <StatCard icon={<Flag size={16} />} label="Lộ trình thử việc" value={probationStatusLabel} />
             <StatCard
               icon={<BookOpen size={16} />} label="Tiến độ học"
-              value={`${profile.study.done}/${profile.study.total}`}
+              value={isLegacy ? 'Công nhận theo thâm niên' : `${profile.study.done}/${profile.study.total}`}
             />
             <StatCard
               icon={<FileText size={16} />} label="Điểm thi TB"
-              value={profile.exam.avg_percent != null ? `${profile.exam.avg_percent}%` : 'Chờ dữ liệu'}
+              value={notAssessed ? 'Chưa đánh giá' : (profile.exam.avg_percent != null ? `${profile.exam.avg_percent}%` : 'Chờ dữ liệu')}
             />
           </div>
 
@@ -149,7 +155,22 @@ export default function Employee360Page() {
             <div className="card" style={{ flex: '1 1 420px', minWidth: 320 }}>
               <h3 style={{ marginTop: 0 }}>Radar năng lực (Thực tế vs Mục tiêu)</h3>
               {groups.length > 0 ? (
-                <RadarChart labels={radarLabels} actual={radarActual} target={radarTarget} />
+                <div style={{ position: 'relative' }}>
+                  <RadarChart labels={radarLabels} actual={radarActual} target={radarTarget} />
+                  {notAssessed && (
+                    <div style={{
+                      position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+                      alignItems: 'center', justifyContent: 'center', textAlign: 'center', pointerEvents: 'none',
+                    }}>
+                      <span style={{ fontSize: 18, fontWeight: 600, color: 'var(--muted)' }}>Chưa đánh giá</span>
+                      {isLegacy && (
+                        <span className="muted-note" style={{ fontSize: 12, marginTop: 4 }}>
+                          Nhân sự cũ — cần Đánh giá đầu kỳ
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
               ) : (
                 <p className="muted-note">Chưa cấu hình khung năng lực.</p>
               )}
@@ -177,13 +198,21 @@ export default function Employee360Page() {
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
             <div className="card" style={{ flex: '1 1 260px', minWidth: 220 }}>
               <h3 style={{ marginTop: 0 }}>Học</h3>
-              <ProgressBar percent={profile.study.total ? (profile.study.done / profile.study.total) * 100 : 0} />
-              <div className="muted-note" style={{ marginTop: 6 }}>{profile.study.done}/{profile.study.total} khóa hoàn thành</div>
+              {isLegacy ? (
+                <div className="muted-note">Công nhận theo thâm niên</div>
+              ) : (
+                <>
+                  <ProgressBar percent={profile.study.total ? (profile.study.done / profile.study.total) * 100 : 0} />
+                  <div className="muted-note" style={{ marginTop: 6 }}>{profile.study.done}/{profile.study.total} khóa hoàn thành</div>
+                </>
+              )}
             </div>
             <div className="card" style={{ flex: '1 1 260px', minWidth: 220 }}>
               <h3 style={{ marginTop: 0 }}>Thi</h3>
               <div>{profile.exam.attempts} lượt thi</div>
-              <div className="muted-note">Điểm TB: {profile.exam.avg_percent ?? '—'}%</div>
+              <div className="muted-note">
+                Điểm TB: {notAssessed ? 'Chưa đánh giá' : `${profile.exam.avg_percent ?? '—'}%`}
+              </div>
             </div>
             <div className="card" style={{ flex: '1 1 260px', minWidth: 220 }}>
               <h3 style={{ marginTop: 0 }}>Chứng chỉ</h3>
@@ -196,6 +225,17 @@ export default function Employee360Page() {
                   )}
                 </div>
               ))}
+            </div>
+            <div className="card" style={{ flex: '1 1 260px', minWidth: 220 }}>
+              <h3 style={{ marginTop: 0 }}>Vị trí đã trải qua</h3>
+              {achievedPositions.length === 0 && <p className="muted-note">Chưa có dữ liệu.</p>}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {achievedPositions.map((pos, i) => (
+                  <Badge key={`${pos}-${i}`} variant={i === 0 ? 'success' : 'neutral'}>
+                    {pos}{i === 0 ? ' (hiện tại)' : ''}
+                  </Badge>
+                ))}
+              </div>
             </div>
           </div>
 
