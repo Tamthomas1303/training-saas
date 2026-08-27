@@ -143,7 +143,43 @@ function SettingsCard() {
           Người nhận chính = email của nhà hàng (QLNH phụ trách) của nhân sự. CC thêm bên dưới (vd phòng Đào tạo).
         </p>
         <CcListInput label="CC" value={form.cc_recipients} onChange={(v) => set('cc_recipients', v)} />
+      </div>
 
+      <h3>Nhắc việc cho QLNH/Bếp trưởng (Nhóm 3C)</h3>
+      <div style={{ display: 'grid', gap: 10, marginBottom: 16 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input type="checkbox" checked={!!form.remind_managers} onChange={(e) => set('remind_managers', e.target.checked)} />
+          Nhắc việc cho QLNH/Bếp trưởng (còn nội dung chưa đào tạo / sắp đến hạn thử việc)
+        </label>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          <label style={{ fontSize: 13 }}>
+            Nhắc "chưa đào tạo" sau (ngày)
+            <input
+              type="number" min={0} style={{ ...s.input, display: 'block', width: 100 }}
+              value={form.remind_untrained_after_days ?? 3}
+              onChange={(e) => set('remind_untrained_after_days', Number(e.target.value) || 0)}
+            />
+          </label>
+          <label style={{ fontSize: 13 }}>
+            Nhắc "sắp đến hạn" trước (ngày)
+            <input
+              type="number" min={0} style={{ ...s.input, display: 'block', width: 100 }}
+              value={form.remind_days_before_deadline ?? 3}
+              onChange={(e) => set('remind_days_before_deadline', Number(e.target.value) || 0)}
+            />
+          </label>
+          <label style={{ fontSize: 13 }}>
+            Cách nhau tối thiểu giữa 2 lần nhắc (ngày)
+            <input
+              type="number" min={1} style={{ ...s.input, display: 'block', width: 100 }}
+              value={form.remind_repeat_days ?? 3}
+              onChange={(e) => set('remind_repeat_days', Number(e.target.value) || 1)}
+            />
+          </label>
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 560 }}>
         <div>
           <button onClick={save} disabled={saving}>Lưu</button>
           {msg && <span className="muted-note" style={{ marginLeft: 8 }}>{msg}</span>}

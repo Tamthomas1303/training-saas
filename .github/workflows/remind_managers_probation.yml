@@ -1,0 +1,36 @@
+name: Remind Managers Probation
+
+on:
+  schedule:
+    # 1h30 UTC = 8h30 sang gio VN (UTC+7), moi ngay - lech gio voi Alert No Training (8h) de
+    # khong chay chong cheo cung luc.
+    - cron: '30 1 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DJANGO_SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
+      DJANGO_DEBUG: 'False'
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      EMAIL_HOST: ${{ secrets.EMAIL_HOST }}
+      # secrets khong ton tai se thanh chuoi rong (khong phai bien vang mat) - '' se de len
+      # gia tri mac dinh cua settings.py (vd int(os.environ.get('EMAIL_PORT', '587')) se
+      # crash voi int('')), nen phai co fallback || ngay o day (xem alert_no_training.yml,
+      # cung loi da gap va sua).
+      EMAIL_PORT: ${{ secrets.EMAIL_PORT || '587' }}
+      EMAIL_HOST_USER: ${{ secrets.EMAIL_HOST_USER }}
+      EMAIL_HOST_PASSWORD: ${{ secrets.EMAIL_HOST_PASSWORD }}
+      EMAIL_USE_TLS: ${{ secrets.EMAIL_USE_TLS || 'True' }}
+      DEFAULT_FROM_EMAIL: ${{ secrets.DEFAULT_FROM_EMAIL || secrets.EMAIL_HOST_USER || 'no-reply@training.local' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: python manage.py remind_managers_probation

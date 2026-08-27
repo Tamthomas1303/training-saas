@@ -202,6 +202,15 @@ class AutomationSettings(models.Model):
         ),
     )
 
+    # ---- Nhom 3C (Prompt_Nhom3C_NhacViec_TrongApp.md muc 1) - luong 6: nhac viec trong app cho
+    # QLNH/Bep truong (con noi dung chua dao tao / sap den han thi-danh gia thu viec). ----
+    remind_managers = models.BooleanField(default=False)
+    remind_untrained_after_days = models.PositiveIntegerField(default=3)
+    remind_days_before_deadline = models.PositiveIntegerField(default=3)
+    # Khoang cach toi thieu (ngay) giua 2 lan nhac CUNG loai cho CUNG nhan su - chong spam (xem
+    # ProbationReminderLog).
+    remind_repeat_days = models.PositiveIntegerField(default=3)
+
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, related_name='+', null=True, blank=True)
 
@@ -309,6 +318,28 @@ class ProbationResultNotification(models.Model):
 
     def __str__(self):
         return f'{self.employee_id} - {self.result} @ {self.decision_date}'
+
+
+class ProbationReminderLog(models.Model):
+    """Nhom 3C (Prompt_Nhom3C_NhacViec_TrongApp.md muc 3) - chong spam cho luong nhac viec: ghi
+    lan nhac GAN NHAT cho 1 (employee, category). Command remind_managers_probation chi gui lai
+    neu da qua AutomationSettings.remind_repeat_days ke tu last_sent_at (xem
+    employees.automation.check_probation_reminders)."""
+
+    class Category(models.TextChoices):
+        UNTRAINED = 'probation_untrained', 'Còn nội dung chưa đào tạo'
+        DEADLINE = 'probation_deadline', 'Sắp đến hạn thử việc'
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='probation_reminder_logs')
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='probation_reminder_logs')
+    category = models.CharField(max_length=30, choices=Category.choices)
+    last_sent_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('employee', 'category')
+
+    def __str__(self):
+        return f'{self.employee_id} - {self.category} @ {self.last_sent_at}'
 
 
 class LevelUpEnrollment(models.Model):

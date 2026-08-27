@@ -367,3 +367,158 @@ def notify_probation_result_if_needed(employee, result, decision_date):
         log_row.save(update_fields=['salary_effective_date'])
     logger.info('Da gui email ket qua thu viec cho NV %s (%s).', employee.id, result)
     return log_row
+
+
+# ========================================================================================
+# Nhom 3C (Prompt_Nhom3C_NhacViec_TrongApp.md) - luong 6: nhac viec trong app (+ email san co
+# qua sourcing.services.notify_users) cho QLNH/Bep truong ve nhan su dang thu viec con noi dung
+# chua dao tao / sap den han thi-danh gia. Goi tu management command remind_managers_probation
+# (quet hang ngay, giong bao cao tuan/thang).
+# ========================================================================================
+
+def probation_reminder_targets(employee):
+    """Nguoi nhan DUNG doi tuong (Nhom 3C muc 2) - LUON gom QLNH cua nha hang (role=bql,
+    job_title=qlnh, cung restaurant); neu nhan su thuoc khoi bep (BOH, qua
+    employees.career.zone_of_position) thi THEM Bep truong (job_title=bep_truong). KHONG gui
+    cho toan bo bql cua nha hang nhu sourcing.services.notification_targets mac dinh - tranh gui
+    nham Bep truong cho nhan su phuc vu va nguoc lai."""
+    from accounts.models import User
+
+    from .career import zone_of_position
+
+    if not employee.restaurant_id:
+        return []
+    job_titles = [User.JobTitle.QLNH]
+    if zone_of_position(employee.position) == 'BOH':
+        job_titles.append(User.JobTitle.BEP_TRUONG)
+    return list(User.objects.filter(
+        tenant=employee.tenant, restaurant=employee.restaurant, role=User.Role.BQL,
+        status=User.Status.ACTIVE, job_title__in=job_titles,
+    ))
+
+
+def _untrained_checklist_items(employee):
+    """Cac Checklist khop vi tri hien tai cua nhan su ma CHUA co TrainingProgress status=DONE -
+    dung de liet ke so muc con thieu trong noi dung nhac viec."""
+    from checklist.models import TrainingProgress
+
+    from .services import matching_checklist_items
+
+    items = matching_checklist_items(employee)
+    if not items:
+        return []
+    done_ids = set(
+        TrainingProgress.objects.filter(
+            employee=employee, checklist_id__in=[c.id for c in items],
+            status=TrainingProgress.Status.DONE,
+        ).values_list('checklist_id', flat=True)
+    )
+    return [c for c in items if c.id not in done_ids]
+
+
+def _should_remind(employee, category, repeat_days):
+    """Chong spam (Nhom 3C muc 3): False neu da nhac CUNG loai cho nhan su nay trong vong
+    repeat_days ngay gan nhat. Tra ve (should_remind, ban_ghi_log_hien_co_hoac_None)."""
+    import datetime
+
+    from django.utils import timezone
+
+    from .models import ProbationReminderLog
+
+    log = ProbationReminderLog.objects.filter(employee=employee, category=category).first()
+    if not log:
+        return True, None
+    if timezone.now() - log.last_sent_at >= datetime.timedelta(days=repeat_days):
+        return True, log
+    return False, log
+
+
+def _mark_reminded(employee, category, existing_log):
+    from .models import ProbationReminderLog
+
+    if existing_log:
+        existing_log.save(update_fields=['last_sent_at'])  # auto_now -> cap nhat lai thoi diem
+    else:
+        ProbationReminderLog.objects.create(tenant=employee.tenant, employee=employee, category=category)
+
+
+def _notify_probation_reminder(targets, category, title, body, link):
+    from sourcing.services import notify_users
+
+    notify_users(targets, title=title, body=body, link=link, category=category)
+
+
+def check_probation_reminders(employee, cfg=None):
+    """Nhom 3C luong 6 - kiem 2 dieu kien DOC LAP cho 1 nhan su dang thu viec: (a) con noi dung
+    chua dao tao qua nguong ngay ke tu start_date; (b) sap den han thi/danh gia thu viec. Gui
+    nhac (in-app + email qua notify_users) toi probation_reminder_targets(employee) NEU du dieu
+    kien VA chua nhac cung loai trong remind_repeat_days ngay gan day (idempotent). Tra ve danh
+    sach cac category DA gui trong lan goi nay (rong neu khong gui gi ca / cong tac tat / nhan
+    su cu / khong dang thu viec / khong co nha hang)."""
+    from django.utils import timezone
+
+    from .models import Employee, ProbationReminderLog
+    from .services import checklist_progress_percent
+
+    if getattr(employee, 'is_legacy', False):
+        return []
+    if employee.employee_status != Employee.EmployeeStatus.PROBATION:
+        return []
+    if not employee.restaurant_id:
+        return []
+
+    cfg = cfg or get_automation_settings(employee.tenant)
+    if not cfg.remind_managers:
+        return []
+
+    targets = probation_reminder_targets(employee)
+    if not targets:
+        return []
+
+    sent = []
+    link = f'/employees/{employee.id}'
+
+    # (a) Con noi dung chua dao tao: da vao >= remind_untrained_after_days ngay ma checklist
+    # chua xong 100% (dac biet la 0%).
+    if employee.start_date:
+        days_since_start = (timezone.now().date() - employee.start_date).days
+        if days_since_start >= cfg.remind_untrained_after_days:
+            if checklist_progress_percent(employee) < 100:
+                should, log = _should_remind(
+                    employee, ProbationReminderLog.Category.UNTRAINED, cfg.remind_repeat_days,
+                )
+                if should:
+                    untrained = _untrained_checklist_items(employee)
+                    _notify_probation_reminder(
+                        targets, ProbationReminderLog.Category.UNTRAINED,
+                        title=f'{employee.name} còn nội dung chưa đào tạo',
+                        body=(
+                            f'{employee.name} (mã {employee.code}) đã vào làm {days_since_start} ngày '
+                            f'nhưng còn {len(untrained)} nội dung đào tạo chưa hoàn thành.'
+                        ),
+                        link=link,
+                    )
+                    _mark_reminded(employee, ProbationReminderLog.Category.UNTRAINED, log)
+                    sent.append(ProbationReminderLog.Category.UNTRAINED)
+
+    # (b) Sap den han thi/danh gia thu viec (days_left <= nguong VA > 0 - da qua han la chuyen
+    # khac, khong thuoc pham vi "sap den han" cua luong nhac nay).
+    from dashboard.services import _probation_deadline_days_left
+
+    days_left = _probation_deadline_days_left(employee)
+    if days_left is not None and 0 < days_left <= cfg.remind_days_before_deadline:
+        should, log = _should_remind(employee, ProbationReminderLog.Category.DEADLINE, cfg.remind_repeat_days)
+        if should:
+            _notify_probation_reminder(
+                targets, ProbationReminderLog.Category.DEADLINE,
+                title=f'{employee.name} sắp đến hạn thử việc',
+                body=(
+                    f'{employee.name} (mã {employee.code}) còn {days_left} ngày tới hạn thử việc, '
+                    f'cần hoàn tất thi/đánh giá.'
+                ),
+                link=link,
+            )
+            _mark_reminded(employee, ProbationReminderLog.Category.DEADLINE, log)
+            sent.append(ProbationReminderLog.Category.DEADLINE)
+
+    return sent

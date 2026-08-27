@@ -141,6 +141,9 @@ class AutomationSettingsSerializer(serializers.ModelSerializer):
             # Nhom 3B (Prompt_Nhom3B_ThiThuViec_TuDong.md muc 1).
             'auto_assign_probation_exam', 'require_approval_before_exam', 'auto_send_probation_result',
             'salary_effective_rule', 'result_email_subject', 'result_email_body',
+            # Nhom 3C (Prompt_Nhom3C_NhacViec_TrongApp.md muc 1).
+            'remind_managers', 'remind_untrained_after_days', 'remind_days_before_deadline',
+            'remind_repeat_days',
             'updated_at',
         ]
         read_only_fields = ['updated_at']

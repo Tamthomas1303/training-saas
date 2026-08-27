@@ -1731,3 +1731,212 @@ class ProbationResultNotificationTests(TestCase):
         change_employee_status(employee, 'resigned')
         failed_calls = [c for c in mock_notify.call_args_list if c.args[1] == 'failed']
         self.assertEqual(failed_calls, [])
+
+
+class ProbationReminderTargetsTests(TestCase):
+    """Nhom 3C (Prompt_Nhom3C_NhacViec_TrongApp.md muc 2): probation_reminder_targets - LUON gom
+    QLNH; THEM Bep truong neu nhan su thuoc khoi bep (BOH); KHONG gui cho toan bo bql cua nha
+    hang (vd Giam sat/Bep pho khong lien quan khong duoc nhan)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='NH1', name='Nhà hàng 1')
+        self.other_restaurant = Restaurant.objects.create(tenant=self.tenant, code='NH2', name='Nhà hàng 2')
+        self.qlnh = User.objects.create_user(
+            username='qlnh1', password='x', tenant=self.tenant, role=User.Role.BQL,
+            job_title=User.JobTitle.QLNH, restaurant=self.restaurant,
+        )
+        self.bep_truong = User.objects.create_user(
+            username='bt1', password='x', tenant=self.tenant, role=User.Role.BQL,
+            job_title=User.JobTitle.BEP_TRUONG, restaurant=self.restaurant,
+        )
+        self.giam_sat = User.objects.create_user(
+            username='gs1', password='x', tenant=self.tenant, role=User.Role.BQL,
+            job_title=User.JobTitle.GIAM_SAT, restaurant=self.restaurant,
+        )
+        # QLNH nha hang KHAC - khong duoc nhan cho nhan su cua nha hang nay.
+        User.objects.create_user(
+            username='qlnh2', password='x', tenant=self.tenant, role=User.Role.BQL,
+            job_title=User.JobTitle.QLNH, restaurant=self.other_restaurant,
+        )
+
+    def test_foh_employee_gets_only_qlnh(self):
+        from employees.automation import probation_reminder_targets
+
+        employee = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='Phục vụ A', position='NV Phục vụ', restaurant=self.restaurant,
+        )
+        targets = probation_reminder_targets(employee)
+        self.assertEqual(set(targets), {self.qlnh})
+
+    def test_boh_employee_gets_qlnh_and_bep_truong(self):
+        from employees.automation import probation_reminder_targets
+
+        employee = Employee.objects.create(
+            tenant=self.tenant, code='NV2', name='Bếp A', position='Phụ bếp', restaurant=self.restaurant,
+        )
+        targets = probation_reminder_targets(employee)
+        self.assertEqual(set(targets), {self.qlnh, self.bep_truong})
+
+    def test_no_restaurant_returns_empty(self):
+        from employees.automation import probation_reminder_targets
+
+        employee = Employee.objects.create(tenant=self.tenant, code='NV3', name='Không NH', position='NV Phục vụ')
+        self.assertEqual(probation_reminder_targets(employee), [])
+
+
+class ProbationRemindersTests(TestCase):
+    """Nhom 3C luong 6: check_probation_reminders - 2 dieu kien doc lap + chong spam
+    (remind_repeat_days) + tat cong tac / nhan su cu khong bi cuon vao."""
+
+    def setUp(self):
+        from employees.models import AutomationSettings
+
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='NH1', name='Nhà hàng 1')
+        self.qlnh = User.objects.create_user(
+            username='qlnh1', password='x', email='qlnh1@example.com', tenant=self.tenant,
+            role=User.Role.BQL, job_title=User.JobTitle.QLNH, restaurant=self.restaurant,
+        )
+        self.settings_obj = AutomationSettings.objects.create(
+            tenant=self.tenant, remind_managers=True, remind_untrained_after_days=3,
+            remind_days_before_deadline=3, remind_repeat_days=3,
+        )
+
+    def _employee(self, code, **kwargs):
+        defaults = dict(
+            tenant=self.tenant, code=code, name=f'NV {code}', restaurant=self.restaurant,
+            position='NV Phục vụ', is_legacy=False, employee_status=Employee.EmployeeStatus.PROBATION,
+        )
+        defaults.update(kwargs)
+        return Employee.objects.create(**defaults)
+
+    @patch('employees.services.checklist_progress_percent', return_value=0)
+    def test_untrained_reminder_sent_to_qlnh(self, mock_progress):
+        from sourcing.models import Notification
+
+        employee = self._employee('NV1', start_date=datetime.date.today() - datetime.timedelta(days=5))
+        sent = check_probation_reminders_helper(employee)
+        self.assertIn('probation_untrained', sent)
+        self.assertTrue(Notification.objects.filter(user=self.qlnh, category='probation_untrained').exists())
+
+    @patch('employees.services.checklist_progress_percent', return_value=0)
+    def test_untrained_not_yet_reached_threshold_days(self, mock_progress):
+        employee = self._employee('NV2', start_date=datetime.date.today() - datetime.timedelta(days=1))
+        sent = check_probation_reminders_helper(employee)
+        self.assertEqual(sent, [])
+
+    @patch('employees.services.checklist_progress_percent', return_value=100)
+    def test_untrained_not_sent_when_checklist_complete(self, mock_progress):
+        employee = self._employee('NV3', start_date=datetime.date.today() - datetime.timedelta(days=10))
+        sent = check_probation_reminders_helper(employee)
+        self.assertEqual(sent, [])
+
+    def test_deadline_reminder_sent_when_within_threshold(self):
+        employee = self._employee(
+            'NV4', start_date=datetime.date.today() - datetime.timedelta(days=13), probation_days=15,
+        )
+        # days_left = 15 - 13 = 2 <= nguong 3 va > 0.
+        sent = check_probation_reminders_helper(employee)
+        self.assertIn('probation_deadline', sent)
+
+    def test_deadline_not_sent_when_already_overdue(self):
+        employee = self._employee(
+            'NV5', start_date=datetime.date.today() - datetime.timedelta(days=20), probation_days=15,
+        )
+        # days_left am (qua han) - khong thuoc pham vi "sap den han" cua luong nhac nay.
+        sent = check_probation_reminders_helper(employee)
+        self.assertNotIn('probation_deadline', sent)
+
+    @patch('employees.services.checklist_progress_percent', return_value=0)
+    def test_no_duplicate_within_repeat_days(self, mock_progress):
+        employee = self._employee('NV6', start_date=datetime.date.today() - datetime.timedelta(days=5))
+        first = check_probation_reminders_helper(employee)
+        second = check_probation_reminders_helper(employee)
+        self.assertIn('probation_untrained', first)
+        self.assertEqual(second, [])
+
+    @patch('employees.services.checklist_progress_percent', return_value=0)
+    def test_resend_after_repeat_days_elapsed(self, mock_progress):
+        from employees.models import ProbationReminderLog
+
+        employee = self._employee('NV7', start_date=datetime.date.today() - datetime.timedelta(days=5))
+        check_probation_reminders_helper(employee)
+        log = ProbationReminderLog.objects.get(employee=employee, category='probation_untrained')
+        # .update() (khong phai .save()) de bo qua auto_now - auto_now se GHI DE ve "bay gio"
+        # moi lan save(), khong the lui ngay qua instance.save() thong thuong.
+        ProbationReminderLog.objects.filter(pk=log.pk).update(
+            last_sent_at=timezone.now() - datetime.timedelta(days=4),
+        )
+        second = check_probation_reminders_helper(employee)
+        self.assertIn('probation_untrained', second)
+
+    @patch('employees.services.checklist_progress_percent', return_value=0)
+    def test_toggle_off_sends_nothing(self, mock_progress):
+        self.settings_obj.remind_managers = False
+        self.settings_obj.save(update_fields=['remind_managers'])
+        employee = self._employee('NV8', start_date=datetime.date.today() - datetime.timedelta(days=5))
+        sent = check_probation_reminders_helper(employee)
+        self.assertEqual(sent, [])
+
+    @patch('employees.services.checklist_progress_percent', return_value=0)
+    def test_legacy_employee_not_reminded(self, mock_progress):
+        employee = self._employee(
+            'NV9', start_date=datetime.date.today() - datetime.timedelta(days=5), is_legacy=True,
+        )
+        sent = check_probation_reminders_helper(employee)
+        self.assertEqual(sent, [])
+
+    @patch('employees.services.checklist_progress_percent', return_value=0)
+    def test_boh_employee_also_notifies_bep_truong(self, mock_progress):
+        from sourcing.models import Notification
+
+        bep_truong = User.objects.create_user(
+            username='bt1', password='x', tenant=self.tenant, role=User.Role.BQL,
+            job_title=User.JobTitle.BEP_TRUONG, restaurant=self.restaurant,
+        )
+        employee = self._employee(
+            'NV10', position='Phụ bếp', start_date=datetime.date.today() - datetime.timedelta(days=5),
+        )
+        check_probation_reminders_helper(employee)
+        self.assertTrue(Notification.objects.filter(user=bep_truong, category='probation_untrained').exists())
+        self.assertTrue(Notification.objects.filter(user=self.qlnh, category='probation_untrained').exists())
+
+
+def check_probation_reminders_helper(employee):
+    from employees.automation import check_probation_reminders
+
+    return check_probation_reminders(employee)
+
+
+class RemindManagersProbationCommandTests(TestCase):
+    """Nhom 3C muc 3: management command remind_managers_probation - quet toan bo tenant, chi
+    xu ly tenant bat remind_managers, ghi nhan qua Notification (chuong NotificationsBell)."""
+
+    def setUp(self):
+        from employees.models import AutomationSettings
+
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='NH1', name='Nhà hàng 1')
+        self.qlnh = User.objects.create_user(
+            username='qlnh1', password='x', tenant=self.tenant, role=User.Role.BQL,
+            job_title=User.JobTitle.QLNH, restaurant=self.restaurant,
+        )
+        AutomationSettings.objects.create(tenant=self.tenant, remind_managers=True)
+        self.employee = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='NV1', position='NV Phục vụ', restaurant=self.restaurant,
+            is_legacy=False, employee_status=Employee.EmployeeStatus.PROBATION,
+            start_date=datetime.date.today() - datetime.timedelta(days=10),
+        )
+
+    @patch('employees.services.checklist_progress_percent', return_value=0)
+    def test_command_creates_notification_for_untrained_employee(self, mock_progress):
+        from sourcing.models import Notification
+
+        call_command('remind_managers_probation')
+        self.assertTrue(Notification.objects.filter(user=self.qlnh, category='probation_untrained').exists())
+
+    def test_command_runs_with_no_matching_employees(self):
+        """Kiem thu 'chay thu command' - khong loi du khong co nhan su nao khop dieu kien."""
+        Employee.objects.all().delete()
+        call_command('remind_managers_probation')  # khong duoc raise
