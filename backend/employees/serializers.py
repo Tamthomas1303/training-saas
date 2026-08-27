@@ -3,7 +3,14 @@ from rest_framework import serializers
 from accounts.models import User
 from restaurants.models import Restaurant
 
-from .models import AutomationSettings, Employee, LevelUpEnrollment, OnboardingCourseRule
+from .models import (
+    AutomationSettings,
+    Employee,
+    LevelUpEnrollment,
+    OnboardingCourseRule,
+    ProbationExamCandidate,
+    ProbationExamRule,
+)
 
 
 class EmployeeSerializer(serializers.ModelSerializer):
@@ -130,7 +137,11 @@ class AutomationSettingsSerializer(serializers.ModelSerializer):
         fields = [
             'auto_create_account', 'auto_enroll_onboarding', 'send_welcome_email',
             'welcome_email_subject', 'welcome_email_body', 'sender_display_name',
-            'cc_recipients', 'updated_at',
+            'cc_recipients',
+            # Nhom 3B (Prompt_Nhom3B_ThiThuViec_TuDong.md muc 1).
+            'auto_assign_probation_exam', 'require_approval_before_exam', 'auto_send_probation_result',
+            'salary_effective_rule', 'result_email_subject', 'result_email_body',
+            'updated_at',
         ]
         read_only_fields = ['updated_at']
 
@@ -142,3 +153,33 @@ class OnboardingCourseRuleSerializer(serializers.ModelSerializer):
         model = OnboardingCourseRule
         fields = ['id', 'position', 'course', 'course_title', 'created_at']
         read_only_fields = ['created_at']
+
+
+class ProbationExamRuleSerializer(serializers.ModelSerializer):
+    assessment_title = serializers.CharField(source='assessment.title', read_only=True, default='')
+
+    class Meta:
+        model = ProbationExamRule
+        fields = ['id', 'position', 'assessment', 'assessment_title', 'created_at']
+        read_only_fields = ['created_at']
+
+
+class ProbationExamCandidateSerializer(serializers.ModelSerializer):
+    employee_code = serializers.CharField(source='employee.code', read_only=True, default='')
+    employee_name = serializers.CharField(source='employee.name', read_only=True, default='')
+    restaurant_name = serializers.CharField(source='employee.restaurant.name', read_only=True, default='')
+    position = serializers.CharField(source='employee.position', read_only=True, default='')
+    assessment_title = serializers.CharField(source='assessment.title', read_only=True, default='')
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    decided_by_name = serializers.CharField(source='decided_by.full_name', read_only=True, default='')
+    exam_session_title = serializers.CharField(source='exam_session.title', read_only=True, default='')
+
+    class Meta:
+        model = ProbationExamCandidate
+        fields = [
+            'id', 'employee', 'employee_code', 'employee_name', 'restaurant_name', 'position',
+            'assessment', 'assessment_title', 'status', 'status_display', 'exam_session',
+            'exam_session_title', 'decided_by', 'decided_by_name', 'decided_at', 'reject_reason',
+            'created_at',
+        ]
+        read_only_fields = fields

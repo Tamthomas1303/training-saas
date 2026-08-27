@@ -11,8 +11,13 @@ from accounts.pagination import DefaultPagination
 from .dashboard import dashboard_payload
 from .detail import export_probation_result_pdf, student_detail
 from .home import home_payload
-from .models import Employee, OnboardingCourseRule
-from .serializers import EmployeeSerializer, OnboardingCourseRuleSerializer
+from .models import Employee, OnboardingCourseRule, ProbationExamCandidate, ProbationExamRule
+from .serializers import (
+    EmployeeSerializer,
+    OnboardingCourseRuleSerializer,
+    ProbationExamCandidateSerializer,
+    ProbationExamRuleSerializer,
+)
 from .services import change_employee_status
 
 STUDENT_ADMIN_ROLES = {'admin', 'om', 'bql', 'trainer'}
@@ -957,3 +962,81 @@ class OnboardingCourseRuleViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSe
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
         _require_automation_admin(request)
+
+
+class ProbationExamRuleViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
+    """CRUD anh xa vi tri -> de thi ket thuc thu viec (Nhom 3B muc 1, dung boi
+    employees.automation.check_probation_exam_eligibility). Chi Admin."""
+
+    serializer_class = ProbationExamRuleSerializer
+    queryset = ProbationExamRule.objects.select_related('assessment').all()
+    ordering = ['position']
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        _require_automation_admin(request)
+
+
+PROBATION_EXAM_REVIEWER_ROLES = {'admin', 'trainer'}
+
+
+def _require_probation_exam_reviewer(request):
+    if (request.user.role or '').lower() not in PROBATION_EXAM_REVIEWER_ROLES:
+        from rest_framework.exceptions import PermissionDenied
+
+        raise PermissionDenied('Chỉ Admin/Trainer (phòng Đào tạo) được duyệt thi kết thúc thử việc.')
+
+
+class ProbationExamCandidateListView(APIView):
+    """GET /api/employees/probation-exam-candidates/?status=pending_approval — man "Chờ duyệt
+    thi" (Nhom 3B muc 2). Mac dinh status=pending_approval neu khong truyen. Chi Admin/Trainer."""
+
+    def get(self, request):
+        _require_probation_exam_reviewer(request)
+        status_param = request.query_params.get('status') or ProbationExamCandidate.Status.PENDING_APPROVAL
+        qs = (
+            ProbationExamCandidate.objects.filter(tenant=request.user.tenant, status=status_param)
+            .select_related('employee', 'employee__restaurant', 'assessment', 'exam_session', 'decided_by')
+        )
+        return Response(ProbationExamCandidateSerializer(qs, many=True).data)
+
+
+class ProbationExamCandidateApproveView(APIView):
+    """POST /api/employees/probation-exam-candidates/<id>/approve/ — Duyet 1 ung vien (Nhom 3B
+    muc 2). Body (tuy chon): {exam_session_id?, start_at?, end_at?, proctors?: [user_id,...],
+    supervised_by_restaurant_camera?: bool}. Khong truyen exam_session_id -> tu tao 1 Ky thi
+    rieng cho nhan su nay."""
+
+    def post(self, request, pk):
+        _require_probation_exam_reviewer(request)
+        from .automation import approve_probation_exam_candidate
+
+        candidate = get_object_or_404(ProbationExamCandidate, pk=pk, tenant=request.user.tenant)
+        try:
+            approve_probation_exam_candidate(
+                candidate, request.user,
+                exam_session_id=request.data.get('exam_session_id'),
+                start_at=request.data.get('start_at') or None,
+                end_at=request.data.get('end_at') or None,
+                proctor_ids=request.data.get('proctors') or [],
+                supervised_by_restaurant_camera=bool(request.data.get('supervised_by_restaurant_camera')),
+            )
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        return Response(ProbationExamCandidateSerializer(candidate).data)
+
+
+class ProbationExamCandidateRejectView(APIView):
+    """POST /api/employees/probation-exam-candidates/<id>/reject/ — Tu choi 1 ung vien. Body:
+    {reason?}."""
+
+    def post(self, request, pk):
+        _require_probation_exam_reviewer(request)
+        from .automation import reject_probation_exam_candidate
+
+        candidate = get_object_or_404(ProbationExamCandidate, pk=pk, tenant=request.user.tenant)
+        try:
+            reject_probation_exam_candidate(candidate, request.user, reason=request.data.get('reason') or '')
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=400)
+        return Response(ProbationExamCandidateSerializer(candidate).data)

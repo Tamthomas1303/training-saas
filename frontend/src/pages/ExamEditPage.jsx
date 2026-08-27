@@ -62,6 +62,12 @@ function ProctoringEvidenceModal({ attemptId, open, onClose, onFlagged }) {
               {timeline.flagged_suspicious ? '✓ Đã đánh dấu nghi vấn' : 'Đánh dấu nghi vấn'}
             </button>
           </div>
+          {timeline.supervised_by_restaurant_camera && (
+            <p className="muted-note" style={{ marginTop: -4 }}>
+              Giám sát qua camera nhà hàng — Người coi thi:{' '}
+              {timeline.proctors.length > 0 ? timeline.proctors.map((p) => p.name).join(', ') : 'chưa phân công'}
+            </p>
+          )}
           <div style={{ maxHeight: 360, overflowY: 'auto' }}>
             {timeline.events.map((e) => (
               <div key={e.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--card-border)' }}>

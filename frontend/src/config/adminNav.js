@@ -22,6 +22,7 @@ import {
   CalendarCheck,
   ClipboardCheck,
   ClipboardList,
+  Clock,
   Compass,
   Database,
   FileBadge,
@@ -82,6 +83,9 @@ export const ADMIN_NAV = [
       { label: 'Khóa học', path: '/courses-admin', icon: GraduationCap, roles: ['admin'] },
       { label: 'Kỳ thi', path: '/exam-sessions', icon: CalendarCheck, roles: ['admin'] },
       { label: 'Chấm bài', path: '/exam-grading', icon: PencilLine, roles: ['admin', 'om'] },
+      // Nhom 3B (Prompt_Nhom3B_ThiThuViec_TuDong.md muc 5) - man "Cho duyet thi" (admin/trainer;
+      // trainer dung shell mobile nen xem qua config/menu.js, khong qua sidebar nay).
+      { label: 'Chờ duyệt thi', path: '/probation-exam-approval', icon: Clock, roles: ['admin'] },
     ],
   },
   {

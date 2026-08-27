@@ -94,7 +94,12 @@ def create_exam_session(user, payload):
     lich -> sinh AssessmentAssignment cho nhan su khop, TAI DUNG assign_assessment (khong viet
     lai). payload: {assessment, title?, start_at?, end_at?} + 1 trong 2: employee_ids HOAC
     position/restaurant_id/group (dung dinh dang voi assign_assessment). Tra ve (session,
-    assigned_count)."""
+    assigned_count).
+
+    Nhom 3B (Prompt_Nhom3B_ThiThuViec_TuDong.md muc 3) - coi thi qua camera nha hang: payload co
+    the kem 'proctors' (danh sach user id, nguoi coi thi) + 'supervised_by_restaurant_camera'
+    (bool). Bat co nay se BAT LUON Assessment.proctoring_enabled (truong CHUNG tren de, anh
+    huong moi lan thi cua de do) de co bang chung webcam doi chieu."""
     tenant = user.tenant
     assessment = Assessment.objects.filter(tenant=tenant, pk=payload.get('assessment')).first()
     if not assessment:
@@ -107,12 +112,22 @@ def create_exam_session(user, payload):
             'restaurant_id': payload.get('restaurant_id'), 'group': payload.get('group'),
         }.items() if v
     }
+    supervised = bool(payload.get('supervised_by_restaurant_camera'))
 
     session = ExamSession.objects.create(
         tenant=tenant, title=title, assessment=assessment,
         start_at=payload.get('start_at') or None, end_at=payload.get('end_at') or None,
         target_config=target_config, created_by=user,
+        supervised_by_restaurant_camera=supervised,
     )
+    proctor_ids = payload.get('proctors') or []
+    if proctor_ids:
+        from accounts.models import User
+
+        session.proctors.set(User.objects.filter(tenant=tenant, id__in=proctor_ids))
+    if supervised and not assessment.proctoring_enabled:
+        assessment.proctoring_enabled = True
+        assessment.save(update_fields=['proctoring_enabled'])
     try:
         assigned_count = assign_assessment(user, assessment, payload, exam_session=session)
     except ValidationError:
@@ -677,13 +692,24 @@ def record_proctoring_event(attempt, event_type, detail='', image_data_url=None)
 
 def proctoring_timeline(attempt):
     """Man giam khao xem bang chung (A4): dong thoi gian su kien + 'chi so nghi van' (dem
-    no_face/multi_face/tab_leave). Dung cho AttemptProctoringView."""
+    no_face/multi_face/tab_leave). Dung cho AttemptProctoringView.
+
+    Nhom 3B muc 3: kem theo nguoi coi thi + co giam sat camera nha hang, doc tu ExamSession cua
+    AssessmentAssignment (assignment.exam_session=None -> gan tay truc tiep tren De, khong co
+    coi thi camera - tra ve rong/False)."""
     events = list(attempt.proctoring_events.all())
     counts = {'no_face': 0, 'multi_face': 0, 'tab_leave': 0, 'blur': 0, 'fullscreen_exit': 0}
     for e in events:
         if e.type in counts:
             counts[e.type] += 1
     suspicion_score = counts['no_face'] + counts['multi_face'] + counts['tab_leave']
+
+    assignment = (
+        AssessmentAssignment.objects.filter(assessment=attempt.assessment, employee=attempt.employee)
+        .select_related('exam_session').prefetch_related('exam_session__proctors').first()
+    )
+    session = assignment.exam_session if assignment else None
+
     return {
         'attempt_id': attempt.id, 'flagged_suspicious': attempt.flagged_suspicious,
         'suspicion_score': suspicion_score, 'counts': counts,
@@ -694,6 +720,10 @@ def proctoring_timeline(attempt):
             }
             for e in events
         ],
+        'supervised_by_restaurant_camera': bool(session.supervised_by_restaurant_camera) if session else False,
+        'proctors': (
+            [{'id': u.id, 'name': u.full_name or u.username} for u in session.proctors.all()] if session else []
+        ),
     }
 
 

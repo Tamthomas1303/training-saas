@@ -25,6 +25,10 @@ from .views import (
     LevelUpOptionsView,
     LevelUpRegisterView,
     LevelUpRoundView,
+    ProbationExamCandidateApproveView,
+    ProbationExamCandidateListView,
+    ProbationExamCandidateRejectView,
+    ProbationExamRuleViewSet,
     TalentCandidateListView,
     TalentPoolListView,
     TalentReviewView,
@@ -51,9 +55,24 @@ automation_router = DefaultRouter()
 automation_router.register(
     'onboarding-course-rules', OnboardingCourseRuleViewSet, basename='onboarding-course-rule',
 )
+automation_router.register(
+    'probation-exam-rules', ProbationExamRuleViewSet, basename='probation-exam-rule',
+)
 
 urlpatterns = [
     path('automation-settings/', AutomationSettingsView.as_view(), name='automation-settings'),
+    path(
+        'probation-exam-candidates/', ProbationExamCandidateListView.as_view(),
+        name='probation-exam-candidate-list',
+    ),
+    path(
+        'probation-exam-candidates/<int:pk>/approve/', ProbationExamCandidateApproveView.as_view(),
+        name='probation-exam-candidate-approve',
+    ),
+    path(
+        'probation-exam-candidates/<int:pk>/reject/', ProbationExamCandidateRejectView.as_view(),
+        name='probation-exam-candidate-reject',
+    ),
     path('positions/', PositionListView.as_view(), name='employee-positions'),
     path('recruitment-source/', RecruitmentSourceView.as_view(), name='recruitment-source'),
     path('sync-now/', RecruitmentSyncNowView.as_view(), name='recruitment-sync-now'),

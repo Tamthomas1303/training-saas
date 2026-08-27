@@ -1354,3 +1354,380 @@ class AutomationSettingsApiTests(TestCase):
 
         del_resp = self.client.delete(reverse('onboarding-course-rule-detail', args=[rule_id]))
         self.assertEqual(del_resp.status_code, 204)
+
+
+class ProbationExamEligibilityTests(TestCase):
+    """Nhom 3B (Prompt_Nhom3B_ThiThuViec_TuDong.md muc 2): check_probation_exam_eligibility -
+    dieu kien vao hang doi "Cho duyet thi". Mock lms_done/checklist_progress_percent (da co test
+    rieng o noi khac) de tap trung vao logic cong tac/rule/idempotency cua ham nay."""
+
+    def setUp(self):
+        from exams.models import Assessment
+
+        from employees.models import AutomationSettings, ProbationExamRule
+
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='NH1', name='Nhà hàng 1')
+        self.assessment = Assessment.objects.create(
+            tenant=self.tenant, title='Thi thử việc Phục vụ', status='published',
+        )
+        self.employee = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='Nhân viên A', position='NV Phục vụ',
+            restaurant=self.restaurant, is_legacy=False,
+            employee_status=Employee.EmployeeStatus.PROBATION,
+        )
+        self.settings_obj = AutomationSettings.objects.create(
+            tenant=self.tenant, auto_assign_probation_exam=True, require_approval_before_exam=True,
+        )
+        ProbationExamRule.objects.create(tenant=self.tenant, position='NV Phục vụ', assessment=self.assessment)
+
+    @patch('employees.services.checklist_progress_percent', return_value=100)
+    @patch('employees.services.lms_done', return_value=True)
+    def test_eligible_employee_creates_pending_candidate_not_yet_assigned(self, mock_lms, mock_checklist):
+        from employees.automation import check_probation_exam_eligibility
+        from employees.models import ProbationExamCandidate
+        from exams.models import AssessmentAssignment
+
+        candidate = check_probation_exam_eligibility(self.employee)
+        self.assertIsNotNone(candidate)
+        self.assertEqual(candidate.status, ProbationExamCandidate.Status.PENDING_APPROVAL)
+        self.assertEqual(ProbationExamCandidate.objects.filter(employee=self.employee).count(), 1)
+        self.assertFalse(AssessmentAssignment.objects.filter(employee=self.employee).exists())
+
+    @patch('employees.services.checklist_progress_percent', return_value=100)
+    @patch('employees.services.lms_done', return_value=True)
+    def test_idempotent_no_duplicate_candidate(self, mock_lms, mock_checklist):
+        from employees.automation import check_probation_exam_eligibility
+        from employees.models import ProbationExamCandidate
+
+        first = check_probation_exam_eligibility(self.employee)
+        second = check_probation_exam_eligibility(self.employee)
+        self.assertIsNotNone(first)
+        self.assertIsNone(second)
+        self.assertEqual(ProbationExamCandidate.objects.filter(employee=self.employee).count(), 1)
+
+    @patch('employees.services.checklist_progress_percent', return_value=60)
+    @patch('employees.services.lms_done', return_value=True)
+    def test_checklist_below_100_percent_not_eligible(self, mock_lms, mock_checklist):
+        from employees.automation import check_probation_exam_eligibility
+
+        self.assertIsNone(check_probation_exam_eligibility(self.employee))
+
+    @patch('employees.services.checklist_progress_percent', return_value=100)
+    @patch('employees.services.lms_done', return_value=False)
+    def test_lms_not_done_not_eligible(self, mock_lms, mock_checklist):
+        from employees.automation import check_probation_exam_eligibility
+
+        self.assertIsNone(check_probation_exam_eligibility(self.employee))
+
+    @patch('employees.services.checklist_progress_percent', return_value=100)
+    @patch('employees.services.lms_done', return_value=True)
+    def test_toggle_off_auto_assign_skips(self, mock_lms, mock_checklist):
+        self.settings_obj.auto_assign_probation_exam = False
+        self.settings_obj.save(update_fields=['auto_assign_probation_exam'])
+        from employees.automation import check_probation_exam_eligibility
+
+        self.assertIsNone(check_probation_exam_eligibility(self.employee))
+
+    @patch('employees.services.checklist_progress_percent', return_value=100)
+    @patch('employees.services.lms_done', return_value=True)
+    def test_legacy_employee_never_enters_queue(self, mock_lms, mock_checklist):
+        legacy = Employee.objects.create(
+            tenant=self.tenant, code='NVCU', name='Cũ', position='NV Phục vụ', is_legacy=True,
+            employee_status=Employee.EmployeeStatus.PROBATION,
+        )
+        from employees.automation import check_probation_exam_eligibility
+
+        self.assertIsNone(check_probation_exam_eligibility(legacy))
+
+    @patch('employees.services.checklist_progress_percent', return_value=100)
+    @patch('employees.services.lms_done', return_value=True)
+    def test_no_matching_rule_not_eligible(self, mock_lms, mock_checklist):
+        from employees.automation import check_probation_exam_eligibility
+
+        other = Employee.objects.create(
+            tenant=self.tenant, code='NV2', name='B', position='Bếp trưởng',
+            employee_status=Employee.EmployeeStatus.PROBATION,
+        )
+        self.assertIsNone(check_probation_exam_eligibility(other))
+
+    @patch('employees.services.checklist_progress_percent', return_value=100)
+    @patch('employees.services.lms_done', return_value=True)
+    def test_not_in_probation_status_not_eligible(self, mock_lms, mock_checklist):
+        self.employee.employee_status = Employee.EmployeeStatus.ACTIVE
+        self.employee.save(update_fields=['employee_status'])
+        from employees.automation import check_probation_exam_eligibility
+
+        self.assertIsNone(check_probation_exam_eligibility(self.employee))
+
+    @patch('employees.services.checklist_progress_percent', return_value=100)
+    @patch('employees.services.lms_done', return_value=True)
+    def test_require_approval_false_auto_approves_immediately(self, mock_lms, mock_checklist):
+        self.settings_obj.require_approval_before_exam = False
+        self.settings_obj.save(update_fields=['require_approval_before_exam'])
+        from employees.automation import check_probation_exam_eligibility
+        from employees.models import ProbationExamCandidate
+        from exams.models import AssessmentAssignment
+
+        candidate = check_probation_exam_eligibility(self.employee)
+        candidate.refresh_from_db()
+        self.assertEqual(candidate.status, ProbationExamCandidate.Status.APPROVED)
+        self.assertTrue(
+            AssessmentAssignment.objects.filter(employee=self.employee, assessment=self.assessment).exists()
+        )
+
+
+class ProbationExamApprovalTests(TestCase):
+    """Nhom 3B muc 2: duyet/tu choi 1 ung vien trong hang doi "Cho duyet thi" + coi thi camera."""
+
+    def setUp(self):
+        from exams.models import Assessment
+        from employees.models import ProbationExamCandidate
+
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.trainer = User.objects.create_user(username='trainer1', password='x', tenant=self.tenant, role='trainer')
+        self.om = User.objects.create_user(username='om1', password='x', tenant=self.tenant, role='om')
+        self.assessment = Assessment.objects.create(
+            tenant=self.tenant, title='Thi thử việc', status='published', max_attempts=1,
+        )
+        self.employee = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='A', position='NV Phục vụ',
+            employee_status=Employee.EmployeeStatus.PROBATION,
+        )
+        self.candidate = ProbationExamCandidate.objects.create(
+            tenant=self.tenant, employee=self.employee, assessment=self.assessment,
+        )
+        self.client = APIClient()
+
+    def _add_question(self):
+        from exams.models import AssessmentQuestion, Question, QuestionBank, QuestionOption
+
+        bank = QuestionBank.objects.create(tenant=self.tenant, name='Bank')
+        q = Question.objects.create(tenant=self.tenant, bank=bank, type=Question.Type.SINGLE, stem_html='Q1', points=1)
+        QuestionOption.objects.create(tenant=self.tenant, question=q, content_html='A', is_correct=True)
+        QuestionOption.objects.create(tenant=self.tenant, question=q, content_html='B')
+        AssessmentQuestion.objects.create(tenant=self.tenant, assessment=self.assessment, question=q)
+
+    def test_employee_cannot_start_attempt_before_approval(self):
+        from exams.services import ValidationError, start_attempt
+
+        with self.assertRaises(ValidationError):
+            start_attempt(self.employee, self.assessment)
+
+    def test_approve_creates_session_and_allows_attempt_within_window(self):
+        from employees.automation import approve_probation_exam_candidate
+        from employees.models import ProbationExamCandidate
+        from exams.services import start_attempt
+
+        self._add_question()
+        approve_probation_exam_candidate(self.candidate, self.admin)
+        self.candidate.refresh_from_db()
+        self.assertEqual(self.candidate.status, ProbationExamCandidate.Status.APPROVED)
+        attempt = start_attempt(self.employee, self.assessment)
+        self.assertIsNotNone(attempt.id)
+
+    def test_attempt_blocked_outside_session_window(self):
+        from employees.automation import approve_probation_exam_candidate
+        from exams.services import ValidationError, start_attempt
+
+        self._add_question()
+        approve_probation_exam_candidate(
+            self.candidate, self.admin, start_at=timezone.now() + datetime.timedelta(days=1),
+        )
+        with self.assertRaises(ValidationError):
+            start_attempt(self.employee, self.assessment)
+
+    def test_reject_leaves_no_assignment_with_reason_recorded(self):
+        from employees.automation import reject_probation_exam_candidate
+        from employees.models import ProbationExamCandidate
+        from exams.services import ValidationError, start_attempt
+
+        reject_probation_exam_candidate(self.candidate, self.admin, reason='Chưa đủ tiêu chuẩn')
+        self.candidate.refresh_from_db()
+        self.assertEqual(self.candidate.status, ProbationExamCandidate.Status.REJECTED)
+        self.assertEqual(self.candidate.reject_reason, 'Chưa đủ tiêu chuẩn')
+        with self.assertRaises(ValidationError):
+            start_attempt(self.employee, self.assessment)
+
+    def test_cannot_approve_twice(self):
+        from employees.automation import approve_probation_exam_candidate
+
+        approve_probation_exam_candidate(self.candidate, self.admin)
+        with self.assertRaises(ValueError):
+            approve_probation_exam_candidate(self.candidate, self.admin)
+
+    def test_camera_supervision_enables_proctoring_and_assigns_proctors(self):
+        from employees.automation import approve_probation_exam_candidate
+
+        approve_probation_exam_candidate(
+            self.candidate, self.admin, supervised_by_restaurant_camera=True, proctor_ids=[self.trainer.id],
+        )
+        self.candidate.refresh_from_db()
+        self.assessment.refresh_from_db()
+        self.assertTrue(self.assessment.proctoring_enabled)
+        self.assertTrue(self.candidate.exam_session.supervised_by_restaurant_camera)
+        self.assertIn(self.trainer, self.candidate.exam_session.proctors.all())
+
+    def test_list_view_requires_admin_or_trainer(self):
+        self.client.force_authenticate(self.om)
+        resp = self.client.get(reverse('probation-exam-candidate-list'))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_list_view_defaults_to_pending_approval(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get(reverse('probation-exam-candidate-list'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.data), 1)
+        self.assertEqual(resp.data[0]['employee_code'], 'NV1')
+
+    def test_trainer_can_approve_via_api(self):
+        self.client.force_authenticate(self.trainer)
+        resp = self.client.post(reverse('probation-exam-candidate-approve', args=[self.candidate.id]), {}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['status'], 'approved')
+
+    def test_reject_via_api_with_reason(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(
+            reverse('probation-exam-candidate-reject', args=[self.candidate.id]), {'reason': 'x'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['status'], 'rejected')
+
+
+class ProbationExamRuleApiTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.client = APIClient()
+        self.client.force_authenticate(self.admin)
+
+    def test_rule_crud(self):
+        from exams.models import Assessment
+
+        assessment = Assessment.objects.create(tenant=self.tenant, title='Thi thử việc', status='published')
+        resp = self.client.post(
+            reverse('probation-exam-rule-list'), {'position': 'NV Phục vụ', 'assessment': assessment.id}, format='json',
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['assessment_title'], 'Thi thử việc')
+
+        del_resp = self.client.delete(reverse('probation-exam-rule-detail', args=[resp.data['id']]))
+        self.assertEqual(del_resp.status_code, 204)
+
+
+class ProbationResultNotificationTests(TestCase):
+    """Nhom 3B luong 5 (Prompt_Nhom3B_ThiThuViec_TuDong.md muc 4): tu gui ket qua thu viec + moc
+    luong, idempotent theo (employee, result, decision_date)."""
+
+    def setUp(self):
+        from employees.models import AutomationSettings
+
+        mail.outbox = []
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.restaurant = Restaurant.objects.create(
+            tenant=self.tenant, code='NH1', name='Nhà hàng 1', email='qlnh1@example.com',
+        )
+        self.settings_obj = AutomationSettings.objects.create(tenant=self.tenant, auto_send_probation_result=True)
+
+    def _employee(self, code):
+        return Employee.objects.create(
+            tenant=self.tenant, code=code, name=f'NV {code}', restaurant=self.restaurant, position='NV Phục vụ',
+        )
+
+    def test_pass_sends_email_with_salary_date_pass_date_rule(self):
+        from employees.automation import notify_probation_result_if_needed
+
+        employee = self._employee('NV1')
+        notify_probation_result_if_needed(employee, 'pass', datetime.date(2026, 8, 15))
+        self.assertEqual(len(mail.outbox), 1)
+        sent = mail.outbox[0]
+        self.assertEqual(sent.to, ['qlnh1@example.com'])
+        self.assertIn('15/08/2026', sent.body)
+
+    def test_pass_next_month_first_rule_rolls_over_december(self):
+        from employees.automation import notify_probation_result_if_needed
+        from employees.models import AutomationSettings
+
+        self.settings_obj.salary_effective_rule = AutomationSettings.SalaryEffectiveRule.NEXT_MONTH_FIRST
+        self.settings_obj.save(update_fields=['salary_effective_rule'])
+        employee = self._employee('NV2')
+        notify_probation_result_if_needed(employee, 'pass', datetime.date(2026, 12, 20))
+        self.assertIn('01/01/2027', mail.outbox[0].body)
+
+    def test_idempotent_no_resend_for_same_decision(self):
+        from employees.automation import notify_probation_result_if_needed
+
+        employee = self._employee('NV3')
+        notify_probation_result_if_needed(employee, 'pass', datetime.date(2026, 8, 15))
+        notify_probation_result_if_needed(employee, 'pass', datetime.date(2026, 8, 15))
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_new_decision_date_sends_again(self):
+        from employees.automation import notify_probation_result_if_needed
+
+        employee = self._employee('NV4')
+        notify_probation_result_if_needed(employee, 'pass', datetime.date(2026, 8, 15))
+        notify_probation_result_if_needed(employee, 'pass', datetime.date(2026, 9, 1))
+        self.assertEqual(len(mail.outbox), 2)
+
+    def test_toggle_off_no_email(self):
+        self.settings_obj.auto_send_probation_result = False
+        self.settings_obj.save(update_fields=['auto_send_probation_result'])
+        from employees.automation import notify_probation_result_if_needed
+
+        employee = self._employee('NV5')
+        notify_probation_result_if_needed(employee, 'pass', datetime.date(2026, 8, 15))
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_legacy_employee_no_email(self):
+        from employees.automation import notify_probation_result_if_needed
+
+        employee = Employee.objects.create(
+            tenant=self.tenant, code='NV6', name='F', restaurant=self.restaurant, position='NV Phục vụ',
+            is_legacy=True,
+        )
+        notify_probation_result_if_needed(employee, 'pass', datetime.date(2026, 8, 15))
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_failed_result_email_has_no_salary_date(self):
+        from employees.automation import notify_probation_result_if_needed
+
+        employee = self._employee('NV7')
+        notify_probation_result_if_needed(employee, 'failed', datetime.date(2026, 8, 15))
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('Không đạt', mail.outbox[0].body)
+
+    @patch('employees.services._notify_probation_result_safe')
+    def test_recompute_final_result_calls_notify_only_on_became_pass(self, mock_notify):
+        from employees.services import recompute_final_result
+
+        employee = Employee.objects.create(
+            tenant=self.tenant, code='NV8', name='G', restaurant=self.restaurant, position='NV Phục vụ',
+            is_legacy=True,  # grandfather -> 'Pass thu viec' ngay lan dau (became_pass=True)
+        )
+        recompute_final_result(employee)
+        mock_notify.assert_called_once_with(employee, 'pass', employee.pass_date)
+        recompute_final_result(employee)  # goi lai - final_result khong doi -> KHONG goi them
+        recompute_final_result(employee)
+        mock_notify.assert_called_once()
+
+    @patch('employees.services._notify_probation_result_safe')
+    def test_change_employee_status_resigned_during_probation_calls_notify_failed(self, mock_notify):
+        employee = Employee.objects.create(
+            tenant=self.tenant, code='NV9', name='H', restaurant=self.restaurant, position='NV Phục vụ',
+            employee_status=Employee.EmployeeStatus.PROBATION,
+        )
+        change_employee_status(employee, 'resigned')
+        mock_notify.assert_any_call(employee, 'failed', employee.resigned_at)
+
+    @patch('employees.services._notify_probation_result_safe')
+    def test_resigning_after_already_active_does_not_call_failed(self, mock_notify):
+        employee = Employee.objects.create(
+            tenant=self.tenant, code='NV10', name='I', restaurant=self.restaurant, position='NV Phục vụ',
+            employee_status=Employee.EmployeeStatus.ACTIVE,
+        )
+        change_employee_status(employee, 'resigned')
+        failed_calls = [c for c in mock_notify.call_args_list if c.args[1] == 'failed']
+        self.assertEqual(failed_calls, [])

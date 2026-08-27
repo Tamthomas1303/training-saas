@@ -965,3 +965,31 @@ class LessonWatchEventApiTests(TestCase):
             reverse('course-lesson-watch-event'), {'lesson': self.lesson.id, 'type': 'resumed'}, format='json',
         )
         self.assertEqual(resp.status_code, 403)
+
+
+class ProbationExamEligibilityHookTests(TestCase):
+    """Nhom 3B (Prompt_Nhom3B_ThiThuViec_TuDong.md muc 2): hoan thanh khoa la 1 trong 2 hook goi
+    check_probation_exam_eligibility (dieu kien lms_done co the vua duoc thoa)."""
+
+    def setUp(self):
+        from .services import _on_course_completed_safe
+
+        self._on_course_completed_safe = _on_course_completed_safe
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.employee = Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1', position='NV Phục vụ')
+        self.course = Course.objects.create(tenant=self.tenant, title='Khóa demo', status='published')
+        self.enrollment = Enrollment.objects.create(
+            tenant=self.tenant, course=self.course, employee=self.employee, status=Enrollment.Status.COMPLETED,
+        )
+
+    @patch('employees.automation.check_probation_exam_eligibility')
+    @patch('integration.services.on_course_completed')
+    def test_course_completed_calls_eligibility_check(self, _mock_on_completed, mock_check):
+        self._on_course_completed_safe(self.enrollment)
+        mock_check.assert_called_once_with(self.employee)
+
+    @patch('employees.automation.check_probation_exam_eligibility', side_effect=Exception('boom'))
+    @patch('integration.services.on_course_completed')
+    def test_eligibility_check_failure_does_not_raise(self, _mock_on_completed, mock_check):
+        """Loi o buoc kiem tra dieu kien thi KHONG duoc phep chan/lam hong luong hoan thanh khoa."""
+        self._on_course_completed_safe(self.enrollment)  # khong duoc raise ra ngoai

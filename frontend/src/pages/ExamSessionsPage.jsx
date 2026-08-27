@@ -24,11 +24,14 @@ function CreateSessionForm({ onCreated }) {
   const [search, setSearch] = useState('')
   const [results, setResults] = useState([])
   const [selected, setSelected] = useState([])
+  const [supervised, setSupervised] = useState(false)
+  const [proctorIds, setProctorIds] = useState([])
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
   const { data: assessments } = usePaginatedList('/exams/assessments/', { status: 'published', page_size: 100 })
   const { data: restaurantOptions } = usePaginatedList('/restaurants/', { page_size: 100 })
+  const { data: userOptions } = usePaginatedList('/auth/users/', { page_size: 200 })
 
   function searchEmployees(q) {
     setSearch(q)
@@ -62,11 +65,14 @@ function CreateSessionForm({ onCreated }) {
         assessment: assessmentId, title: title.trim() || undefined,
         start_at: startAt ? new Date(startAt).toISOString() : null,
         end_at: endAt ? new Date(endAt).toISOString() : null,
+        supervised_by_restaurant_camera: supervised,
+        proctors: proctorIds,
         ...target,
       })
       setOpen(false)
       setTitle(''); setAssessmentId(''); setStartAt(''); setEndAt('')
       setPosition(''); setRestaurantId(''); setGroup(''); setSelected([])
+      setSupervised(false); setProctorIds([])
       onCreated()
     } catch (err) {
       setError(err.response?.data?.detail || 'Không tạo được kỳ thi.')
@@ -150,6 +156,23 @@ function CreateSessionForm({ onCreated }) {
         </div>
       )}
 
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <input type="checkbox" checked={supervised} onChange={(e) => setSupervised(e.target.checked)} />
+        Giám sát qua camera nhà hàng (bật ghi bằng chứng webcam định kỳ)
+      </label>
+      {supervised && (
+        <label style={{ display: 'block', marginBottom: 8 }}>
+          Người coi thi
+          <select
+            multiple style={{ ...s.select, width: '100%', minHeight: 90 }}
+            value={proctorIds}
+            onChange={(e) => setProctorIds(Array.from(e.target.selectedOptions, (o) => o.value))}
+          >
+            {userOptions.results.map((u) => <option key={u.id} value={u.id}>{u.full_name || u.username}</option>)}
+          </select>
+        </label>
+      )}
+
       {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
       <div style={{ display: 'flex', gap: 8 }}>
         <button onClick={submit} disabled={saving}>Tạo Kỳ thi</button>
@@ -229,7 +252,12 @@ export default function ExamSessionsPage() {
           {data.results.map((sess) => (
             <Fragment key={sess.id}>
               <tr style={{ cursor: 'pointer' }} onClick={() => setExpandedId(expandedId === sess.id ? null : sess.id)}>
-                <td>{sess.title}</td>
+                <td>
+                  {sess.title}
+                  {sess.supervised_by_restaurant_camera && (
+                    <span style={{ marginLeft: 6 }}><Badge variant="warning">Giám sát camera</Badge></span>
+                  )}
+                </td>
                 <td>{sess.assessment_title}</td>
                 <td>{sess.start_at ? new Date(sess.start_at).toLocaleString('vi-VN') : '—'}</td>
                 <td>{sess.end_at ? new Date(sess.end_at).toLocaleString('vi-VN') : '—'}</td>

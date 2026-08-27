@@ -136,13 +136,16 @@ class ExamSessionSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     assigned_count = serializers.SerializerMethodField()
     done_count = serializers.SerializerMethodField()
+    # Nhom 3B (Prompt_Nhom3B_ThiThuViec_TuDong.md muc 3) - coi thi qua camera nha hang.
+    proctors_detail = serializers.SerializerMethodField()
 
     class Meta:
         model = ExamSession
         fields = [
             'id', 'title', 'assessment', 'assessment_title', 'start_at', 'end_at',
             'target_config', 'status', 'status_display', 'created_by', 'assigned_count',
-            'done_count', 'created_at', 'updated_at',
+            'done_count', 'proctors', 'proctors_detail', 'supervised_by_restaurant_camera',
+            'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_by', 'target_config', 'created_at', 'updated_at']
 
@@ -151,6 +154,9 @@ class ExamSessionSerializer(serializers.ModelSerializer):
 
     def get_done_count(self, obj):
         return obj.assignments.filter(status=AssessmentAssignment.Status.DONE).count()
+
+    def get_proctors_detail(self, obj):
+        return [{'id': u.id, 'name': u.full_name or u.username} for u in obj.proctors.all()]
 
 
 class AssessmentAssignmentSerializer(serializers.ModelSerializer):

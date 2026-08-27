@@ -73,6 +73,51 @@ function SettingsCard() {
         </label>
       </div>
 
+      <h3>Công tắc thi kết thúc thử việc (Nhóm 3B)</h3>
+      <div style={{ display: 'grid', gap: 10, marginBottom: 16 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input type="checkbox" checked={!!form.auto_assign_probation_exam} onChange={(e) => set('auto_assign_probation_exam', e.target.checked)} />
+          Tự gán kỳ thi kết thúc thử việc khi đủ điều kiện (LMS + checklist 100%)
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input type="checkbox" checked={!!form.require_approval_before_exam} onChange={(e) => set('require_approval_before_exam', e.target.checked)} />
+          Chờ duyệt trước khi cho thi (khuyến nghị bật - tắt sẽ tự cho thi ngay không qua duyệt)
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <input type="checkbox" checked={!!form.auto_send_probation_result} onChange={(e) => set('auto_send_probation_result', e.target.checked)} />
+          Tự gửi kết quả thử việc về nhà hàng khi có kết quả
+        </label>
+        <label>
+          Mốc lương chính thức tính theo
+          <select
+            style={{ ...s.select, marginLeft: 8 }} value={form.salary_effective_rule || 'pass_date'}
+            onChange={(e) => set('salary_effective_rule', e.target.value)}
+          >
+            <option value="pass_date">Ngày Pass thử việc</option>
+            <option value="next_month_first">Ngày 1 tháng kế tiếp</option>
+          </select>
+        </label>
+      </div>
+
+      <h4>Mẫu email kết quả thử việc</h4>
+      <p className="muted-note" style={{ marginTop: 0 }}>
+        Biến chèn được: {'{ten_nhan_su} {ma_nhan_su} {nha_hang} {vi_tri} {ket_qua} {ngay_pass} {ngay_luong_chinh_thuc} {ten_he_thong}'}
+      </p>
+      <div style={{ display: 'grid', gap: 12, maxWidth: 560, marginBottom: 16 }}>
+        <label>
+          Tiêu đề
+          <input style={{ ...s.input, width: '100%' }} value={form.result_email_subject || ''} onChange={(e) => set('result_email_subject', e.target.value)} />
+        </label>
+        <label>
+          Nội dung
+          <textarea
+            style={{ ...s.input, width: '100%', minHeight: 140, fontFamily: 'inherit' }}
+            value={form.result_email_body || ''}
+            onChange={(e) => set('result_email_body', e.target.value)}
+          />
+        </label>
+      </div>
+
       <h4>Mẫu email tiếp nhận</h4>
       <p className="muted-note" style={{ marginTop: 0 }}>
         Biến chèn được: {'{ten_nhan_su} {ma_nhan_su} {nha_hang} {vi_tri} {link_dat_mat_khau} {ten_dang_nhap} {ten_he_thong}'}
@@ -191,12 +236,96 @@ function CourseRulesCard() {
   )
 }
 
+function ProbationExamRulesCard() {
+  const [rules, setRules] = useState([])
+  const [positions, setPositions] = useState([])
+  const [assessments, setAssessments] = useState([])
+  const [position, setPosition] = useState('')
+  const [assessmentId, setAssessmentId] = useState('')
+  const [msg, setMsg] = useState('')
+
+  function load() {
+    api.get('/employees/probation-exam-rules/', { params: { page_size: 200 } })
+      .then(({ data }) => setRules(data.results ?? data))
+      .catch(() => setMsg('Không tải được danh sách ánh xạ.'))
+  }
+
+  useEffect(() => {
+    load()
+    api.get('/employees/positions/').then(({ data }) => setPositions(data)).catch(() => {})
+    api.get('/exams/assessments/', { params: { status: 'published', page_size: 200 } })
+      .then(({ data }) => setAssessments(data.results ?? data))
+      .catch(() => {})
+  }, [])
+
+  async function addRule() {
+    if (!position || !assessmentId) return
+    setMsg('')
+    try {
+      await api.post('/employees/probation-exam-rules/', { position, assessment: assessmentId })
+      setPosition('')
+      setAssessmentId('')
+      load()
+    } catch (err) {
+      setMsg(err.response?.data?.detail || 'Thêm ánh xạ thất bại (mỗi vị trí chỉ có 1 đề).')
+    }
+  }
+
+  async function removeRule(id) {
+    await api.delete(`/employees/probation-exam-rules/${id}/`)
+    load()
+  }
+
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <h3 style={{ marginTop: 0 }}>Ánh xạ vị trí → đề thi kết thúc thử việc</h3>
+      <p className="muted-note">Mỗi vị trí ánh xạ với đúng 1 đề thi kết thúc thử việc.</p>
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        <select style={s.select} value={position} onChange={(e) => setPosition(e.target.value)}>
+          <option value="">-- Chọn vị trí --</option>
+          {positions.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <select style={s.select} value={assessmentId} onChange={(e) => setAssessmentId(e.target.value)}>
+          <option value="">-- Chọn đề thi --</option>
+          {assessments.map((a) => <option key={a.id} value={a.id}>{a.title}</option>)}
+        </select>
+        <button onClick={addRule} disabled={!position || !assessmentId}>Thêm</button>
+      </div>
+      {msg && <p className="muted-note">{msg}</p>}
+
+      <Table>
+        <thead>
+          <tr><th>Vị trí</th><th>Đề thi</th><th></th></tr>
+        </thead>
+        <tbody>
+          {rules.map((r) => (
+            <tr key={r.id}>
+              <td>{r.position}</td>
+              <td>{r.assessment_title}</td>
+              <td>
+                <button className="btn-outline btn-sm" onClick={() => removeRule(r.id)} title="Xóa">
+                  <Trash2 size={14} />
+                </button>
+              </td>
+            </tr>
+          ))}
+          {rules.length === 0 && (
+            <tr><td colSpan={3} className="muted-note">Chưa có ánh xạ nào.</td></tr>
+          )}
+        </tbody>
+      </Table>
+    </div>
+  )
+}
+
 export default function AutomationPage() {
   return (
     <AppShell>
       <h2>Tự động hóa</h2>
       <SettingsCard />
       <CourseRulesCard />
+      <ProbationExamRulesCard />
     </AppShell>
   )
 }

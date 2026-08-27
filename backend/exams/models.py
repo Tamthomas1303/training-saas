@@ -215,6 +215,12 @@ class ExamSession(models.Model):
     created_by = models.ForeignKey(
         User, on_delete=models.SET_NULL, related_name='exam_sessions_created', null=True, blank=True,
     )
+    # Nhom 3B (Prompt_Nhom3B_ThiThuViec_TuDong.md muc 3) - coi thi qua camera nha hang: KHONG
+    # tich hop luong camera, chi ghi nhan phan cong nguoi coi (xem online tu xa) + co bat/tat.
+    # Khi bat, danh gia proctoring qua webcam (Assessment.proctoring_enabled) duoc kich hoat lam
+    # bang chung - xem employees.automation.approve_probation_exam_candidate.
+    proctors = models.ManyToManyField(User, related_name='proctoring_exam_sessions', blank=True)
+    supervised_by_restaurant_camera = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

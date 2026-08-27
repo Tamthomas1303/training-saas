@@ -1,11 +1,15 @@
+from unittest.mock import patch
+
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 
 from accounts.models import Tenant, User
 from dashboard.models import Competency, CompetencyGroup
+from employees.models import Employee
 
 from .models import Checklist
+from .services import save_training_progress
 
 
 class ChecklistCompetencyBulkAssignTests(TestCase):
@@ -67,3 +71,25 @@ class ChecklistCompetencyBulkAssignTests(TestCase):
         self.client.force_authenticate(self.admin)
         resp = self.client.post(self.url, {'competency': self.comp.id}, format='json')
         self.assertEqual(resp.status_code, 400)
+
+
+class ProbationExamEligibilityHookTests(TestCase):
+    """Nhom 3B (Prompt_Nhom3B_ThiThuViec_TuDong.md muc 2): luu checklist la 1 trong 2 hook goi
+    check_probation_exam_eligibility (dieu kien checklist=100% co the vua duoc thoa)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.employee = Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1', position='NV Phục vụ')
+        self.checklist = Checklist.objects.create(tenant=self.tenant, task_name='Đầu việc 1', category='POS')
+
+    @patch('employees.automation.check_probation_exam_eligibility')
+    def test_save_training_progress_calls_eligibility_check(self, mock_check):
+        save_training_progress(self.admin, {'employee': self.employee.id, 'checklist': self.checklist.id})
+        mock_check.assert_called_once_with(self.employee)
+
+    @patch('employees.automation.check_probation_exam_eligibility', side_effect=Exception('boom'))
+    def test_eligibility_check_failure_does_not_block_save(self, mock_check):
+        """Loi o buoc kiem tra dieu kien thi KHONG duoc phep chan viec luu checklist."""
+        progress = save_training_progress(self.admin, {'employee': self.employee.id, 'checklist': self.checklist.id})
+        self.assertIsNotNone(progress.id)

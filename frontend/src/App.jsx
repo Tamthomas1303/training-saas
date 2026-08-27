@@ -48,6 +48,7 @@ import ForcedPasswordChangeGate from './components/ForcedPasswordChangeGate'
 import CompetencyFrameworkAdminPage from './pages/CompetencyFrameworkAdminPage'
 import DashboardOverviewPage from './pages/DashboardOverviewPage'
 import AutomationPage from './pages/AutomationPage'
+import ProbationExamApprovalPage from './pages/ProbationExamApprovalPage'
 import SetPasswordPage from './pages/SetPasswordPage'
 import api from './api/client'
 import { isMobileRole } from './config/menu'
@@ -429,6 +430,14 @@ function App() {
             element={
               <ProtectedRoute roles={['admin']}>
                 <AutomationPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/probation-exam-approval"
+            element={
+              <ProtectedRoute roles={['admin', 'trainer']}>
+                <ProbationExamApprovalPage />
               </ProtectedRoute>
             }
           />

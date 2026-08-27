@@ -25,6 +25,7 @@ export const MENU_ITEMS = {
   examSessions: { label: 'Kỳ thi', icon: '🗓️', path: '/exam-sessions' },
   myExams: { label: 'Bài thi của tôi', icon: '📝', path: '/my-exams' },
   examGrading: { label: 'Chấm bài', icon: '🖊️', path: '/exam-grading' },
+  probationExamApproval: { label: 'Chờ duyệt thi', icon: '🕒', path: '/probation-exam-approval' },
   certTemplates: { label: 'Mẫu chứng chỉ', icon: '🖼️', path: '/cert-templates' },
   certPrograms: { label: 'Chương trình chứng chỉ', icon: '🏆', path: '/cert-programs' },
   certificates: { label: 'Chứng chỉ đã cấp', icon: '📜', path: '/certificates' },
@@ -58,7 +59,7 @@ const ROLE_MENU = {
   am: ['hub', 'home', 'kpi', 'documents', 'examGrading'],
   kcs: ['hub', 'home', 'kpi', 'documents', 'examGrading'],
   bql: ['hub', 'home', 'kpi', 'documents', 'examGrading'],
-  trainer: ['hub', 'home', 'documents'],
+  trainer: ['hub', 'home', 'documents', 'probationExamApproval'],
   // Tai khoan hoc vien (module Khoa hoc/Ky thi/Noi he thong, MVP dot 1-3) - pham vi API chi
   // /api/courses/, /api/exams/, /api/integration/ + /api/auth/me (xem
   // accounts.permissions.EmployeeLearnerScope), nen menu CHI co 3 muc de tranh mo trang khac

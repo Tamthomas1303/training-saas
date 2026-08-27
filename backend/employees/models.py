@@ -173,6 +173,35 @@ class AutomationSettings(models.Model):
     )
     sender_display_name = models.CharField(max_length=255, blank=True, default='Phòng Đào tạo')
     cc_recipients = models.JSONField(default=list, blank=True)
+
+    # ---- Nhom 3B (Prompt_Nhom3B_ThiThuViec_TuDong.md muc 1) - luong 4 (tu gan thi ket thuc thu
+    # viec, co cho duyet) + luong 5 (tu gui ket qua + moc luong). ----
+    class SalaryEffectiveRule(models.TextChoices):
+        PASS_DATE = 'pass_date', 'Ngày Pass thử việc'
+        NEXT_MONTH_FIRST = 'next_month_first', 'Ngày 1 tháng kế tiếp'
+
+    auto_assign_probation_exam = models.BooleanField(default=False)
+    # Mac dinh True (dung y prompt): KHONG auto cho thi ngay ke ca khi auto_assign bat - luon
+    # dung lai o "Cho duyet thi" tru khi Admin CHU DONG tat co nay.
+    require_approval_before_exam = models.BooleanField(default=True)
+    auto_send_probation_result = models.BooleanField(default=False)
+    salary_effective_rule = models.CharField(
+        max_length=20, choices=SalaryEffectiveRule.choices, default=SalaryEffectiveRule.PASS_DATE,
+    )
+    result_email_subject = models.CharField(
+        max_length=255, blank=True, default='Kết quả thử việc: {ten_nhan_su} - {ket_qua}',
+    )
+    result_email_body = models.TextField(
+        blank=True,
+        default=(
+            'Kính gửi nhà hàng {nha_hang},\n\n'
+            'Nhân sự {ten_nhan_su} (mã {ma_nhan_su}, vị trí {vi_tri}) có kết quả thử việc: {ket_qua}.\n'
+            'Ngày Pass: {ngay_pass}\n'
+            'Ngày lương chính thức: {ngay_luong_chinh_thuc}\n\n'
+            'Trân trọng, {ten_he_thong}.'
+        ),
+    )
+
     updated_at = models.DateTimeField(auto_now=True)
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, related_name='+', null=True, blank=True)
 
@@ -195,6 +224,91 @@ class OnboardingCourseRule(models.Model):
 
     def __str__(self):
         return f'{self.position} -> {self.course_id}'
+
+
+class ProbationExamRule(models.Model):
+    """Anh xa vi tri -> de thi ket thuc thu viec (Nhom 3B muc 1) - 1 vi tri = 1 de (khac
+    OnboardingCourseRule vi 1 vi tri chi nen co 1 bai thi ket thuc thu viec). assessment dung
+    string ref 'exams.Assessment' de tranh circular import (exams/models.py da import
+    employees.models.Employee)."""
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='probation_exam_rules')
+    position = models.CharField(max_length=100)
+    assessment = models.ForeignKey(
+        'exams.Assessment', on_delete=models.CASCADE, related_name='probation_exam_rules',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('tenant', 'position')
+
+    def __str__(self):
+        return f'{self.position} -> {self.assessment_id}'
+
+
+class ProbationExamCandidate(models.Model):
+    """Hang doi 'Cho duyet thi' (Nhom 3B muc 2) - 1 dong sinh ra khi 1 nhan su du dieu kien thi
+    ket thuc thu viec (is_legacy=False, dang probation, lms_done + checklist=100%, co
+    ProbationExamRule khop vi tri) - xem employees.automation.check_probation_exam_eligibility.
+    unique_together (employee, assessment) VUA la rang buoc nghiep vu (1 nhan su chi co 1 hang
+    doi cho 1 de) VUA la khoa idempotency (khong tao lai neu da co ban ghi, du dang pending/
+    approved/rejected)."""
+
+    class Status(models.TextChoices):
+        PENDING_APPROVAL = 'pending_approval', 'Chờ duyệt'
+        APPROVED = 'approved', 'Đã duyệt'
+        REJECTED = 'rejected', 'Từ chối'
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='probation_exam_candidates')
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='probation_exam_candidates')
+    assessment = models.ForeignKey(
+        'exams.Assessment', on_delete=models.CASCADE, related_name='probation_exam_candidates',
+    )
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING_APPROVAL)
+    # Gan khi duyet (approve_probation_exam_candidate) - ExamSession chua khung gio [start_at,
+    # end_at] de nhan su lam bai (xem exams.models.ExamSession).
+    exam_session = models.ForeignKey(
+        'exams.ExamSession', on_delete=models.SET_NULL, related_name='probation_exam_candidates',
+        null=True, blank=True,
+    )
+    decided_by = models.ForeignKey(User, on_delete=models.SET_NULL, related_name='+', null=True, blank=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+    reject_reason = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('employee', 'assessment')
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.employee_id} - {self.assessment_id} ({self.status})'
+
+
+class ProbationResultNotification(models.Model):
+    """Log + khoa idempotency cho Luong 5 (Nhom 3B muc 4) - 1 dong = 1 lan DA gui email ket qua
+    thu viec cho 1 "quyet dinh" cu the cua 1 nhan su. decision_date = pass_date (khi Pass) hoac
+    resigned_at (khi nghi viec ngay tu luc dang thu viec - tien de gan nhat co that trong he
+    thong hien tai cho "chot Khong dat", vi Employee chua co trang thai rieng cho truong hop
+    nay). unique_together (employee, result, decision_date) chan gui LAP moi lan
+    recompute_final_result goi lai (rat nhieu noi goi ham nay) cho CUNG 1 quyet dinh, nhung VAN
+    cho gui lai neu sau nay phat sinh 1 quyet dinh MOI voi decision_date khac (vd thu viec lai)."""
+
+    class Result(models.TextChoices):
+        PASS = 'pass', 'Pass thử việc'
+        FAILED = 'failed', 'Không đạt'
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='probation_result_notifications')
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='probation_result_notifications')
+    result = models.CharField(max_length=10, choices=Result.choices)
+    decision_date = models.DateField()
+    salary_effective_date = models.DateField(null=True, blank=True)
+    sent_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('employee', 'result', 'decision_date')
+
+    def __str__(self):
+        return f'{self.employee_id} - {self.result} @ {self.decision_date}'
 
 
 class LevelUpEnrollment(models.Model):

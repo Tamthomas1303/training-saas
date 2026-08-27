@@ -403,7 +403,28 @@ def recompute_final_result(employee):
         employee.pass_date = None
         update_fields.append('pass_date')
     employee.save(update_fields=update_fields)
+    if became_pass:
+        # Nhom 3B luong 5 (Prompt_Nhom3B_ThiThuViec_TuDong.md muc 4): vua CHUYEN sang Pass thu
+        # viec -> gui email ket qua toi QLNH nha hang (neu bat cong tac), idempotent theo
+        # pass_date (xem employees.automation.notify_probation_result_if_needed).
+        _notify_probation_result_safe(employee, 'pass', employee.pass_date)
     return employee.final_result
+
+
+def _notify_probation_result_safe(employee, result, decision_date):
+    """Wrapper an toan (cung mau voi _on_course_completed_safe/_log_xapi_safe cua cac app khac) -
+    loi gui email ket qua thu viec KHONG duoc phep chan luong tinh ket qua thu viec (co the goi
+    tu rat nhieu noi: checklist/evaluation hoan thanh, sync_cls, API...)."""
+    try:
+        from .automation import notify_probation_result_if_needed
+
+        notify_probation_result_if_needed(employee, result, decision_date)
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).exception(
+            'Gui email ket qua thu viec that bai cho nhan su %s - da bo qua.', employee.id,
+        )
 
 
 def change_employee_status(employee, new_status):
@@ -434,7 +455,14 @@ def change_employee_status(employee, new_status):
     employee.save(update_fields=update_fields)
     if new_status == 'resigned':
         _close_open_enrollments_on_resign(employee)
-    return recompute_final_result(employee)
+    result = recompute_final_result(employee)
+    # Nhom 3B luong 5: nghi viec NGAY TU LUC dang thu viec = tien de gan nhat co that trong he
+    # thong hien tai cho "chot Khong dat" (Employee chua co trang thai rieng cho truong hop nay -
+    # xem ProbationResultNotification docstring). Nghi viec sau khi DA Pass (probation xong tu
+    # truoc) KHONG tinh la ket qua thu viec - khong gui o day.
+    if became_resigned and previous_status == Employee.EmployeeStatus.PROBATION:
+        _notify_probation_result_safe(employee, 'failed', employee.resigned_at)
+    return result
 
 
 def _close_open_enrollments_on_resign(employee):

@@ -761,6 +761,25 @@ class ExamSessionApiTests(TestCase):
             AssessmentAssignment.objects.filter(assessment=self.assessment, employee=self.other_employee).exists()
         )
 
+    def test_create_session_with_camera_supervision_enables_proctoring_and_assigns_proctors(self):
+        """Nhom 3B (Prompt_Nhom3B_ThiThuViec_TuDong.md muc 3): tao Ky thi voi
+        supervised_by_restaurant_camera=True phai BAT Assessment.proctoring_enabled va gan
+        proctors (nguoi coi thi)."""
+        trainer = User.objects.create_user(username='trainer1', password='x', tenant=self.tenant, role='trainer')
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(reverse('exam-session-list'), {
+            'assessment': self.assessment.id, 'title': 'Kỳ thi có giám sát', 'position': 'Phục vụ',
+            'supervised_by_restaurant_camera': True, 'proctors': [trainer.id],
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertTrue(resp.data['supervised_by_restaurant_camera'])
+        self.assertEqual(resp.data['proctors_detail'][0]['id'], trainer.id)
+
+        self.assessment.refresh_from_db()
+        self.assertTrue(self.assessment.proctoring_enabled)
+        session = ExamSession.objects.get(pk=resp.data['id'])
+        self.assertIn(trainer, session.proctors.all())
+
     def test_create_session_requires_admin(self):
         self.client.force_authenticate(self.matching_user)
         resp = self.client.post(reverse('exam-session-list'), {
@@ -1591,6 +1610,35 @@ class A4EvidenceViewingTests(ProctoringBaseTestCase):
         self.assertEqual(timeline_resp.data['suspicion_score'], 2)  # tab_leave + no_face, khong tinh snapshot
         snapshot_events = [e for e in timeline_resp.data['events'] if e['type'] == 'snapshot']
         self.assertEqual(snapshot_events[0]['image_url'], 'https://pub-x.r2.dev/a.jpg')
+
+    def test_timeline_exposes_proctors_and_camera_supervision_flag(self):
+        """Nhom 3B muc 3: doi chieu bang chung - man Cham bai can biet ai duoc phan cong coi
+        thi + co dang giam sat camera nha hang hay khong, doc tu ExamSession cua assignment."""
+        trainer = User.objects.create_user(username='trainer1', password='x', tenant=self.tenant, role='trainer')
+        session = ExamSession.objects.create(
+            tenant=self.tenant, title='Thi thử việc', assessment=self.assessment,
+            supervised_by_restaurant_camera=True,
+        )
+        session.proctors.add(trainer)
+        assignment = AssessmentAssignment.objects.get(assessment=self.assessment, employee=self.employee)
+        assignment.exam_session = session
+        assignment.save(update_fields=['exam_session'])
+
+        resp = self._start()
+        attempt_id = resp.data['attempt_id']
+        self.client.force_authenticate(self.admin)
+        timeline_resp = self.client.get(reverse('exam-attempt-proctoring', args=[attempt_id]))
+        self.assertEqual(timeline_resp.status_code, 200)
+        self.assertTrue(timeline_resp.data['supervised_by_restaurant_camera'])
+        self.assertEqual(timeline_resp.data['proctors'][0]['id'], trainer.id)
+
+    def test_timeline_no_session_means_no_camera_supervision(self):
+        resp = self._start()
+        attempt_id = resp.data['attempt_id']
+        self.client.force_authenticate(self.admin)
+        timeline_resp = self.client.get(reverse('exam-attempt-proctoring', args=[attempt_id]))
+        self.assertFalse(timeline_resp.data['supervised_by_restaurant_camera'])
+        self.assertEqual(timeline_resp.data['proctors'], [])
 
     def test_non_evaluator_cannot_view_timeline(self):
         resp = self._start()

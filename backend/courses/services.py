@@ -283,6 +283,23 @@ def _on_course_completed_safe(enrollment):
             'on_course_completed thất bại cho enrollment %s - đã bỏ qua, không chặn luồng học.',
             enrollment.id,
         )
+    _check_probation_exam_eligibility_safe(enrollment.employee)
+
+
+def _check_probation_exam_eligibility_safe(employee):
+    """Nhom 3B luong 4 (Prompt_Nhom3B_ThiThuViec_TuDong.md muc 2) - hoan thanh khoa co the la
+    dieu kien con thieu (lms_done) de vao hang doi "Cho duyet thi". Wrapper rieng (nhu
+    on_course_completed o tren) de loi khong anh huong luong hoc."""
+    try:
+        from employees.automation import check_probation_exam_eligibility
+
+        check_probation_exam_eligibility(employee)
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).exception(
+            'check_probation_exam_eligibility thất bại cho nhân sự %s - đã bỏ qua.', employee.id,
+        )
 
 
 def confirm_offline_completion(confirmer, employee, target_type, target_id, method, note='', evidence_url=''):

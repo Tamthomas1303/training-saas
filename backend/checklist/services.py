@@ -99,7 +99,24 @@ def save_training_progress(user, payload):
     from employees.services import recompute_final_result
 
     recompute_final_result(employee)
+    # Nhom 3B luong 4 (Prompt_Nhom3B_ThiThuViec_TuDong.md muc 2) - checklist vua dat 100% co the
+    # la dieu kien con thieu de vao hang doi "Cho duyet thi"; kiem tra an toan (khong chan luu
+    # checklist neu loi).
+    _check_probation_exam_eligibility_safe(employee)
     return progress
+
+
+def _check_probation_exam_eligibility_safe(employee):
+    try:
+        from employees.automation import check_probation_exam_eligibility
+
+        check_probation_exam_eligibility(employee)
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).exception(
+            'check_probation_exam_eligibility that bai cho nhan su %s - da bo qua.', employee.id,
+        )
 
 
 def _build_pdf_context(employee, checklist, progress, user):
