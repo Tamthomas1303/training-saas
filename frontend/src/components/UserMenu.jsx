@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import Modal from './Modal'
 import api from '../api/client'
 import { useAuth } from '../auth/AuthContext'
+import { usePushSubscription } from '../hooks/usePushSubscription'
 import { compressImageFile } from '../utils/compressImage'
 
 export default function UserMenu() {
@@ -16,6 +17,7 @@ export default function UserMenu() {
   const [saving, setSaving] = useState(false)
   const boxRef = useRef(null)
   const fileRef = useRef(null)
+  const push = usePushSubscription()
 
   useEffect(() => {
     function onClickOutside(e) {
@@ -93,6 +95,14 @@ export default function UserMenu() {
           <button className="user-menu-item" onClick={openPasswordModal}>
             Đổi mật khẩu
           </button>
+          {push.supported && (
+            <button className="user-menu-item" onClick={push.toggle} disabled={push.loading}>
+              {push.subscribed ? 'Tắt thông báo đẩy' : 'Bật thông báo đẩy'}
+            </button>
+          )}
+          {push.error && (
+            <div className="muted-note" style={{ padding: '4px 12px', color: 'var(--danger)' }}>{push.error}</div>
+          )}
         </div>
       )}
 

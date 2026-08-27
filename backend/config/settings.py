@@ -305,6 +305,14 @@ EMAIL_BACKEND = (
 # xem employees/automation.py). Mac dinh khop dev server Vite.
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
 
+# ---- Web Push / VAPID (Nhom 4, Prompt_Nhom4_PWA_Push.md muc 3) ----
+# Khoa VAPID (tao 1 lan qua `npx web-push generate-vapid-keys`) - KHONG BAO GIO commit private
+# key, chi dat qua bien moi truong tren Render. Thieu bien -> accounts.services.send_web_push
+# tu bo qua (chi log canh bao), khong lam hong luong in-app/email da co (xem module docstring).
+VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY', '')
+VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY', '')
+VAPID_SUBJECT = os.environ.get('VAPID_SUBJECT', 'mailto:admin@training.local')
+
 # ---- Báo cáo đào tạo tuần/tháng (reports app) ----
 REPORT_TO = [e.strip() for e in os.environ.get('REPORT_TO', '').split(',') if e.strip()]
 REPORT_CC = [e.strip() for e in os.environ.get('REPORT_CC', '').split(',') if e.strip()]

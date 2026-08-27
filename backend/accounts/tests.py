@@ -1,8 +1,9 @@
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.conf import settings as django_settings
 from django.core.management import call_command
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -12,10 +13,11 @@ from accounts.models import (
     GradingConfig,
     GradingConfigHistory,
     PasswordSetToken,
+    PushSubscription,
     Tenant,
     User,
 )
-from accounts.services import get_email_settings, get_grading_config, update_grading_config
+from accounts.services import get_email_settings, get_grading_config, send_web_push, update_grading_config
 
 
 class CreateLoadtestUsersCommandTests(TestCase):
@@ -460,3 +462,121 @@ class SetPasswordViewTests(TestCase):
         self.assertEqual(resp.status_code, 400)
         self.user.refresh_from_db()
         self.assertFalse(self.user.has_usable_password())
+
+
+@override_settings(
+    VAPID_PUBLIC_KEY='pub-key-test', VAPID_PRIVATE_KEY='priv-key-test',
+    VAPID_SUBJECT='mailto:admin@test.local',
+)
+class WebPushTests(TestCase):
+    """Nhom 4 (Prompt_Nhom4_PWA_Push.md muc 3): accounts.services.send_web_push - fail-silent
+    hoan toan, tu xoa subscription het han (404/410)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.user = User.objects.create_user(username='u1', password='x', tenant=self.tenant, role='bql')
+
+    def test_noop_without_vapid_configured(self):
+        with override_settings(VAPID_PUBLIC_KEY='', VAPID_PRIVATE_KEY=''):
+            PushSubscription.objects.create(user=self.user, endpoint='https://push.example/1', p256dh='p', auth='a')
+            with patch('pywebpush.webpush') as mock_webpush:
+                send_web_push(self.user, 'Tiêu đề', 'Nội dung')
+                mock_webpush.assert_not_called()
+
+    def test_noop_without_any_subscription(self):
+        with patch('pywebpush.webpush') as mock_webpush:
+            send_web_push(self.user, 'Tiêu đề', 'Nội dung')
+            mock_webpush.assert_not_called()
+
+    def test_sends_to_every_subscription_of_user(self):
+        PushSubscription.objects.create(user=self.user, endpoint='https://push.example/1', p256dh='p1', auth='a1')
+        PushSubscription.objects.create(user=self.user, endpoint='https://push.example/2', p256dh='p2', auth='a2')
+        with patch('pywebpush.webpush') as mock_webpush:
+            send_web_push(self.user, 'Tiêu đề', 'Nội dung', link='/employees/1')
+            self.assertEqual(mock_webpush.call_count, 2)
+
+    def test_deletes_subscription_on_410_gone(self):
+        from pywebpush import WebPushException
+
+        class FakeResponse:
+            status_code = 410
+
+        sub = PushSubscription.objects.create(user=self.user, endpoint='https://push.example/1', p256dh='p', auth='a')
+        with patch('pywebpush.webpush', side_effect=WebPushException('gone', response=FakeResponse())):
+            send_web_push(self.user, 'x', 'y')
+        self.assertFalse(PushSubscription.objects.filter(pk=sub.pk).exists())
+
+    def test_keeps_subscription_on_non_expiry_error(self):
+        from pywebpush import WebPushException
+
+        class FakeResponse:
+            status_code = 500
+
+        sub = PushSubscription.objects.create(user=self.user, endpoint='https://push.example/1', p256dh='p', auth='a')
+        with patch('pywebpush.webpush', side_effect=WebPushException('server error', response=FakeResponse())):
+            send_web_push(self.user, 'x', 'y')
+        self.assertTrue(PushSubscription.objects.filter(pk=sub.pk).exists())
+
+    def test_does_not_raise_on_unexpected_exception(self):
+        PushSubscription.objects.create(user=self.user, endpoint='https://push.example/1', p256dh='p', auth='a')
+        with patch('pywebpush.webpush', side_effect=RuntimeError('boom')):
+            send_web_push(self.user, 'x', 'y')  # khong duoc raise ra ngoai
+
+
+class PushEndpointsApiTests(TestCase):
+    """Nhom 4 muc 3: GET vapid-public-key + POST subscribe/unsubscribe - dang nhap moi goi duoc."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.user = User.objects.create_user(username='u1', password='x', tenant=self.tenant, role='bql')
+        self.client = APIClient()
+
+    def test_vapid_public_key_requires_login(self):
+        resp = self.client.get(reverse('push-vapid-public-key'))
+        self.assertEqual(resp.status_code, 401)
+
+    @override_settings(VAPID_PUBLIC_KEY='pub-key-test')
+    def test_vapid_public_key_returns_configured_value(self):
+        self.client.force_authenticate(self.user)
+        resp = self.client.get(reverse('push-vapid-public-key'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['vapid_public_key'], 'pub-key-test')
+
+    def test_subscribe_creates_subscription_for_current_user(self):
+        self.client.force_authenticate(self.user)
+        resp = self.client.post(reverse('push-subscribe'), {
+            'endpoint': 'https://push.example/abc', 'keys': {'p256dh': 'p', 'auth': 'a'},
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        sub = PushSubscription.objects.get(endpoint='https://push.example/abc')
+        self.assertEqual(sub.user_id, self.user.id)
+
+    def test_subscribe_missing_fields_rejected(self):
+        self.client.force_authenticate(self.user)
+        resp = self.client.post(reverse('push-subscribe'), {'endpoint': 'https://push.example/abc'}, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_resubscribing_same_endpoint_reassigns_owner(self):
+        other = User.objects.create_user(username='u2', password='x', tenant=self.tenant, role='bql')
+        PushSubscription.objects.create(user=other, endpoint='https://push.example/abc', p256dh='old', auth='old')
+        self.client.force_authenticate(self.user)
+        self.client.post(reverse('push-subscribe'), {
+            'endpoint': 'https://push.example/abc', 'keys': {'p256dh': 'new', 'auth': 'new'},
+        }, format='json')
+        sub = PushSubscription.objects.get(endpoint='https://push.example/abc')
+        self.assertEqual(sub.user_id, self.user.id)
+        self.assertEqual(sub.p256dh, 'new')
+
+    def test_unsubscribe_removes_own_subscription(self):
+        PushSubscription.objects.create(user=self.user, endpoint='https://push.example/abc', p256dh='p', auth='a')
+        self.client.force_authenticate(self.user)
+        resp = self.client.post(reverse('push-unsubscribe'), {'endpoint': 'https://push.example/abc'}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(PushSubscription.objects.filter(endpoint='https://push.example/abc').exists())
+
+    def test_unsubscribe_cannot_remove_other_users_subscription(self):
+        other = User.objects.create_user(username='u2', password='x', tenant=self.tenant, role='bql')
+        sub = PushSubscription.objects.create(user=other, endpoint='https://push.example/abc', p256dh='p', auth='a')
+        self.client.force_authenticate(self.user)
+        self.client.post(reverse('push-unsubscribe'), {'endpoint': 'https://push.example/abc'}, format='json')
+        self.assertTrue(PushSubscription.objects.filter(pk=sub.pk).exists())

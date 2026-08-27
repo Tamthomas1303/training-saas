@@ -5,9 +5,13 @@ hardcode khap noi. get_grading_config() la ham DUY NHAT nen goi (khong rai
 GradingConfig.objects.get() khap noi - dung y prompt) - co cache nhe trong process, tu invalidate
 khi update_grading_config() ghi thay doi.
 """
+import logging
+
 from django.core.cache import cache
 
 from .models import EmailSettings, GradingConfig, GradingConfigHistory
+
+logger = logging.getLogger(__name__)
 
 _GRADING_CONFIG_CACHE_TTL = 300
 _HISTORY_FIELDS = [
@@ -185,3 +189,53 @@ def check_user_deletable(user):
     if reasons:
         return False, 'Tài khoản đã phát sinh dữ liệu (' + '; '.join(reasons) + '). Dùng Lưu trữ thay vì xóa cứng.'
     return True, ''
+
+
+# ============================================================ Nhom 4 (Prompt_Nhom4_PWA_Push.md
+# muc 3) - web push, gan vao sourcing.services.notify_users de moi thong bao trong he thong tu
+# day (3A/3B/3C + enrollment/session/result) tu day nguoi dung ke ca khi chua mo web.
+
+def send_web_push(user, title, body='', link=''):
+    """Gui web push toi MOI PushSubscription cua user bang pywebpush. FAIL-SILENT HOAN TOAN -
+    khong duoc phep lam hong request/luong goi no (notify_users). Thieu VAPID env hoac chua cai
+    pywebpush -> chi log canh bao roi bo qua (he van chay binh thuong qua in-app/email). Gap
+    404/410 (subscription het han, trinh duyet/OS da huy dang ky) -> tu dong xoa subscription do."""
+    from django.conf import settings
+
+    from .models import PushSubscription
+
+    if not (settings.VAPID_PUBLIC_KEY and settings.VAPID_PRIVATE_KEY):
+        return
+
+    try:
+        from pywebpush import WebPushException, webpush
+    except ImportError:
+        logger.warning('Web push: chưa cài pywebpush - bỏ qua (in-app/email vẫn hoạt động).')
+        return
+
+    subscriptions = list(PushSubscription.objects.filter(user=user))
+    if not subscriptions:
+        return
+
+    import json
+
+    payload = json.dumps({'title': title, 'body': body, 'link': link, 'icon': '/icon-192.png'})
+    for sub in subscriptions:
+        try:
+            webpush(
+                subscription_info={
+                    'endpoint': sub.endpoint,
+                    'keys': {'p256dh': sub.p256dh, 'auth': sub.auth},
+                },
+                data=payload,
+                vapid_private_key=settings.VAPID_PRIVATE_KEY,
+                vapid_claims={'sub': settings.VAPID_SUBJECT},
+            )
+        except WebPushException as exc:
+            status_code = getattr(exc.response, 'status_code', None)
+            if status_code in (404, 410):
+                sub.delete()
+            else:
+                logger.warning('Web push thất bại (user=%s): %s', user.id, exc)
+        except Exception:  # noqa: BLE001
+            logger.exception('Web push lỗi không xác định (user=%s).', user.id)

@@ -5,6 +5,7 @@ import BottomNav from './BottomNav'
 import HeaderSearch from './HeaderSearch'
 import NotificationsBell from './NotificationsBell'
 import OfflineBadge from './OfflineBadge'
+import PushToggleButton from './PushToggleButton'
 import Sidebar from './Sidebar'
 import UserMenu from './UserMenu'
 
@@ -33,6 +34,7 @@ export default function AppShell({ children }) {
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <OfflineBadge />
+            <PushToggleButton />
             <NotificationsBell />
             <button className="btn-outline btn-sm" onClick={logout}>
               Đăng xuất

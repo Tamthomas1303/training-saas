@@ -45,6 +45,7 @@ import MyCertificatesPage from './pages/MyCertificatesPage'
 import Employee360Page from './pages/Employee360Page'
 import SettingsPage from './pages/SettingsPage'
 import ForcedPasswordChangeGate from './components/ForcedPasswordChangeGate'
+import InstallAppBanner from './components/InstallAppBanner'
 import CompetencyFrameworkAdminPage from './pages/CompetencyFrameworkAdminPage'
 import DashboardOverviewPage from './pages/DashboardOverviewPage'
 import AutomationPage from './pages/AutomationPage'
@@ -84,6 +85,14 @@ function InitialRedirect() {
   return null
 }
 
+// Nhom 4 (Prompt_Nhom4_PWA_Push.md muc 4) - banner cai app CHI hien cho tai khoan da dang nhap
+// (khong hien tren /login hay cac trang khach cong khai).
+function InstallAppBannerGate() {
+  const { user } = useAuth()
+  if (!user) return null
+  return <InstallAppBanner />
+}
+
 function App() {
   useEffect(() => {
     initOfflineSync(api)
@@ -95,6 +104,7 @@ function App() {
       <AuthProvider>
         <InitialRedirect />
         <ForcedPasswordChangeGate />
+        <InstallAppBannerGate />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/set-password" element={<SetPasswordPage />} />

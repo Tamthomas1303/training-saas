@@ -125,14 +125,18 @@ def notification_targets(tenant, restaurant=None, include_user=None):
 
 
 def notify_users(users, title, body='', link='', category=''):
-    """Tạo thông báo in-app cho từng user + gửi email (nếu có địa chỉ & đã cấu hình SMTP).
-    Lỗi email không làm hỏng request (fail_silently)."""
+    """Tạo thông báo in-app cho từng user + gửi email (nếu có địa chỉ & đã cấu hình SMTP) + đẩy
+    web push (Nhom 4, Prompt_Nhom4_PWA_Push.md muc 3) - ĐIỂM NGHẼN DUY NHẤT tạo mọi thông báo
+    trong hệ thống (3A/3B/3C + enrollment/session/result...) nên gắn push ở đây là đủ cho tất cả.
+    Lỗi email/push đều KHÔNG làm hỏng request (fail_silently, import mềm - accounts.services.
+    send_web_push tự bỏ qua nếu thiếu VAPID/pywebpush)."""
     from django.conf import settings
     from django.core.mail import send_mail
 
     seen = set()
     rows = []
     emails = []
+    push_users = []
     for u in users:
         if u is None or u.id in seen:
             continue
@@ -140,6 +144,7 @@ def notify_users(users, title, body='', link='', category=''):
         rows.append(Notification(
             tenant=u.tenant, user=u, title=title, body=body, link=link, category=category,
         ))
+        push_users.append(u)
         addr = (u.email or u.google_email or '').strip()
         if addr:
             emails.append(addr)
@@ -150,6 +155,15 @@ def notify_users(users, title, body='', link='', category=''):
             send_mail(title, body or title, settings.DEFAULT_FROM_EMAIL, [addr], fail_silently=True)
         except Exception as exc:  # noqa: BLE001
             logger.warning('Gửi email thông báo thất bại (%s): %s', addr, exc)
+    try:
+        from accounts.services import send_web_push
+
+        for u in push_users:
+            send_web_push(u, title=title, body=body, link=link)
+    except ImportError:
+        logger.debug('Web push: accounts.services.send_web_push không sẵn sàng - bỏ qua.')
+    except Exception as exc:  # noqa: BLE001
+        logger.warning('Đẩy web push thất bại: %s', exc)
     return len(rows)
 
 

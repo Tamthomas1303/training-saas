@@ -22,6 +22,9 @@ from accounts.views import (
     EmailSettingsView,
     GradingConfigHistoryView,
     GradingConfigView,
+    PushSubscribeView,
+    PushUnsubscribeView,
+    VapidPublicKeyView,
 )
 
 urlpatterns = [
@@ -34,6 +37,10 @@ urlpatterns = [
     path('api/settings/grading/', GradingConfigView.as_view(), name='grading-config'),
     path('api/settings/grading/history/', GradingConfigHistoryView.as_view(), name='grading-config-history'),
     path('api/settings/email/', EmailSettingsView.as_view(), name='email-settings'),
+    # Nhom 4 (Prompt_Nhom4_PWA_Push.md muc 3) - web push, dung "/api/push/" dung nhu prompt.
+    path('api/push/vapid-public-key/', VapidPublicKeyView.as_view(), name='push-vapid-public-key'),
+    path('api/push/subscribe/', PushSubscribeView.as_view(), name='push-subscribe'),
+    path('api/push/unsubscribe/', PushUnsubscribeView.as_view(), name='push-unsubscribe'),
     path('api/restaurants/', include('restaurants.urls')),
     path('api/employees/', include('employees.urls')),
     path('api/checklist/', include('checklist.urls')),

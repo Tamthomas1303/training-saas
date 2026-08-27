@@ -255,3 +255,21 @@ class EmailSettings(models.Model):
 
     def __str__(self):
         return f'EmailSettings({self.tenant_id})'
+
+
+class PushSubscription(models.Model):
+    """Nhom 4 (Prompt_Nhom4_PWA_Push.md muc 3) - dang ky web push (PushManager.subscribe() phia
+    trinh duyet, xem frontend src/utils/push.js) cho 1 tai khoan da dang nhap. 1 user co the co
+    NHIEU subscription (nhieu thiet bi/trinh duyet). endpoint la duy nhat toan he thong (URL rieng
+    do trinh duyet/push service cap cho tung subscription) - dung lam khoa update_or_create khi
+    subscribe lai (vd sau khi trinh duyet tu lam moi subscription)."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='push_subscriptions')
+    endpoint = models.URLField(max_length=500, unique=True)
+    p256dh = models.CharField(max_length=255)
+    auth = models.CharField(max_length=255)
+    user_agent = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'PushSubscription({self.user_id})'

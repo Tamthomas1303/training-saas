@@ -10,7 +10,7 @@ from accounts.mixins import TenantScopedViewSetMixin
 from accounts.pagination import DefaultPagination
 from restaurants.models import Restaurant
 
-from .models import BrandSettings, PasswordSetToken, User, UserRestaurantAssignment
+from .models import BrandSettings, PasswordSetToken, PushSubscription, User, UserRestaurantAssignment
 from .serializers import (
     BrandSettingsSerializer,
     EmailSettingsSerializer,
@@ -331,3 +331,52 @@ class SyncDraftsView(APIView):
                 results.append({'client_uuid': client_uuid, 'ok': False, 'message': str(exc)})
 
         return Response({'results': results})
+
+
+class VapidPublicKeyView(APIView):
+    """GET /api/push/vapid-public-key/ — tra VAPID_PUBLIC_KEY de frontend dung lam
+    applicationServerKey khi subscribe (PushManager.subscribe()). Dang nhap moi goi duoc (dung
+    permission mac dinh IsAuthenticated - khong can rieng gi them). Chuoi rong neu chua cau hinh
+    VAPID (frontend tu bo qua nut 'Bat thong bao day' trong truong hop nay)."""
+
+    def get(self, request):
+        from django.conf import settings
+
+        return Response({'vapid_public_key': settings.VAPID_PUBLIC_KEY})
+
+
+class PushSubscribeView(APIView):
+    """POST /api/push/subscribe/ — nhan subscription JSON tu PushManager.subscribe() (frontend),
+    luu/khop theo user dang nhap. Body: {endpoint, keys: {p256dh, auth}}. update_or_create theo
+    endpoint (duy nhat toan he thong) - subscribe lai (vd trinh duyet tu lam moi) se cap nhat
+    thay vi tao trung; dang nhap tai khoan khac tren cung thiet bi se chuyen quyen so huu
+    subscription do sang tai khoan moi (dung y nghia: thiet bi dang dang nhap ai thi nhan thay
+    cho nguoi do)."""
+
+    def post(self, request):
+        endpoint = (request.data.get('endpoint') or '').strip()
+        keys = request.data.get('keys') or {}
+        p256dh = (keys.get('p256dh') or '').strip()
+        auth = (keys.get('auth') or '').strip()
+        if not (endpoint and p256dh and auth):
+            return Response({'detail': 'Thiếu endpoint/keys.'}, status=400)
+        PushSubscription.objects.update_or_create(
+            endpoint=endpoint,
+            defaults={
+                'user': request.user, 'p256dh': p256dh, 'auth': auth,
+                'user_agent': (request.META.get('HTTP_USER_AGENT') or '')[:255],
+            },
+        )
+        return Response({'detail': 'Đã bật thông báo đẩy.'})
+
+
+class PushUnsubscribeView(APIView):
+    """POST /api/push/unsubscribe/ — xoa 1 subscription theo endpoint. Body: {endpoint}. Chi xoa
+    neu subscription do THUOC VE user dang goi (khong cho xoa ho subscription cua nguoi khac)."""
+
+    def post(self, request):
+        endpoint = (request.data.get('endpoint') or '').strip()
+        if not endpoint:
+            return Response({'detail': 'Thiếu endpoint.'}, status=400)
+        PushSubscription.objects.filter(endpoint=endpoint, user=request.user).delete()
+        return Response({'detail': 'Đã tắt thông báo đẩy.'})
