@@ -58,7 +58,15 @@ export default function DashboardOverviewPage() {
   }
   useEffect(load, [scope, month, year, restaurantId])
 
-  const groups = data ? [...new Set(data.indicators.map((i) => i.group_label))] : []
+  // Prompt_Fix_TrangTrang_MapUndefined.md (Phan 2) - chuan hoa MOT LAN o day, dung lai ben duoi
+  // thay vi goi truc tiep data.xxx.map(...) rai rac (data co the thay doi shape neu API loi).
+  const indicators = data?.indicators || []
+  const restaurantRanking = data?.restaurant_ranking || []
+  const trend = data?.trend || []
+  const topSkillGap = data?.top_skill_gap || []
+  const trainerBreakdown = data?.trainer_breakdown || []
+  const warningsTable = data?.warnings_table || []
+  const groups = [...new Set(indicators.map((i) => i.group_label))]
   const groupAvg = data?.competency_group_avg || []
 
   return (
@@ -99,7 +107,7 @@ export default function DashboardOverviewPage() {
                 </p>
               )}
               <div className="stat-grid">
-                {data.indicators.filter((i) => i.group_label === groupLabel).map((ind) => (
+                {indicators.filter((i) => i.group_label === groupLabel).map((ind) => (
                   <IndicatorCard key={ind.key} indicator={ind} />
                 ))}
               </div>
@@ -107,18 +115,18 @@ export default function DashboardOverviewPage() {
           ))}
 
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
-            {data.restaurant_ranking.length > 0 && (
+            {restaurantRanking.length > 0 && (
               <div className="card" style={{ flex: '1 1 420px', minWidth: 320 }}>
                 <h3 style={{ marginTop: 0 }}>Xếp hạng nhà hàng (% đúng lộ trình)</h3>
                 <BarChart
-                  labels={data.restaurant_ranking.map((r) => r.restaurant)}
-                  values={data.restaurant_ranking.map((r) => r.on_rate)}
-                  colors={data.restaurant_ranking.map((r) => r.color)}
-                  height={Math.max(180, data.restaurant_ranking.length * 32)}
+                  labels={restaurantRanking.map((r) => r.restaurant)}
+                  values={restaurantRanking.map((r) => r.on_rate)}
+                  colors={restaurantRanking.map((r) => r.color)}
+                  height={Math.max(180, restaurantRanking.length * 32)}
                 />
                 <p className="muted-note" style={{ marginTop: 8 }}>Bấm 1 nhà hàng để lọc toàn màn theo nhà hàng đó:</p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {data.restaurant_ranking.map((r) => (
+                  {restaurantRanking.map((r) => (
                     <button
                       key={r.restaurant_id} className="btn-sm btn-outline"
                       onClick={() => setRestaurantId(String(r.restaurant_id))}
@@ -132,10 +140,10 @@ export default function DashboardOverviewPage() {
             <div className="card" style={{ flex: '1 1 420px', minWidth: 320 }}>
               <h3 style={{ marginTop: 0 }}>Xu hướng theo tháng (% đúng lộ trình / % đạt kỹ năng lần đầu)</h3>
               <LineChart
-                labels={data.trend.map((t) => `${t.month}/${t.year}`)}
+                labels={trend.map((t) => `${t.month}/${t.year}`)}
                 series={[
-                  { label: '% đúng lộ trình', data: data.trend.map((t) => t.on_rate) },
-                  { label: '% đạt kỹ năng lần đầu', data: data.trend.map((t) => t.skill_rate) },
+                  { label: '% đúng lộ trình', data: trend.map((t) => t.on_rate) },
+                  { label: '% đạt kỹ năng lần đầu', data: trend.map((t) => t.skill_rate) },
                 ]}
               />
             </div>
@@ -151,13 +159,13 @@ export default function DashboardOverviewPage() {
             </div>
           )}
 
-          {data.top_skill_gap.length > 0 && (
+          {topSkillGap.length > 0 && (
             <div className="card" style={{ marginBottom: 16 }}>
               <h3 style={{ marginTop: 0 }}>Top khoảng trống năng lực toàn hệ thống</h3>
               <Table>
                 <thead><tr><th>Năng lực</th><th>Gap trung bình</th><th>Số NV thiếu</th></tr></thead>
                 <tbody>
-                  {data.top_skill_gap.map((g) => (
+                  {topSkillGap.map((g) => (
                     <tr key={g.name}><td>{g.name}</td><td>{g.avg_gap}</td><td>{g.count}</td></tr>
                   ))}
                 </tbody>
@@ -165,13 +173,13 @@ export default function DashboardOverviewPage() {
             </div>
           )}
 
-          {data.trainer_breakdown.length > 0 && (
+          {trainerBreakdown.length > 0 && (
             <div className="card" style={{ marginBottom: 16 }}>
               <h3 style={{ marginTop: 0 }}>Phụ cấp đào tạo theo trainer</h3>
               <Table>
                 <thead><tr><th>Trainer</th><th>Số NV</th><th>Tổng phụ cấp</th></tr></thead>
                 <tbody>
-                  {data.trainer_breakdown.map((t) => (
+                  {trainerBreakdown.map((t) => (
                     <tr key={t.trainer}>
                       <td>{t.trainer}</td><td>{t.count}</td>
                       <td>{t.amount.toLocaleString('vi-VN')} đ</td>
@@ -184,12 +192,12 @@ export default function DashboardOverviewPage() {
 
           <div className="card">
             <h3 style={{ marginTop: 0 }}>Bảng cảnh báo hành động</h3>
-            {data.warnings_table.length === 0 && <p className="muted-note">Không có cảnh báo nào.</p>}
-            {data.warnings_table.length > 0 && (
+            {warningsTable.length === 0 && <p className="muted-note">Không có cảnh báo nào.</p>}
+            {warningsTable.length > 0 && (
               <Table>
                 <thead><tr><th>Nhân sự</th><th>Nhà hàng</th><th>Trạng thái</th><th></th></tr></thead>
                 <tbody>
-                  {data.warnings_table.map((w) => (
+                  {warningsTable.map((w) => (
                     <tr key={w.employee_id}>
                       <td>{w.code} — {w.name}</td>
                       <td>{w.restaurant}</td>

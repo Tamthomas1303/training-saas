@@ -39,7 +39,8 @@ function CreateSessionForm({ onCreated }) {
       setResults([])
       return
     }
-    api.get('/employees/', { params: { search: q, page_size: 10 } }).then(({ data }) => setResults(data.results))
+    api.get('/employees/', { params: { search: q, page_size: 10 } })
+      .then(({ data }) => setResults(Array.isArray(data?.results) ? data.results : []))
   }
 
   function addSelected(emp) {
@@ -186,7 +187,7 @@ function TrackingPanel({ sessionId }) {
   const [rows, setRows] = useState(null)
 
   useEffect(() => {
-    api.get(`/exams/sessions/${sessionId}/tracking/`).then(({ data }) => setRows(data))
+    api.get(`/exams/sessions/${sessionId}/tracking/`).then(({ data }) => setRows(Array.isArray(data) ? data : []))
   }, [sessionId])
 
   async function exportExcel() {

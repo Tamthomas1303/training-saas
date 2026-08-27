@@ -1,5 +1,5 @@
 from django.urls import path
-from rest_framework.routers import DefaultRouter
+from rest_framework.routers import DefaultRouter, SimpleRouter
 
 from .views import (
     AutomationSettingsView,
@@ -51,7 +51,17 @@ router.register('', EmployeeViewSet, basename='employee')
 # Router rieng, DAT TRUOC router cua EmployeeViewSet (prefix '') trong urlpatterns - tranh bi
 # pattern '^(?P<pk>[^/.]+)/$' cua EmployeeViewSet (prefix rong) nuot mat cac path co 1 doan nhu
 # 'onboarding-course-rules/' neu no dung SAU trong danh sach urlpatterns.
-automation_router = DefaultRouter()
+#
+# QUAN TRONG (Prompt_Fix_TrangTrang_MapUndefined.md - da gay trang man /employees): PHAI dung
+# SimpleRouter, KHONG dung DefaultRouter o day. DefaultRouter tu sinh THEM 1 "API root view" rieng
+# tai chinh pattern '^$' (rong) cho MOI instance router - vi automation_router.urls dung TRUOC
+# router.urls trong urlpatterns, root view rong cua automation_router (chi liet ke
+# onboarding-course-rules/probation-exam-rules) se KHOP TRUOC va NUOT MAT list-view that su cua
+# EmployeeViewSet (cung o pattern '^$' do router.register('', ...) - prefix rong). Hau qua:
+# GET /api/employees/ tra ve JSON {"onboarding-course-rules": "...", "probation-exam-rules": "..."}
+# thay vi {count, results} phan trang -> frontend goi data.results.map() tren undefined -> trang
+# man /employees. SimpleRouter KHONG sinh root view nen khong con xung dot.
+automation_router = SimpleRouter()
 automation_router.register(
     'onboarding-course-rules', OnboardingCourseRuleViewSet, basename='onboarding-course-rule',
 )

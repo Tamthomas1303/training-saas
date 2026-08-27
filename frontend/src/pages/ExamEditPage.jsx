@@ -65,11 +65,11 @@ function ProctoringEvidenceModal({ attemptId, open, onClose, onFlagged }) {
           {timeline.supervised_by_restaurant_camera && (
             <p className="muted-note" style={{ marginTop: -4 }}>
               Giám sát qua camera nhà hàng — Người coi thi:{' '}
-              {timeline.proctors.length > 0 ? timeline.proctors.map((p) => p.name).join(', ') : 'chưa phân công'}
+              {(timeline.proctors || []).length > 0 ? timeline.proctors.map((p) => p.name).join(', ') : 'chưa phân công'}
             </p>
           )}
           <div style={{ maxHeight: 360, overflowY: 'auto' }}>
-            {timeline.events.map((e) => (
+            {(timeline.events || []).map((e) => (
               <div key={e.id} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '6px 0', borderBottom: '1px solid var(--card-border)' }}>
                 <span className="muted-note" style={{ fontSize: 12, minWidth: 130 }}>
                   {new Date(e.created_at).toLocaleString('vi-VN')}
@@ -83,7 +83,7 @@ function ProctoringEvidenceModal({ attemptId, open, onClose, onFlagged }) {
                 )}
               </div>
             ))}
-            {timeline.events.length === 0 && <p className="muted-note">Chưa có sự kiện nào được ghi.</p>}
+            {(timeline.events || []).length === 0 && <p className="muted-note">Chưa có sự kiện nào được ghi.</p>}
           </div>
         </>
       )}
@@ -123,7 +123,7 @@ function QuestionPickerModal({ open, onClose, existingIds, onAdded }) {
       return
     }
     api.get('/exams/questions/', { params: { bank: bankId, page_size: 200 } })
-      .then(({ data }) => setQuestions(data.results))
+      .then(({ data }) => setQuestions(Array.isArray(data?.results) ? data.results : []))
   }, [bankId])
 
   function toggle(qid) {
@@ -203,7 +203,8 @@ function AssignModal({ assessmentId, open, onClose }) {
       return
     }
     const timeout = setTimeout(() => {
-      api.get('/employees/', { params: { search, page_size: 10 } }).then(({ data }) => setResults(data.results))
+      api.get('/employees/', { params: { search, page_size: 10 } })
+        .then(({ data }) => setResults(Array.isArray(data?.results) ? data.results : []))
     }, 300)
     return () => clearTimeout(timeout)
   }, [search])

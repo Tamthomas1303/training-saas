@@ -130,7 +130,7 @@ export default function StudentDetailPage() {
     setExamModalOpen(true)
     api
       .get(`/employees/${id}/exam-results/`)
-      .then(({ data }) => setExamRows(data))
+      .then(({ data }) => setExamRows(Array.isArray(data) ? data : []))
       .catch(() => setExamError('Không tải được danh sách lượt thi.'))
   }
 
@@ -151,7 +151,7 @@ export default function StudentDetailPage() {
       setAdjustedScore('')
       setRegradeReason('')
       const { data } = await api.get(`/employees/${id}/exam-results/`)
-      setExamRows(data)
+      setExamRows(Array.isArray(data) ? data : [])
       load()
     } catch (err) {
       setExamMessage(err.response?.data?.detail || 'Không lưu được điểm phúc khảo.')
@@ -232,7 +232,13 @@ export default function StudentDetailPage() {
     )
   }
 
-  const { info, progress, checklist, lms, evaluations, council, courses, exam_attempts: examAttempts } = data
+  // Prompt_Fix_TrangTrang_MapUndefined.md (Phan 2) - gia tri mac dinh cho tung truong: cac
+  // mang dung .map() ben duoi (checklist/evaluations/courses) khong duoc phep undefined du API
+  // co the doi shape/thieu field trong tuong lai.
+  const {
+    info = {}, progress = {}, checklist = [], lms = { courses: [], exams: [] }, evaluations = [],
+    council, courses = [], exam_attempts: examAttempts = [],
+  } = data || {}
 
   return (
     <AppShell>
@@ -278,10 +284,10 @@ export default function StudentDetailPage() {
           <h3 style={{ marginTop: 0 }}>Radar năng lực</h3>
           {radarError && <p style={{ color: 'var(--danger)' }}>{radarError}</p>}
           {!radarError && !radar && <p className="muted-note">Đang tải...</p>}
-          {radar && radar.groups.length === 0 && (
+          {radar && (radar.groups || []).length === 0 && (
             <p className="muted-note">Chưa cấu hình khung năng lực.</p>
           )}
-          {radar && radar.groups.length > 0 && (
+          {radar && (radar.groups || []).length > 0 && (
             <RadarChart
               labels={radar.groups.map((g) => g.name)}
               actual={radar.groups.map((g) => g.score)}
@@ -443,8 +449,8 @@ export default function StudentDetailPage() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 8 }}>
           <div>
             <div className="stat-label">Khóa học</div>
-            {lms.courses.length === 0 && <p className="muted-note">Chưa có dữ liệu.</p>}
-            {lms.courses.map((c, i) => (
+            {(lms.courses || []).length === 0 && <p className="muted-note">Chưa có dữ liệu.</p>}
+            {(lms.courses || []).map((c, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0' }}>
                 <span>{c.name}</span>
                 <Badge variant={c.status === 'Đạt' ? 'success' : 'neutral'}>{c.status || '—'}</Badge>
@@ -453,8 +459,8 @@ export default function StudentDetailPage() {
           </div>
           <div>
             <div className="stat-label">Bài thi</div>
-            {lms.exams.length === 0 && <p className="muted-note">Chưa có dữ liệu.</p>}
-            {lms.exams.map((e, i) => (
+            {(lms.exams || []).length === 0 && <p className="muted-note">Chưa có dữ liệu.</p>}
+            {(lms.exams || []).map((e, i) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0' }}>
                 <span>
                   {e.name} (lần {e.attempt}) {e.is_regrade && <Badge variant="mint">PK</Badge>}
@@ -521,7 +527,7 @@ export default function StudentDetailPage() {
                     <tr>
                       <td colSpan={6}>
                         <div style={{ display: 'grid', gap: 10, padding: '8px 0' }}>
-                          {a.details.map((d, i) => (
+                          {(a.details || []).map((d, i) => (
                             <div key={d.question_id} className="card" style={{ padding: 10 }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
                                 <strong>Câu {i + 1}</strong>
@@ -532,9 +538,9 @@ export default function StudentDetailPage() {
                               </div>
                               {/* eslint-disable-next-line react/no-danger */}
                               <div dangerouslySetInnerHTML={{ __html: d.stem_html }} style={{ margin: '6px 0' }} />
-                              {d.options.length > 0 && (
+                              {(d.options || []).length > 0 && (
                                 <div style={{ display: 'grid', gap: 4 }}>
-                                  {d.options.map((o) => {
+                                  {(d.options || []).map((o) => {
                                     const chosen = (d.response?.option_id === o.id)
                                       || (d.response?.option_ids || []).includes(o.id)
                                     return (
@@ -711,7 +717,7 @@ export default function StudentDetailPage() {
                 {council.overall}%
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-                {council.aspects.map((a) => (
+                {(council.aspects || []).map((a) => (
                   <div key={a.id}>
                     <div className="muted-note" style={{ fontSize: 12 }}>
                       {a.name}

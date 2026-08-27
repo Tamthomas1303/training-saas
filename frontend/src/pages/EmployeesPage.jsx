@@ -116,13 +116,13 @@ export default function EmployeesPage() {
   const [hrMsg, setHrMsg] = useState('')
 
   useEffect(() => {
-    api.get('/employees/positions/').then(({ data }) => setPositions(data)).catch(() => {})
+    api.get('/employees/positions/').then(({ data }) => setPositions(Array.isArray(data) ? data : [])).catch(() => {})
   }, [])
 
   useEffect(() => {
     if (isAdmin) {
-      api.get('/employees/recruitment-source/').then(({ data }) => setSourceUrl(data.csv_url || '')).catch(() => {})
-      api.get('/employees/hr-sync-sources/').then(({ data }) => setHrSources(data)).catch(() => {})
+      api.get('/employees/recruitment-source/').then(({ data }) => setSourceUrl(data?.csv_url || '')).catch(() => {})
+      api.get('/employees/hr-sync-sources/').then(({ data }) => setHrSources(Array.isArray(data) ? data : [])).catch(() => {})
     }
   }, [isAdmin])
 

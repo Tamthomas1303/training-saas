@@ -1940,3 +1940,54 @@ class RemindManagersProbationCommandTests(TestCase):
         """Kiem thu 'chay thu command' - khong loi du khong co nhan su nao khop dieu kien."""
         Employee.objects.all().delete()
         call_command('remind_managers_probation')  # khong duoc raise
+
+
+class EmployeeListRouterShadowingRegressionTests(TestCase):
+    """Prompt_Fix_TrangTrang_MapUndefined.md - hoi quy CHINH XAC cho nguyen nhan goc gay trang
+    man /employees: employees/urls.py tung dung 2 DefaultRouter() (router cho EmployeeViewSet +
+    automation_router cho onboarding-course-rules/probation-exam-rules). DefaultRouter TU SINH
+    THEM 1 "API root view" rieng tai pattern '^$' cho MOI instance - vi automation_router.urls
+    dat TRUOC router.urls trong urlpatterns, root view RONG cua automation_router (chi liet ke 2
+    endpoint cua no) KHOP TRUOC va NUOT MAT list-view that su cua EmployeeViewSet (cung o pattern
+    '^$' do router.register('', ...) - prefix rong). Hau qua: GET /api/employees/ tra ve
+    {"onboarding-course-rules": "...", "probation-exam-rules": "..."} thay vi {count, results}.
+
+    QUAN TRONG: cac test khac trong file nay dung reverse('employee-list') de dung URL - reverse()
+    chi tra cuu TEN -> pattern, KHONG mo phong THU TU thuc su Django dung de resolve 1 request
+    that (nen KHONG bao gio phat hien duoc loi nay du hang tram test dung reverse() da pass). Test
+    nay dung DUNG DUONG DAN CHUOI ('/api/employees/'), giong browser/axios thuc su goi, de dam
+    bao khong bao gio tai dien loai loi nay ma khong bi bat."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1', is_legacy=False)
+        self.client = APIClient()
+        self.client.force_authenticate(self.admin)
+
+    def test_root_employees_path_returns_paginated_employee_list_not_router_index(self):
+        resp = self.client.get('/api/employees/', {'page_size': 20})
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('results', resp.data)
+        self.assertIn('count', resp.data)
+        self.assertIsInstance(resp.data['results'], list)
+        self.assertEqual(resp.data['results'][0]['code'], 'NV1')
+        # Dung y - day chinh la bug that: root view cua automation_router se tra ve dict co
+        # 2 key nay THAY VI {count, results}.
+        self.assertNotIn('onboarding-course-rules', resp.data)
+        self.assertNotIn('probation-exam-rules', resp.data)
+
+    def test_root_employees_path_with_list_tab_matches_employee_list_view_name(self):
+        resp = self.client.get('/api/employees/', {'list_tab': 'new', 'page_size': 20})
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('results', resp.data)
+
+    def test_sibling_automation_endpoints_still_reachable_after_fix(self):
+        """Dam bao khong sua qua tay - 2 endpoint cua automation_router van hoat dong binh
+        thuong (chi khong con che mat EmployeeViewSet nua)."""
+        resp1 = self.client.get('/api/employees/onboarding-course-rules/')
+        self.assertEqual(resp1.status_code, 200)
+        self.assertIn('results', resp1.data)
+        resp2 = self.client.get('/api/employees/probation-exam-rules/')
+        self.assertEqual(resp2.status_code, 200)
+        self.assertIn('results', resp2.data)

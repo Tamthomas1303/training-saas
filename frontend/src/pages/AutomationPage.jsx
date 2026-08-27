@@ -8,6 +8,16 @@ import * as s from './listPageStyles'
 // Nhom 3A (Prompt_Nhom3A_Onboarding_TuDong.md muc 4) - man "Tu dong hoa" (admin, desktop):
 // 3 cong tac onboarding tu dong + anh xa vi tri -> khoa hoi nhap + mau email tiep nhan. Huong
 // "luong co san" (recipe) - bat/tat + dat tham so, KHONG dung builder tu do.
+
+// Prompt_Fix_TrangTrang_MapUndefined.md (Phan 2) - chuan hoa response danh sach (phan trang
+// {results} HOAC mang thuan) VE LUON mot mang, khong bao gio de undefined/object la den tay
+// .map() ben duoi.
+function asList(data) {
+  if (Array.isArray(data?.results)) return data.results
+  if (Array.isArray(data)) return data
+  return []
+}
+
 function CcListInput({ label, value, onChange }) {
   const text = (value || []).join(', ')
   return (
@@ -199,15 +209,15 @@ function CourseRulesCard() {
 
   function load() {
     api.get('/employees/onboarding-course-rules/', { params: { page_size: 200 } })
-      .then(({ data }) => setRules(data.results ?? data))
+      .then(({ data }) => setRules(asList(data)))
       .catch(() => setMsg('Không tải được danh sách ánh xạ.'))
   }
 
   useEffect(() => {
     load()
-    api.get('/employees/positions/').then(({ data }) => setPositions(data)).catch(() => {})
+    api.get('/employees/positions/').then(({ data }) => setPositions(Array.isArray(data) ? data : [])).catch(() => {})
     api.get('/courses/', { params: { status: 'published', page_size: 200 } })
-      .then(({ data }) => setCourses(data.results ?? data))
+      .then(({ data }) => setCourses(asList(data)))
       .catch(() => {})
   }, [])
 
@@ -282,15 +292,15 @@ function ProbationExamRulesCard() {
 
   function load() {
     api.get('/employees/probation-exam-rules/', { params: { page_size: 200 } })
-      .then(({ data }) => setRules(data.results ?? data))
+      .then(({ data }) => setRules(asList(data)))
       .catch(() => setMsg('Không tải được danh sách ánh xạ.'))
   }
 
   useEffect(() => {
     load()
-    api.get('/employees/positions/').then(({ data }) => setPositions(data)).catch(() => {})
+    api.get('/employees/positions/').then(({ data }) => setPositions(Array.isArray(data) ? data : [])).catch(() => {})
     api.get('/exams/assessments/', { params: { status: 'published', page_size: 200 } })
-      .then(({ data }) => setAssessments(data.results ?? data))
+      .then(({ data }) => setAssessments(asList(data)))
       .catch(() => {})
   }, [])
 

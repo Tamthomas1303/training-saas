@@ -183,7 +183,7 @@ export function DashboardConfigContent() {
   function load() {
     setLoading(true)
     api.get('/dashboard/indicators/', { params: { page_size: 100 } })
-      .then(({ data }) => setIndicators(data.results))
+      .then(({ data }) => setIndicators(Array.isArray(data?.results) ? data.results : []))
       .catch(() => setError('Không tải được danh sách chỉ số.'))
       .finally(() => setLoading(false))
   }

@@ -131,7 +131,7 @@ export default function ProbationExamApprovalPage() {
 
   function load() {
     api.get('/employees/probation-exam-candidates/', { params: { status: 'pending_approval' } })
-      .then(({ data }) => setRows(data))
+      .then(({ data }) => setRows(Array.isArray(data) ? data : []))
       .catch((err) => setError(err.response?.data?.detail || 'Không tải được danh sách.'))
   }
 

@@ -44,7 +44,8 @@ export default function Employee360Page() {
       return undefined
     }
     const timeout = setTimeout(() => {
-      api.get('/dashboard/employees/', { params: { q: query.trim() } }).then(({ data }) => setResults(data))
+      api.get('/dashboard/employees/', { params: { q: query.trim() } })
+        .then(({ data }) => setResults(Array.isArray(data) ? data : []))
     }, 300)
     return () => clearTimeout(timeout)
   }, [query])
@@ -123,9 +124,9 @@ export default function Employee360Page() {
                 </Badge>
               </div>
             </div>
-            {profile.warnings.length > 0 && (
+            {(profile.warnings || []).length > 0 && (
               <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {profile.warnings.map((w, i) => (
+                {(profile.warnings || []).map((w, i) => (
                   <Badge key={i} variant={w.type === 'overdue' ? 'danger' : 'warning'}>{w.label}</Badge>
                 ))}
               </div>
@@ -145,7 +146,7 @@ export default function Employee360Page() {
             />
           </div>
 
-          {profile.indicators.length > 0 && (
+          {(profile.indicators || []).length > 0 && (
             <div className="card" style={{ marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {profile.indicators.map((ind) => <IndicatorPill key={ind.key} indicator={ind} />)}
             </div>
@@ -178,14 +179,14 @@ export default function Employee360Page() {
 
             <div className="card" style={{ flex: '1 1 320px', minWidth: 280 }}>
               <h3 style={{ marginTop: 0 }}>Khoảng trống & gợi ý khóa học</h3>
-              {profile.gaps.length === 0 && <p className="muted-note">Không có khoảng trống đáng kể (hoặc chưa đủ dữ liệu).</p>}
-              {profile.gaps.map((g) => (
+              {(profile.gaps || []).length === 0 && <p className="muted-note">Không có khoảng trống đáng kể (hoặc chưa đủ dữ liệu).</p>}
+              {(profile.gaps || []).map((g) => (
                 <div key={g.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--card-border)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span>{g.name}</span>
                     <span className="muted-note">{g.score}/{g.target} (thiếu {g.gap})</span>
                   </div>
-                  {g.suggested_courses.length > 0 && (
+                  {(g.suggested_courses || []).length > 0 && (
                     <div className="muted-note" style={{ fontSize: 12, marginTop: 2 }}>
                       Gợi ý: {g.suggested_courses.map((c) => c.title).join(', ')}
                     </div>
@@ -216,8 +217,8 @@ export default function Employee360Page() {
             </div>
             <div className="card" style={{ flex: '1 1 260px', minWidth: 220 }}>
               <h3 style={{ marginTop: 0 }}>Chứng chỉ</h3>
-              {profile.certificates.length === 0 && <p className="muted-note">Chưa có chứng chỉ.</p>}
-              {profile.certificates.map((c) => (
+              {(profile.certificates || []).length === 0 && <p className="muted-note">Chưa có chứng chỉ.</p>}
+              {(profile.certificates || []).map((c) => (
                 <div key={c.id} style={{ fontSize: 13, marginBottom: 4 }}>
                   {c.program_name || c.ref_type} · {c.code}
                   {c.pdf_url && (
@@ -241,7 +242,7 @@ export default function Employee360Page() {
 
           <div className="card">
             <h3 style={{ marginTop: 0 }}>Dòng thời gian</h3>
-            {profile.timeline.map((ev, i) => {
+            {(profile.timeline || []).map((ev, i) => {
               const EvIcon = TIMELINE_ICON[ev.type] || Circle
               return (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--card-border)' }}>

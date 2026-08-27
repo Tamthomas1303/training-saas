@@ -257,7 +257,7 @@ function GradingTab() {
 
   function load() {
     api.get('/settings/grading/').then(({ data }) => { setConfig(data); setForm(data) }).catch(() => setMsg('Không tải được cấu hình.'))
-    api.get('/settings/grading/history/').then(({ data }) => setHistory(data)).catch(() => {})
+    api.get('/settings/grading/history/').then(({ data }) => setHistory(Array.isArray(data) ? data : [])).catch(() => {})
   }
   useEffect(load, [])
 
@@ -273,7 +273,7 @@ function GradingTab() {
       setConfig(data)
       setForm(data)
       setMsg(data._changed_count > 0 ? `Đã lưu ${data._changed_count} thay đổi.` : 'Không có thay đổi.')
-      api.get('/settings/grading/history/').then(({ data: h }) => setHistory(h)).catch(() => {})
+      api.get('/settings/grading/history/').then(({ data: h }) => setHistory(Array.isArray(h) ? h : [])).catch(() => {})
     } catch (err) {
       setMsg(err.response?.data?.detail || 'Lưu thất bại - kiểm tra lại dữ liệu nhập.')
     } finally {

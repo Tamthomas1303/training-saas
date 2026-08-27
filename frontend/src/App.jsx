@@ -44,6 +44,7 @@ import CertificatesAdminPage from './pages/CertificatesAdminPage'
 import MyCertificatesPage from './pages/MyCertificatesPage'
 import Employee360Page from './pages/Employee360Page'
 import SettingsPage from './pages/SettingsPage'
+import ErrorBoundary from './components/ErrorBoundary'
 import ForcedPasswordChangeGate from './components/ForcedPasswordChangeGate'
 import InstallAppBanner from './components/InstallAppBanner'
 import CompetencyFrameworkAdminPage from './pages/CompetencyFrameworkAdminPage'
@@ -105,6 +106,10 @@ function App() {
         <InitialRedirect />
         <ForcedPasswordChangeGate />
         <InstallAppBannerGate />
+        {/* Luoi an toan cuoi cung (Phan 1, Prompt_Fix_TrangTrang_MapUndefined.md) - cho cac
+            route CONG KHAI khong qua ProtectedRoute (login/guest/set-password), la noi da co
+            boundary rieng theo tung route (xem ProtectedRoute.jsx). */}
+        <ErrorBoundary>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/set-password" element={<SetPasswordPage />} />
@@ -452,6 +457,7 @@ function App() {
             }
           />
         </Routes>
+        </ErrorBoundary>
       </AuthProvider>
     </BrowserRouter>
   )
