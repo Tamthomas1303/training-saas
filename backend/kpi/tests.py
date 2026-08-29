@@ -2,6 +2,8 @@ import datetime
 from unittest.mock import patch
 
 from django.test import TestCase
+from django.urls import reverse
+from rest_framework.test import APIClient
 
 from accounts.models import Tenant, User, UserRestaurantAssignment
 from employees.models import Employee
@@ -21,6 +23,59 @@ from .services import (
     kpi_bql_totals,
     recompute_commission,
 )
+
+
+class KpiReportViewPermissionTests(TestCase):
+    """Prompt_Fix_DotB_KPI_29.08.md muc 10: OM/BOD XEM duoc phieu KPI BQL + phu cap (report/
+    allowance data + link da xuat), nhung CHI Admin/OM moi XUAT/xuat lai duoc."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.om = User.objects.create_user(username='om1', password='x', tenant=self.tenant, role='om')
+        self.bod = User.objects.create_user(username='bod1', password='x', tenant=self.tenant, role='bod')
+        self.trainer = User.objects.create_user(username='trainer1', password='x', tenant=self.tenant, role='trainer')
+        self.client = APIClient()
+
+    def test_bod_can_view_report_and_allowance_data(self):
+        self.client.force_authenticate(self.bod)
+        report_resp = self.client.get(reverse('kpi-report'), {'month': 8, 'year': 2026})
+        allowance_resp = self.client.get(reverse('kpi-allowance'), {'month': 8, 'year': 2026})
+        self.assertEqual(report_resp.status_code, 200)
+        self.assertEqual(allowance_resp.status_code, 200)
+
+    def test_om_can_view_report_and_allowance_data(self):
+        self.client.force_authenticate(self.om)
+        report_resp = self.client.get(reverse('kpi-report'), {'month': 8, 'year': 2026})
+        allowance_resp = self.client.get(reverse('kpi-allowance'), {'month': 8, 'year': 2026})
+        self.assertEqual(report_resp.status_code, 200)
+        self.assertEqual(allowance_resp.status_code, 200)
+
+    def test_trainer_cannot_view_report_or_allowance_data(self):
+        self.client.force_authenticate(self.trainer)
+        report_resp = self.client.get(reverse('kpi-report'), {'month': 8, 'year': 2026})
+        allowance_resp = self.client.get(reverse('kpi-allowance'), {'month': 8, 'year': 2026})
+        self.assertEqual(report_resp.status_code, 403)
+        self.assertEqual(allowance_resp.status_code, 403)
+
+    def test_bod_cannot_export_report_or_allowance(self):
+        self.client.force_authenticate(self.bod)
+        report_resp = self.client.post(reverse('kpi-report-export'))
+        allowance_resp = self.client.post(reverse('kpi-allowance-export'))
+        self.assertEqual(report_resp.status_code, 403)
+        self.assertEqual(allowance_resp.status_code, 403)
+
+    @patch('kpi.views.generate_kpi_report_pdf', return_value='https://pub-x.r2.dev/kpi-report.pdf')
+    def test_admin_can_export_report(self, _mock_pdf):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(reverse('kpi-report-export'))
+        self.assertEqual(resp.status_code, 200)
+
+    @patch('kpi.views.generate_allowance_pdf', return_value='https://pub-x.r2.dev/allowance.pdf')
+    def test_om_can_export_allowance(self, _mock_pdf):
+        self.client.force_authenticate(self.om)
+        resp = self.client.post(reverse('kpi-allowance-export'))
+        self.assertEqual(resp.status_code, 200)
 
 
 class RecomputeCommissionTrainerRoleTests(TestCase):

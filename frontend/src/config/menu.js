@@ -10,7 +10,6 @@ export const MENU_ITEMS = {
   training: { label: 'Đào tạo', icon: '🎓', path: '/training' },
   evaluation: { label: 'Đánh giá', icon: '✅', path: '/evaluation' },
   kpi: { label: 'KPI', icon: '📈', path: '/kpi' },
-  kpiDashboard: { label: 'Thống kê KPI', icon: '📊', path: '/kpi-dashboard' },
   commission: { label: 'Phụ cấp', icon: '💰', path: '/commission' },
   documents: { label: 'Tài liệu', icon: '📁', path: '/documents' },
   users: { label: 'Người dùng', icon: '🧑‍💼', path: '/users' },
@@ -46,16 +45,16 @@ const MOBILE_ROLES = new Set(['trainer', 'bql', 'am', 'kcs', 'employee'])
 // tiện ích toàn cục (dashboard/home, KPI, phụ cấp, tài liệu, người dùng).
 const ROLE_MENU = {
   admin: [
-    'hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'users', 'reports',
+    'hub', 'dashboard', 'kpi', 'commission', 'documents', 'users', 'reports',
     'coursesAdmin', 'examBanks', 'examsAdmin', 'examSessions', 'examGrading', 'certTemplates',
     'certPrograms', 'certificates', 'employee360', 'dashboardConfig', 'competencyFramework',
     'dashboardOverview',
   ],
   om: [
-    'hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'reports',
+    'hub', 'dashboard', 'kpi', 'commission', 'documents', 'reports',
     'employee360', 'dashboardOverview',
   ],
-  bod: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'employee360', 'dashboardOverview'],
+  bod: ['hub', 'dashboard', 'kpi', 'commission', 'documents', 'employee360', 'dashboardOverview'],
   am: ['hub', 'home', 'kpi', 'documents'],
   kcs: ['hub', 'home', 'kpi', 'documents'],
   bql: ['hub', 'home', 'kpi', 'documents'],

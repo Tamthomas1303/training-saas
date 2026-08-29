@@ -3,6 +3,7 @@ import AppShell from '../components/AppShell'
 import FilterBar from '../components/FilterBar'
 import Pager from '../components/Pager'
 import PhotoSlot from '../components/PhotoSlot'
+import ProgressBar from '../components/ProgressBar'
 import SignaturePad from '../components/SignaturePad'
 import StatCard from '../components/StatCard'
 import Table from '../components/Table'
@@ -259,7 +260,10 @@ function KpiSessionForm({ restaurants, defaultRestaurantId, onSaved }) {
   )
 }
 
-const REPORT_ROLES = new Set(['admin', 'om'])
+// Prompt_Fix_DotB_KPI_29.08.md muc 10: tach quyen XEM phieu (rong hon, them BOD - truoc day BOD
+// khong thay gi) voi quyen XUAT/xuat lai (giu nguyen nhu hien hanh: admin+om).
+const VIEW_REPORT_ROLES = new Set(['admin', 'om', 'bod'])
+const EXPORT_REPORT_ROLES = new Set(['admin', 'om'])
 const PERFORM_ROLES = new Set(['trainer', 'bql', 'am', 'kcs'])
 
 function KpiStatsSummary() {
@@ -297,31 +301,57 @@ function KpiStatsSummary() {
           ))}
         </>
       )}
+
+      {/* Prompt_Fix_DotB_KPI_29.08.md muc 9: gop khoi "Theo nha hang" tu KpiDashboardPage (da
+          xoa) vao day de /kpi la ban day du duy nhat, giong adminKPI cua Apps Script. */}
+      <div className="stat-label" style={{ marginTop: 16, marginBottom: 6 }}>
+        Tiến độ KPI theo nhà hàng (tháng này)
+      </div>
+      {(stats.per_restaurant?.length || 0) === 0 && (
+        <p className="muted-note">Chưa có buổi đào tạo nào trong tháng.</p>
+      )}
+      {stats.per_restaurant?.map((r) => (
+        <div key={r.restaurant_id} style={{ marginBottom: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+            <span>{r.restaurant_name || `Nhà hàng #${r.restaurant_id}`}</span>
+            <span>{r.done}/{r.target}</span>
+          </div>
+          <ProgressBar
+            percent={r.target ? (r.done / r.target) * 100 : 0}
+            color={r.achieved ? undefined : 'var(--amber)'}
+          />
+        </div>
+      ))}
     </div>
   )
 }
 
-function ExportedReportSlot({ label, data, exportingKey, exporting, onExport }) {
+function ExportedReportSlot({ label, data, exportingKey, exporting, onExport, canExport }) {
   return (
     <div>
       <div style={{ marginBottom: 4, fontWeight: 'bold', fontSize: 13 }}>{label}</div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
         {data?.exported_url ? (
           <a href={data.exported_url} target="_blank" rel="noreferrer" className="btn-outline btn-sm">
-            Xem
+            Xem phiếu (PDF)
           </a>
         ) : (
-          <span className="muted-note" style={{ fontSize: 12 }}>Chưa xuất</span>
+          <span className="muted-note" style={{ fontSize: 12 }}>
+            {canExport ? 'Chưa xuất' : 'Chưa có phiếu — chờ phòng đào tạo xuất'}
+          </span>
         )}
-        <button className="btn-outline btn-sm" onClick={onExport} disabled={exporting === exportingKey}>
-          {data?.exported_url ? 'Xuất lại' : 'Xuất PDF'}
-        </button>
+        {/* Prompt_Fix_DotB_KPI_29.08.md muc 10: OM/BOD chi XEM, khong duoc xuat/xuat lai. */}
+        {canExport && (
+          <button className="btn-outline btn-sm" onClick={onExport} disabled={exporting === exportingKey}>
+            {data?.exported_url ? 'Xuất lại' : 'Xuất PDF'}
+          </button>
+        )}
       </div>
     </div>
   )
 }
 
-function KpiReportSection({ month, year, setMonth, setYear }) {
+function KpiReportSection({ month, year, setMonth, setYear, canExport }) {
   const [report, setReport] = useState(null)
   const [allowance, setAllowance] = useState(null)
   const [error, setError] = useState('')
@@ -394,6 +424,7 @@ function KpiReportSection({ month, year, setMonth, setYear }) {
             exportingKey="report"
             exporting={exporting}
             onExport={exportReport}
+            canExport={canExport}
           />
           <ExportedReportSlot
             label="Phiếu phụ cấp trainer"
@@ -401,6 +432,7 @@ function KpiReportSection({ month, year, setMonth, setYear }) {
             exportingKey="allowance"
             exporting={exporting}
             onExport={exportAllowance}
+            canExport={canExport}
           />
         </div>
       </div>
@@ -503,7 +535,8 @@ export default function KpiPage() {
   const { user } = useAuth()
   const role = (user.role || '').toLowerCase()
   const canPerform = PERFORM_ROLES.has(role)
-  const canSeeReport = REPORT_ROLES.has(role)
+  const canSeeReport = VIEW_REPORT_ROLES.has(role)
+  const canExport = EXPORT_REPORT_ROLES.has(role)
   const now = new Date()
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [year, setYear] = useState(now.getFullYear())
@@ -527,8 +560,13 @@ export default function KpiPage() {
     <AppShell>
       <h2>KPI đào tạo</h2>
 
-      {canSeeReport && <KpiReportSection month={month} year={year} setMonth={setMonth} setYear={setYear} />}
-      {role === 'admin' && <KpiStatsSummary />}
+      {canSeeReport && (
+        <KpiReportSection month={month} year={year} setMonth={setMonth} setYear={setYear} canExport={canExport} />
+      )}
+      {/* Prompt_Fix_DotB_KPI_29.08.md muc 9: /kpi la ban gop day du - giu dung pham vi xem thong
+          ke ma OM/BOD da co san qua /kpi-dashboard truoc day (adminNav cu: roles ALL = admin/om/
+          bod), khong chi rieng admin nhu KpiStatsSummary o ban /kpi cu. */}
+      {VIEW_REPORT_ROLES.has(role) && <KpiStatsSummary />}
 
       {canPerform && restaurantOptions.results.length > 0 && (
         <KpiSessionForm

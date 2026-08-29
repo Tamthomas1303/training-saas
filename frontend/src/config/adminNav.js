@@ -105,8 +105,9 @@ export const ADMIN_NAV = [
     icon: BarChart3,
     items: [
       { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, roles: ALL },
+      // Prompt_Fix_DotB_KPI_29.08.md muc 9: gop "Thong ke KPI" (/kpi-dashboard) vao thang "KPI
+      // Dao tao" (/kpi) - khong con la 2 the rieng nhu Apps Script cu.
       { label: 'KPI Đào tạo', path: '/kpi', icon: TrendingUp, roles: ALL },
-      { label: 'Thống kê KPI', path: '/kpi-dashboard', icon: BarChart3, roles: ALL },
       { label: 'Báo cáo', path: '/reports', icon: FileText, roles: ['admin', 'om'] },
       { label: 'Tổng hợp CEO/GĐĐT', path: '/dashboard-overview', icon: BarChart3, roles: ALL },
     ],

@@ -23,7 +23,10 @@ from .services import (
     save_kpi_session,
 )
 
-REPORT_ROLES = {'admin', 'om'}
+# Prompt_Fix_DotB_KPI_29.08.md muc 10: tach quyen XEM phieu (rong hon, them BOD) voi quyen XUAT/
+# xuat lai (giu nguyen nhu hien hanh: admin+om).
+VIEW_REPORT_ROLES = {'admin', 'om', 'bod'}
+EXPORT_REPORT_ROLES = {'admin', 'om'}
 
 
 def _parse_month_year(request):
@@ -117,11 +120,12 @@ class CommissionRecomputeAllView(APIView):
 
 
 class KpiReportDataView(APIView):
-    """GET /api/kpi/report/?month=&year= — so lieu 'Bao cao KPI BQL' theo thang, chi Admin/OM."""
+    """GET /api/kpi/report/?month=&year= — so lieu 'Bao cao KPI BQL' theo thang. Xem duoc:
+    VIEW_REPORT_ROLES (Admin/OM/BOD)."""
 
 
     def get(self, request):
-        if (request.user.role or '').lower() not in REPORT_ROLES:
+        if (request.user.role or '').lower() not in VIEW_REPORT_ROLES:
             return Response({'detail': 'Bạn không có quyền xem báo cáo này.'}, status=403)
         month, year = _parse_month_year(request)
         data = kpi_bql_report_data(request.user, month, year)
@@ -132,11 +136,12 @@ class KpiReportDataView(APIView):
 
 
 class KpiReportExportView(APIView):
-    """POST /api/kpi/report/export/?month=&year= — xuat PDF 'Bao cao KPI BQL', chi Admin/OM."""
+    """POST /api/kpi/report/export/?month=&year= — xuat PDF 'Bao cao KPI BQL'. Xuat duoc:
+    EXPORT_REPORT_ROLES (Admin/OM) - hep hon quyen xem (BOD chi doc, khong xuat)."""
 
 
     def post(self, request):
-        if (request.user.role or '').lower() not in REPORT_ROLES:
+        if (request.user.role or '').lower() not in EXPORT_REPORT_ROLES:
             return Response({'detail': 'Bạn không có quyền xuất báo cáo này.'}, status=403)
         month, year = _parse_month_year(request)
         pdf_url = generate_kpi_report_pdf(request.user, month, year)
@@ -144,11 +149,12 @@ class KpiReportExportView(APIView):
 
 
 class AllowanceDataView(APIView):
-    """GET /api/kpi/allowance/?month=&year= — danh sach phu cap trainer, chi Admin/OM."""
+    """GET /api/kpi/allowance/?month=&year= — danh sach phu cap trainer. Xem duoc:
+    VIEW_REPORT_ROLES (Admin/OM/BOD)."""
 
 
     def get(self, request):
-        if (request.user.role or '').lower() not in REPORT_ROLES:
+        if (request.user.role or '').lower() not in VIEW_REPORT_ROLES:
             return Response({'detail': 'Bạn không có quyền xem phụ cấp trainer.'}, status=403)
         month, year = _parse_month_year(request)
         data = allowance_report_data(request.user, month, year)
@@ -159,12 +165,12 @@ class AllowanceDataView(APIView):
 
 
 class AllowanceExportView(APIView):
-    """POST /api/kpi/allowance/export/?month=&year= — xuat PDF 'Phieu phu cap trainer', chi
-    Admin/OM."""
+    """POST /api/kpi/allowance/export/?month=&year= — xuat PDF 'Phieu phu cap trainer'. Xuat
+    duoc: EXPORT_REPORT_ROLES (Admin/OM)."""
 
 
     def post(self, request):
-        if (request.user.role or '').lower() not in REPORT_ROLES:
+        if (request.user.role or '').lower() not in EXPORT_REPORT_ROLES:
             return Response({'detail': 'Bạn không có quyền xuất phiếu phụ cấp.'}, status=403)
         month, year = _parse_month_year(request)
         pdf_url = generate_allowance_pdf(request.user, month, year)

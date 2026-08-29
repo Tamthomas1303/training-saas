@@ -12,7 +12,6 @@ import TrainingPage from './pages/TrainingPage'
 import EvaluationPage from './pages/EvaluationPage'
 import KpiPage from './pages/KpiPage'
 import CommissionPage from './pages/CommissionPage'
-import KpiDashboardPage from './pages/KpiDashboardPage'
 import UsersPage from './pages/UsersPage'
 import DocumentsPage from './pages/DocumentsPage'
 import GuestCouncilPage from './pages/GuestCouncilPage'
@@ -190,14 +189,9 @@ function App() {
               </ProtectedRoute>
             }
           />
-          <Route
-            path="/kpi-dashboard"
-            element={
-              <ProtectedRoute>
-                <KpiDashboardPage />
-              </ProtectedRoute>
-            }
-          />
+          {/* Prompt_Fix_DotB_KPI_29.08.md muc 9: "Thong ke KPI" gop vao "/kpi" - giu redirect cho
+              link cu khoi 404/trang trang. */}
+          <Route path="/kpi-dashboard" element={<Navigate to="/kpi" replace />} />
           <Route
             path="/documents"
             element={
