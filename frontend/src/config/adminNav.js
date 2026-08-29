@@ -59,6 +59,8 @@ export const ADMIN_NAV = [
     icon: Building2,
     items: [
       { label: 'Người dùng', path: '/users', icon: Users, roles: ['admin'] },
+      // Muc 16 Phase 1 phan A (Prompt_Muc16_Phase1_ViTri_CauHinhMenu.md).
+      { label: 'Vị trí chức danh', path: '/positions', icon: IdCard, roles: ['admin'] },
       { label: 'Mẫu chứng chỉ', path: '/cert-templates', icon: FileBadge, roles: ['admin'] },
       { label: 'Chứng chỉ đã cấp', path: '/certificates', icon: Award, roles: ['admin'] },
       { label: 'Chương trình chứng chỉ', path: '/cert-programs', icon: ScrollText, roles: ['admin'] },

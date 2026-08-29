@@ -9,7 +9,7 @@ import logging
 
 from django.core.cache import cache
 
-from .models import EmailSettings, GradingConfig, GradingConfigHistory
+from .models import EmailSettings, GradingConfig, GradingConfigHistory, RoleMenuConfig, RoleMenuConfigHistory
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +105,49 @@ def update_grading_config(tenant, user, changes):
 def get_email_settings(tenant):
     settings_obj, _created = EmailSettings.objects.get_or_create(tenant=tenant)
     return settings_obj
+
+
+# ============================================================ Muc 16 Phase 1 phan B (Prompt_
+# Muc16_Phase1_ViTri_CauHinhMenu.md) - cau hinh BAT/TAT the menu theo vai tro.
+
+# Cac path menu "cot loi" cua Admin - PUT cho role='admin' luon TU DONG giu lai du body gui len
+# co thieu, tranh Admin tu khoa minh khoi chinh man Cau hinh nay (Lan can bao ve, bat buoc theo
+# prompt). '/settings' la noi chua tab "Cau hinh menu" nay; '/users' de quan tri tai khoan
+# (ke ca khoi phuc quyen truy cap cho cac vai tro khac neu lo cau hinh sai); '/' la Trang chu.
+ADMIN_CORE_MENU_PATHS = ['/settings', '/users', '/']
+
+
+def list_role_menu_config(tenant):
+    """Tra ve {role: [path,...]} CHI cho cac vai tro DA duoc cau hinh rieng trong tenant nay.
+    Vai tro khong co trong dict tra ve = "chua cau hinh" - frontend tu fallback ve mac dinh hien
+    hanh (xem module docstring cua RoleMenuConfig)."""
+    return {c.role: c.menu_keys for c in RoleMenuConfig.objects.filter(tenant=tenant)}
+
+
+def update_role_menu_config(tenant, user, role, menu_keys):
+    """Ghi/cap nhat menu_keys cho 1 vai tro + 1 dong RoleMenuConfigHistory NEU thuc su doi (bo
+    qua neu gui len y het cau hinh dang co - tranh rac lich su). Tra ve (config, da_doi: bool)."""
+    menu_keys = list(dict.fromkeys(menu_keys or []))  # bo trung, giu thu tu nhap
+    if role == 'admin':
+        for path in ADMIN_CORE_MENU_PATHS:
+            if path not in menu_keys:
+                menu_keys.append(path)
+
+    config, created = RoleMenuConfig.objects.get_or_create(
+        tenant=tenant, role=role, defaults={'menu_keys': menu_keys, 'updated_by': user},
+    )
+    old_keys = [] if created else list(config.menu_keys)
+    if not created:
+        if sorted(old_keys) == sorted(menu_keys):
+            return config, False
+        config.menu_keys = menu_keys
+        config.updated_by = user
+        config.save()
+
+    RoleMenuConfigHistory.objects.create(
+        tenant=tenant, changed_by=user, role=role, old_keys=old_keys, new_keys=menu_keys,
+    )
+    return config, True
 
 
 # ============================================================ Nhom 1 muc C/D (Prompt_Nhom1_

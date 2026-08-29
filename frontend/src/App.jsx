@@ -13,6 +13,7 @@ import EvaluationPage from './pages/EvaluationPage'
 import KpiPage from './pages/KpiPage'
 import CommissionPage from './pages/CommissionPage'
 import UsersPage from './pages/UsersPage'
+import PositionsPage from './pages/PositionsPage'
 import DocumentsPage from './pages/DocumentsPage'
 import GuestCouncilPage from './pages/GuestCouncilPage'
 import GuestAttendPage from './pages/GuestAttendPage'
@@ -205,6 +206,16 @@ function App() {
             element={
               <ProtectedRoute roles={['admin']}>
                 <UsersPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* Muc 16 Phase 1 phan A (Prompt_Muc16_Phase1_ViTri_CauHinhMenu.md) - danh muc Vi tri
+              chuc danh, chi Admin. */}
+          <Route
+            path="/positions"
+            element={
+              <ProtectedRoute roles={['admin']}>
+                <PositionsPage />
               </ProtectedRoute>
             }
           />

@@ -257,6 +257,50 @@ class EmailSettings(models.Model):
         return f'EmailSettings({self.tenant_id})'
 
 
+class RoleMenuConfig(models.Model):
+    """Muc 16 Phase 1 phan B (Prompt_Muc16_Phase1_ViTri_CauHinhMenu.md) - BAT/TAT the menu theo
+    vai tro. 1 dong = 1 (tenant, role) DA duoc Admin cau hinh rieng - vai tro CHUA co dong nao
+    o day nghia la "chua cau hinh", frontend tu dung mac dinh hien hanh (config/menu.js::
+    ROLE_MENU + config/adminNav.js) KHONG doi gi (xem accounts.services.list_role_menu_config).
+    `menu_keys` la danh sach DUONG DAN ROUTE (path, vd '/kpi') duoc BAT cho vai tro do - dung
+    path lam khoa vi moi muc menu (ca menu.js lan adminNav.js) da co san path duy nhat, khong
+    can them 1 bo khoa rieng phai dong bo tay giua backend/frontend.
+
+    CHI dieu khien HIEN THI, KHONG noi quyen: mot path co the duoc BAT cho vai tro von khong co
+    trong ProtectedRoute cua route do - the se hien nhung vao se bi chan (xem App.jsx). Xem them
+    accounts.services.ADMIN_CORE_MENU_PATHS (cac path Admin luon duoc giu, tranh tu khoa minh)."""
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='role_menu_configs')
+    role = models.CharField(max_length=20, choices=User.Role.choices)
+    menu_keys = models.JSONField(default=list, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, related_name='+', null=True, blank=True)
+
+    class Meta:
+        unique_together = ('tenant', 'role')
+
+    def __str__(self):
+        return f'RoleMenuConfig({self.tenant_id}, {self.role})'
+
+
+class RoleMenuConfigHistory(models.Model):
+    """1 dong = 1 lan doi menu_keys cua 1 vai tro - xem accounts.services.update_role_menu_config
+    (PUT /api/settings/role-menu/)."""
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='role_menu_config_history')
+    changed_by = models.ForeignKey(User, on_delete=models.SET_NULL, related_name='+', null=True, blank=True)
+    changed_at = models.DateTimeField(auto_now_add=True)
+    role = models.CharField(max_length=20)
+    old_keys = models.JSONField(default=list, blank=True)
+    new_keys = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        ordering = ['-changed_at']
+
+    def __str__(self):
+        return f'{self.tenant_id} - {self.role}: {len(self.old_keys)} -> {len(self.new_keys)} muc'
+
+
 class PushSubscription(models.Model):
     """Nhom 4 (Prompt_Nhom4_PWA_Push.md muc 3) - dang ky web push (PushManager.subscribe() phia
     trinh duyet, xem frontend src/utils/push.js) cho 1 tai khoan da dang nhap. 1 user co the co

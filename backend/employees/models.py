@@ -69,6 +69,37 @@ class Employee(models.Model):
         return f'{self.code} - {self.name}'
 
 
+class Position(models.Model):
+    """Muc 16 Phase 1 phan A (Prompt_Muc16_Phase1_ViTri_CauHinhMenu.md) - danh muc vi tri chuc
+    danh do Admin quan tri, thay the go tay chuoi tu do. CAC FIELD 'position' o Employee/
+    Checklist/dashboard.PositionTarget/dashboard.PositionGroupWeight VAN LA CHUOI TU DO, tham
+    chieu THEO TEN (KHONG doi sang FK o Phase 1 - tranh migration FK lon); Position.name chi la
+    danh muc goi y/quan ly hien thi cho cac dropdown chon vi tri (xem views.py::PositionListView)."""
+
+    class Zone(models.TextChoices):
+        FOH = 'FOH', 'FOH (mặt tiền)'
+        BOH = 'BOH', 'BOH (hậu trường)'
+
+    class LevelGroup(models.TextChoices):
+        S = 'S', 'Nhân viên (S)'
+        O = 'O', 'Giám sát/Quản lý (O)'
+        P = 'P', 'Cấp trung (P)'
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='positions')
+    name = models.CharField(max_length=100)
+    zone = models.CharField(max_length=10, choices=Zone.choices, blank=True)
+    level_group = models.CharField(max_length=10, choices=LevelGroup.choices, blank=True)
+    is_active = models.BooleanField(default=True)
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        unique_together = ('tenant', 'name')
+        ordering = ['order', 'name']
+
+    def __str__(self):
+        return self.name
+
+
 class RecruitmentSource(models.Model):
     """Link CSV nguồn tuyển dụng cấu hình trên giao diện (Cách 3) — 1 dòng/tenant.
     Lệnh sync_recruitment và nút 'Đồng bộ ngay' đọc link từ đây (không cần vào GitHub)."""

@@ -24,6 +24,8 @@ from accounts.views import (
     GradingConfigView,
     PushSubscribeView,
     PushUnsubscribeView,
+    RoleMenuConfigHistoryView,
+    RoleMenuConfigView,
     VapidPublicKeyView,
 )
 
@@ -37,6 +39,13 @@ urlpatterns = [
     path('api/settings/grading/', GradingConfigView.as_view(), name='grading-config'),
     path('api/settings/grading/history/', GradingConfigHistoryView.as_view(), name='grading-config-history'),
     path('api/settings/email/', EmailSettingsView.as_view(), name='email-settings'),
+    # Muc 16 Phase 1 phan B (Prompt_Muc16_Phase1_ViTri_CauHinhMenu.md) - cung nam duoi
+    # /api/settings/ nhu brand/grading/email o tren.
+    path('api/settings/role-menu/', RoleMenuConfigView.as_view(), name='role-menu-config'),
+    path(
+        'api/settings/role-menu/history/', RoleMenuConfigHistoryView.as_view(),
+        name='role-menu-config-history',
+    ),
     # Nhom 4 (Prompt_Nhom4_PWA_Push.md muc 3) - web push, dung "/api/push/" dung nhu prompt.
     path('api/push/vapid-public-key/', VapidPublicKeyView.as_view(), name='push-vapid-public-key'),
     path('api/push/subscribe/', PushSubscribeView.as_view(), name='push-subscribe'),

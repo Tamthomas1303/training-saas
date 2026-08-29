@@ -580,3 +580,61 @@ class PushEndpointsApiTests(TestCase):
         self.client.force_authenticate(self.user)
         self.client.post(reverse('push-unsubscribe'), {'endpoint': 'https://push.example/abc'}, format='json')
         self.assertTrue(PushSubscription.objects.filter(pk=sub.pk).exists())
+
+
+class RoleMenuConfigTests(TestCase):
+    """Muc 16 Phase 1 phan B (Prompt_Muc16_Phase1_ViTri_CauHinhMenu.md) - GET/PUT
+    /api/settings/role-menu/, chi Admin ghi, co lich su, Admin khong tat duoc the cot loi."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.om = User.objects.create_user(username='om1', password='x', tenant=self.tenant, role='om')
+        self.client = APIClient()
+
+    def test_get_returns_empty_map_when_nothing_configured(self):
+        self.client.force_authenticate(self.om)
+        resp = self.client.get(reverse('role-menu-config'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data, {})
+
+    def test_non_admin_cannot_put(self):
+        self.client.force_authenticate(self.om)
+        resp = self.client.put(reverse('role-menu-config'), {'role': 'om', 'menu_keys': []}, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+    def test_admin_can_put_and_get_reflects_override(self):
+        self.client.force_authenticate(self.admin)
+        put_resp = self.client.put(
+            reverse('role-menu-config'), {'role': 'om', 'menu_keys': ['/dashboard', '/kpi']}, format='json',
+        )
+        self.assertEqual(put_resp.status_code, 200)
+        self.assertEqual(sorted(put_resp.data['menu_keys']), ['/dashboard', '/kpi'])
+
+        get_resp = self.client.get(reverse('role-menu-config'))
+        self.assertEqual(sorted(get_resp.data['om']), ['/dashboard', '/kpi'])
+
+    def test_admin_core_paths_always_kept_even_if_omitted(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.put(reverse('role-menu-config'), {'role': 'admin', 'menu_keys': ['/kpi']}, format='json')
+        self.assertEqual(resp.status_code, 200)
+        for path in ('/settings', '/users', '/'):
+            self.assertIn(path, resp.data['menu_keys'])
+        self.assertIn('/kpi', resp.data['menu_keys'])
+
+    def test_put_writes_history_only_on_real_change(self):
+        self.client.force_authenticate(self.admin)
+        self.client.put(reverse('role-menu-config'), {'role': 'om', 'menu_keys': ['/kpi']}, format='json')
+        # Gui lai y het cau hinh dang co - KHONG ghi them lich su.
+        self.client.put(reverse('role-menu-config'), {'role': 'om', 'menu_keys': ['/kpi']}, format='json')
+
+        history_resp = self.client.get(reverse('role-menu-config-history'))
+        self.assertEqual(history_resp.status_code, 200)
+        self.assertEqual(len(history_resp.data), 1)
+        self.assertEqual(history_resp.data[0]['role'], 'om')
+        self.assertEqual(history_resp.data[0]['new_keys'], ['/kpi'])
+
+    def test_invalid_role_rejected(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.put(reverse('role-menu-config'), {'role': 'ceo', 'menu_keys': []}, format='json')
+        self.assertEqual(resp.status_code, 400)

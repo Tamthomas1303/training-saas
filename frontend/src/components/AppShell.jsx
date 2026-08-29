@@ -19,9 +19,12 @@ import UserMenu from './UserMenu'
 // van hanh, chi nhan theme tu dot 1 (mau/font qua bien CSS, khong dung component/CSS moi cua
 // dot nay).
 export default function AppShell({ children }) {
-  const { user, brand, logout } = useAuth()
+  const { user, brand, logout, roleMenuConfig } = useAuth()
   const role = user?.role || ''
-  const menu = getMenuForRole(role)
+  // Muc 16 Phase 1 phan B - path duoc BAT rieng cho vai tro nay (undefined = chua cau hinh,
+  // menu.js/Sidebar tu fallback ve mac dinh hardcode).
+  const overridePaths = roleMenuConfig?.[role.toLowerCase()]
+  const menu = getMenuForRole(role, overridePaths)
   const [collapsed, setCollapsed] = useState(false)
 
   if (isMobileRole(role)) {
@@ -49,7 +52,12 @@ export default function AppShell({ children }) {
 
   return (
     <div className="admin-shell">
-      <Sidebar role={role.toLowerCase()} collapsed={collapsed} onToggleCollapsed={() => setCollapsed((c) => !c)} />
+      <Sidebar
+        role={role.toLowerCase()}
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((c) => !c)}
+        overridePaths={overridePaths}
+      />
       <div className={`admin-shell-main${collapsed ? ' collapsed' : ''}`}>
         <header className="admin-topbar-thin">
           <div className="admin-topbar-thin-brand">

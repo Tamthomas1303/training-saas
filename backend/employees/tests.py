@@ -13,7 +13,7 @@ from accounts.models import Tenant, User
 from checklist.models import Checklist, TrainingProgress
 from cls_sync.models import ExamResult, ExamScoreAdjustment
 from employees.dashboard import _month_end, _s_pass_rate_this_month
-from employees.models import Employee
+from employees.models import Employee, Position
 from employees.services import best_exam_score, change_employee_status, emp_type, exam_pass, recompute_final_result
 from employees.management.commands.import_july_data import (
     Command as ImportJulyDataCommand,
@@ -1991,3 +1991,57 @@ class EmployeeListRouterShadowingRegressionTests(TestCase):
         resp2 = self.client.get('/api/employees/probation-exam-rules/')
         self.assertEqual(resp2.status_code, 200)
         self.assertIn('results', resp2.data)
+
+
+class PositionCatalogTests(TestCase):
+    """Muc 16 Phase 1 phan A (Prompt_Muc16_Phase1_ViTri_CauHinhMenu.md) - CRUD danh muc Vi tri
+    chuc danh (PositionViewSet, prefix 'positions-catalog/') + PositionListView doc tu danh muc
+    khi da co, fallback ve chuoi distinct khi rong."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.trainer = User.objects.create_user(username='trainer1', password='x', tenant=self.tenant, role='trainer')
+        self.client = APIClient()
+
+    def test_any_authenticated_role_can_list(self):
+        Position.objects.create(tenant=self.tenant, name='Phục vụ')
+        self.client.force_authenticate(self.trainer)
+        resp = self.client.get('/api/employees/positions-catalog/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['results'][0]['name'], 'Phục vụ')
+
+    def test_non_admin_cannot_create(self):
+        self.client.force_authenticate(self.trainer)
+        resp = self.client.post('/api/employees/positions-catalog/', {'name': 'Phục vụ'})
+        self.assertEqual(resp.status_code, 403)
+
+    def test_admin_can_create_and_duplicate_name_is_rejected(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post('/api/employees/positions-catalog/', {'name': 'Phục vụ'})
+        self.assertEqual(resp.status_code, 201)
+        dup = self.client.post('/api/employees/positions-catalog/', {'name': 'phục vụ'})
+        self.assertEqual(dup.status_code, 400)
+
+    def test_admin_can_hide_and_edit_position(self):
+        pos = Position.objects.create(tenant=self.tenant, name='Phục vụ')
+        self.client.force_authenticate(self.admin)
+        resp = self.client.patch(f'/api/employees/positions-catalog/{pos.id}/', {'is_active': False})
+        self.assertEqual(resp.status_code, 200)
+        pos.refresh_from_db()
+        self.assertFalse(pos.is_active)
+
+    def test_position_list_view_reads_active_catalog_ordered(self):
+        Position.objects.create(tenant=self.tenant, name='Bếp phó', order=2)
+        Position.objects.create(tenant=self.tenant, name='Phục vụ', order=1)
+        Position.objects.create(tenant=self.tenant, name='Nghỉ dùng', order=0, is_active=False)
+        self.client.force_authenticate(self.trainer)
+        resp = self.client.get('/api/employees/positions/')
+        self.assertEqual(resp.data, ['Phục vụ', 'Bếp phó'])
+
+    def test_position_list_view_falls_back_when_catalog_empty(self):
+        Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1', position='Bếp trưởng')
+        self.client.force_authenticate(self.trainer)
+        resp = self.client.get('/api/employees/positions/')
+        self.assertIn('Bếp trưởng', resp.data)
+        self.assertIn('Quản lý nhà hàng', resp.data)  # vi tri cap O chuan van con trong fallback

@@ -11,10 +11,11 @@ from accounts.pagination import DefaultPagination
 from .dashboard import dashboard_payload
 from .detail import export_probation_result_pdf, student_detail
 from .home import home_payload
-from .models import Employee, OnboardingCourseRule, ProbationExamCandidate, ProbationExamRule
+from .models import Employee, OnboardingCourseRule, Position, ProbationExamCandidate, ProbationExamRule
 from .serializers import (
     EmployeeSerializer,
     OnboardingCourseRuleSerializer,
+    PositionSerializer,
     ProbationExamCandidateSerializer,
     ProbationExamRuleSerializer,
 )
@@ -167,13 +168,20 @@ class EmployeeViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
 
 
 class PositionListView(APIView):
-    """GET /api/employees/positions/ — danh sách vị trí gợi ý (chọn khi thêm nhân sự), gộp từ
-    Checklist + Employee của tenant + các vị trí cấp O chuẩn. Tránh gõ tay sai chính tả."""
+    """GET /api/employees/positions/ — danh sách vị trí gợi ý (chọn khi thêm nhân sự/checklist/
+    khung năng lực). Muc 16 Phase 1 (Prompt_Muc16_Phase1_ViTri_CauHinhMenu.md phan A): uu tien
+    doc tu danh muc Position (active, theo order/ten) - tenant CHUA co ban ghi nao (danh muc
+    rong, vd tenant moi truoc khi seed/tao Position dau tien) -> fallback ve cach cu (gop chuoi
+    distinct tu Checklist + Employee + vi tri cap O chuan) de KHONG vo hanh vi hien tai."""
 
     def get(self, request):
+        tenant = request.user.tenant
+        catalog = Position.objects.filter(tenant=tenant, is_active=True)
+        if catalog.exists():
+            return Response(list(catalog.values_list('name', flat=True)))
+
         from checklist.models import Checklist
 
-        tenant = request.user.tenant
         positions = set(
             Checklist.objects.filter(tenant=tenant).exclude(position='').values_list('position', flat=True)
         )
@@ -183,6 +191,24 @@ class PositionListView(APIView):
         for std in ('Quản lý nhà hàng', 'Giám sát', 'Bếp trưởng', 'Bếp phó'):
             positions.add(std)
         return Response(sorted(positions))
+
+
+class PositionViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
+    """CRUD danh muc Vi tri chuc danh (Muc 16 Phase 1 phan A). Moi tai khoan da dang nhap DOC
+    duoc (dropdown chon vi tri); chi Admin GHI (them/sua/an/doi thu tu)."""
+
+    serializer_class = PositionSerializer
+    queryset = Position.objects.all()
+    pagination_class = DefaultPagination
+    search_fields = ['name']
+    ordering = ['order', 'name']
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.method not in ('GET', 'HEAD', 'OPTIONS') and (request.user.role or '').lower() != 'admin':
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied('Chỉ Admin được quản trị danh mục vị trí.')
 
 
 def _require_data_admin(request):

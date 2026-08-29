@@ -18,6 +18,7 @@ from .serializers import (
     EmailSettingsSerializer,
     GradingConfigHistorySerializer,
     GradingConfigSerializer,
+    RoleMenuConfigHistorySerializer,
     TenantAwareTokenObtainPairSerializer,
     UserAdminSerializer,
     UserSerializer,
@@ -27,9 +28,11 @@ from .services import (
     check_user_deletable,
     get_email_settings,
     get_grading_config,
+    list_role_menu_config,
     reset_user_password,
     restore_user,
     update_grading_config,
+    update_role_menu_config,
 )
 
 
@@ -150,6 +153,36 @@ class EmailSettingsView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+
+class RoleMenuConfigView(APIView):
+    """GET/PUT /api/settings/role-menu/ — Muc 16 Phase 1 phan B: BAT/TAT the menu theo vai tro.
+    GET: bat ky tai khoan da dang nhap - tra ve {role: [path,...]} CHI cho cac vai tro DA cau
+    hinh rieng (vai tro vang mat = "chua cau hinh", frontend tu fallback ve mac dinh hien hanh).
+    PUT: chi Admin. Body {role, menu_keys: [path,...]}."""
+
+    def get(self, request):
+        return Response(list_role_menu_config(request.user.tenant))
+
+    def put(self, request):
+        _require_admin(request)
+        role = (request.data.get('role') or '').strip().lower()
+        if role not in dict(User.Role.choices):
+            return Response({'detail': 'Vai trò không hợp lệ.'}, status=400)
+        menu_keys = request.data.get('menu_keys')
+        if not isinstance(menu_keys, list):
+            return Response({'detail': 'menu_keys phải là danh sách đường dẫn.'}, status=400)
+        config, changed = update_role_menu_config(request.user.tenant, request.user, role, menu_keys)
+        return Response({'role': config.role, 'menu_keys': config.menu_keys, 'changed': changed})
+
+
+class RoleMenuConfigHistoryView(APIView):
+    """GET /api/settings/role-menu/history/ — lich su thay doi cau hinh menu (50 dong gan nhat)."""
+
+    def get(self, request):
+        _require_admin(request)
+        rows = request.user.tenant.role_menu_config_history.select_related('changed_by')[:50]
+        return Response(RoleMenuConfigHistorySerializer(rows, many=True).data)
 
 
 class ChangeAvatarView(APIView):

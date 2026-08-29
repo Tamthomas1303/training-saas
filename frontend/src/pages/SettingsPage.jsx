@@ -7,6 +7,7 @@ import { useAuth } from '../auth/AuthContext'
 import { applyBrand } from '../utils/color'
 import { BRAND_COLORS } from '../config/brandColors'
 import { compressImageFile } from '../utils/compressImage'
+import { ADMIN_CORE_MENU_PATHS, CONFIGURABLE_ROLES, MENU_CATALOG, isEnabledByDefault } from '../config/menuCatalog'
 import { DashboardConfigContent } from './DashboardConfigPage'
 import * as s from './listPageStyles'
 
@@ -18,6 +19,8 @@ const TABS = [
   { key: 'email', label: 'Cấu hình Email' },
   { key: 'grading', label: 'Cấu hình thang đánh giá & công thức' },
   { key: 'dashboard', label: 'Cấu hình Dashboard' },
+  // Muc 16 Phase 1 phan B (Prompt_Muc16_Phase1_ViTri_CauHinhMenu.md).
+  { key: 'role-menu', label: 'Cấu hình menu theo vai trò' },
 ]
 
 function TabButton({ active, onClick, children }) {
@@ -387,6 +390,125 @@ function GradingTab() {
   )
 }
 
+function RoleMenuTab() {
+  const { setRoleMenuConfig } = useAuth()
+  // overrides: {role: [path,...]} CHI cho vai tro DA cau hinh rieng (tu API) - vai tro vang mat
+  // dung mac dinh tinh boi isEnabledByDefault (xem config/menuCatalog.js).
+  const [overrides, setOverrides] = useState(null)
+  const [history, setHistory] = useState([])
+  const [saving, setSaving] = useState('')
+  const [msg, setMsg] = useState('')
+
+  function load() {
+    api.get('/settings/role-menu/').then(({ data }) => setOverrides(data || {})).catch(() => setOverrides({}))
+    api.get('/settings/role-menu/history/').then(({ data }) => setHistory(Array.isArray(data) ? data : [])).catch(() => {})
+  }
+  useEffect(load, [])
+
+  function isEnabled(role, path) {
+    const rowsForRole = overrides?.[role]
+    if (rowsForRole) return rowsForRole.includes(path)
+    return isEnabledByDefault(role, path)
+  }
+
+  async function toggle(role, path) {
+    // Cau hinh phai luu CA danh sach (menu_keys), khong phai 1 co bat/tat rieng le - neu vai tro
+    // nay CHUA co override, xuat phat tu toan bo tap mac dinh hien tai (khong chi 1 muc) roi moi
+    // dao trang thai dung path vua bam, tranh vo tinh xoa mat cac muc mac dinh khac.
+    const current = overrides?.[role] || MENU_CATALOG.filter((m) => isEnabledByDefault(role, m.path)).map((m) => m.path)
+    const next = current.includes(path) ? current.filter((p) => p !== path) : [...current, path]
+
+    setSaving(`${role}:${path}`)
+    setMsg('')
+    try {
+      const { data } = await api.put('/settings/role-menu/', { role, menu_keys: next })
+      const updated = { ...(overrides || {}), [role]: data.menu_keys }
+      setOverrides(updated)
+      setRoleMenuConfig(updated)
+      api.get('/settings/role-menu/history/').then(({ data: h }) => setHistory(Array.isArray(h) ? h : [])).catch(() => {})
+    } catch (err) {
+      setMsg(err.response?.data?.detail || 'Không lưu được cấu hình.')
+    } finally {
+      setSaving('')
+    }
+  }
+
+  if (!overrides) return <p className="muted-note">Đang tải...</p>
+
+  return (
+    <>
+      <div className="card" style={{ marginBottom: 16 }}>
+        <h3 style={{ marginTop: 0 }}>Cấu hình menu theo vai trò</h3>
+        <p className="muted-note">
+          Bật/tắt các thẻ menu hiển thị cho từng vai trò. Đây CHỈ là cấu hình hiển thị — bật một
+          thẻ không cấp thêm quyền: nếu vai trò đó vốn không có quyền vào màn tương ứng, thẻ sẽ
+          hiện nhưng truy cập vẫn bị chặn như bình thường. Các thẻ cốt lõi của Admin (đánh dấu 🔒)
+          luôn được giữ để tránh Admin tự khóa mình khỏi màn Cài đặt này.
+        </p>
+        {msg && <p style={{ color: 'var(--danger)' }}>{msg}</p>}
+        <div className="table-sticky">
+          <Table>
+            <thead>
+              <tr>
+                <th>Thẻ / Chức năng</th>
+                {CONFIGURABLE_ROLES.map((r) => (
+                  <th key={r.value} style={{ textAlign: 'center' }}>{r.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {MENU_CATALOG.map((m) => (
+                <tr key={m.path}>
+                  <td>{m.label} <span className="muted-note" style={{ fontSize: 11 }}>{m.path}</span></td>
+                  {CONFIGURABLE_ROLES.map((r) => {
+                    const locked = r.value === 'admin' && ADMIN_CORE_MENU_PATHS.includes(m.path)
+                    const checked = locked || isEnabled(r.value, m.path)
+                    return (
+                      <td key={r.value} style={{ textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={locked || saving === `${r.value}:${m.path}`}
+                          title={locked ? 'Thẻ cốt lõi của Admin - luôn bật' : ''}
+                          onChange={() => toggle(r.value, m.path)}
+                        />
+                        {locked && ' 🔒'}
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        </div>
+      </div>
+
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>Lịch sử thay đổi</h3>
+        {history.length === 0 && <p className="muted-note">Chưa có thay đổi nào.</p>}
+        {history.length > 0 && (
+          <Table>
+            <thead>
+              <tr><th>Thời gian</th><th>Người đổi</th><th>Vai trò</th><th>Số thẻ trước</th><th>Số thẻ sau</th></tr>
+            </thead>
+            <tbody>
+              {history.map((row) => (
+                <tr key={row.id}>
+                  <td>{new Date(row.changed_at).toLocaleString('vi-VN')}</td>
+                  <td>{row.changed_by_name || '—'}</td>
+                  <td>{CONFIGURABLE_ROLES.find((r) => r.value === row.role)?.label || row.role}</td>
+                  <td>{row.old_keys.length}</td>
+                  <td>{row.new_keys.length}</td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </div>
+    </>
+  )
+}
+
 export default function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = TABS.some((t) => t.key === searchParams.get('tab')) ? searchParams.get('tab') : 'general'
@@ -408,6 +530,7 @@ export default function SettingsPage() {
       {tab === 'email' && <EmailTab />}
       {tab === 'grading' && <GradingTab />}
       {tab === 'dashboard' && <DashboardConfigContent />}
+      {tab === 'role-menu' && <RoleMenuTab />}
     </AppShell>
   )
 }

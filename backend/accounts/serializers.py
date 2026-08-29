@@ -1,7 +1,14 @@
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-from .models import BrandSettings, EmailSettings, GradingConfig, GradingConfigHistory, User
+from .models import (
+    BrandSettings,
+    EmailSettings,
+    GradingConfig,
+    GradingConfigHistory,
+    RoleMenuConfigHistory,
+    User,
+)
 
 DEFAULT_PASSWORD = 'Anhminh@12345'
 
@@ -133,6 +140,14 @@ class GradingConfigHistorySerializer(serializers.ModelSerializer):
     class Meta:
         model = GradingConfigHistory
         fields = ['id', 'changed_at', 'changed_by_name', 'field', 'old_value', 'new_value']
+
+
+class RoleMenuConfigHistorySerializer(serializers.ModelSerializer):
+    changed_by_name = serializers.CharField(source='changed_by.full_name', read_only=True, default='')
+
+    class Meta:
+        model = RoleMenuConfigHistory
+        fields = ['id', 'changed_at', 'changed_by_name', 'role', 'old_keys', 'new_keys']
 
 
 class EmailSettingsSerializer(serializers.ModelSerializer):

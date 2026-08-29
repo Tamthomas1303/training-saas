@@ -33,6 +33,7 @@ from .views import (
     TalentPoolListView,
     TalentReviewView,
     PositionListView,
+    PositionViewSet,
     StudentOfficeResultView,
     RecruitmentImportFileView,
     RecruitmentSourceView,
@@ -68,6 +69,10 @@ automation_router.register(
 automation_router.register(
     'probation-exam-rules', ProbationExamRuleViewSet, basename='probation-exam-rule',
 )
+# Muc 16 Phase 1 phan A - CRUD danh muc Vi tri chuc danh. Prefix 'positions-catalog' (KHAC
+# 'positions/' o duoi - PositionListView, endpoint doc-only gop chuoi goi y da dung tu truoc,
+# giu nguyen contract cu cho 5 noi frontend dang goi) de tranh dam path.
+automation_router.register('positions-catalog', PositionViewSet, basename='position')
 
 urlpatterns = [
     path('automation-settings/', AutomationSettingsView.as_view(), name='automation-settings'),

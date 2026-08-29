@@ -3,8 +3,16 @@ import { Link, useLocation } from 'react-router-dom'
 import { ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { ADMIN_NAV } from '../config/adminNav'
 
-function itemsForRole(items, role) {
-  return (items || []).filter((it) => it.roles.includes(role))
+// Muc 16 Phase 1 phan B - `overridePaths` (tu RoleMenuConfig, xem AuthContext) khi co thi THAY
+// THE hoan toan bo loc `roles` mac dinh (cho phep BAT muc ngoai roles goc - chi doi hien thi,
+// ProtectedRoute van chan quyen that su). Khong truyen -> giu dung hanh vi cu.
+function itemsForRole(items, role, overridePaths) {
+  const list = items || []
+  if (overridePaths) {
+    const allowed = new Set(overridePaths)
+    return list.filter((it) => allowed.has(it.path))
+  }
+  return list.filter((it) => it.roles.includes(role))
 }
 
 function isItemActive(pathname, path) {
@@ -17,12 +25,15 @@ function isItemActive(pathname, path) {
 // that su, sidebar chi la lop hien thi.
 // `collapsed`/`onToggleCollapsed` do AppShell giu (khong tu quan ly o day) de con dieu chinh
 // margin-left cua noi dung chinh theo dung do rong sidebar hien tai.
-export default function Sidebar({ role, collapsed, onToggleCollapsed }) {
+export default function Sidebar({ role, collapsed, onToggleCollapsed, overridePaths }) {
   const location = useLocation()
 
-  const groups = ADMIN_NAV.filter((g) => g.path || itemsForRole(g.items, role).length > 0)
+  const groups = ADMIN_NAV.filter((g) => {
+    if (g.path) return overridePaths ? overridePaths.includes(g.path) : true
+    return itemsForRole(g.items, role, overridePaths).length > 0
+  })
   const activeGroupKey = groups.find(
-    (g) => !g.path && itemsForRole(g.items, role).some((it) => isItemActive(location.pathname, it.path)),
+    (g) => !g.path && itemsForRole(g.items, role, overridePaths).some((it) => isItemActive(location.pathname, it.path)),
   )?.key
   const [openGroups, setOpenGroups] = useState(() => new Set(activeGroupKey ? [activeGroupKey] : []))
 
@@ -69,7 +80,7 @@ export default function Sidebar({ role, collapsed, onToggleCollapsed }) {
             )
           }
 
-          const items = itemsForRole(g.items, role)
+          const items = itemsForRole(g.items, role, overridePaths)
           const isOpen = !collapsed && openGroups.has(g.key)
           return (
             <div key={g.key} className="admin-sidebar-group">

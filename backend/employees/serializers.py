@@ -8,6 +8,7 @@ from .models import (
     Employee,
     LevelUpEnrollment,
     OnboardingCourseRule,
+    Position,
     ProbationExamCandidate,
     ProbationExamRule,
 )
@@ -147,6 +148,27 @@ class AutomationSettingsSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
         read_only_fields = ['updated_at']
+
+
+class PositionSerializer(serializers.ModelSerializer):
+    """Muc 16 Phase 1 phan A - danh muc Vi tri chuc danh."""
+
+    class Meta:
+        model = Position
+        fields = ['id', 'name', 'zone', 'level_group', 'is_active', 'order']
+
+    def validate_name(self, value):
+        value = (value or '').strip()
+        if not value:
+            raise serializers.ValidationError('Tên vị trí không được để trống.')
+        request = self.context.get('request')
+        tenant = getattr(request.user, 'tenant', None) if request else None
+        qs = Position.objects.filter(tenant=tenant, name__iexact=value)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if tenant and qs.exists():
+            raise serializers.ValidationError('Vị trí này đã tồn tại.')
+        return value
 
 
 class OnboardingCourseRuleSerializer(serializers.ModelSerializer):

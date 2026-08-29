@@ -43,7 +43,7 @@ const MOBILE_ROLES = new Set(['trainer', 'bql', 'am', 'kcs', 'employee'])
 // M3 — Card Nesting: các chức năng theo vòng đời đào tạo (nhân sự mới / thăng tiến / nguồn / cấp
 // trung) gom vào "Trung tâm" (hub, thẻ cha → thẻ con). Thanh nav phẳng chỉ giữ hub + các mục
 // tiện ích toàn cục (dashboard/home, KPI, phụ cấp, tài liệu, người dùng).
-const ROLE_MENU = {
+export const ROLE_MENU = {
   admin: [
     'hub', 'dashboard', 'kpi', 'commission', 'documents', 'users', 'reports',
     'coursesAdmin', 'examBanks', 'examsAdmin', 'examSessions', 'examGrading', 'certTemplates',
@@ -71,7 +71,18 @@ export function isMobileRole(role) {
   return MOBILE_ROLES.has((role || '').toLowerCase())
 }
 
-export function getMenuForRole(role) {
+// Muc 16 Phase 1 phan B (Prompt_Muc16_Phase1_ViTri_CauHinhMenu.md) - `overridePaths` (mang cac
+// route path duoc BAT, tu RoleMenuConfig - xem AuthContext) la TUY CHON: khong truyen/undefined
+// -> giu dung ROLE_MENU hardcode nhu truoc (fallback khi chua cau hinh). Co truyen -> loc theo
+// path, cho phep BAT ca muc ngoai ROLE_MENU mac dinh cua vai tro (chi doi HIEN THI, ProtectedRoute
+// van la lop chan quyen that su - xem App.jsx).
+export function getMenuForRole(role, overridePaths) {
   const keys = ROLE_MENU[(role || '').toLowerCase()] || ROLE_MENU.trainer
-  return keys.map((key) => ({ key, ...MENU_ITEMS[key] }))
+  if (!overridePaths) {
+    return keys.map((key) => ({ key, ...MENU_ITEMS[key] }))
+  }
+  const allowed = new Set(overridePaths)
+  return Object.entries(MENU_ITEMS)
+    .filter(([, item]) => allowed.has(item.path))
+    .map(([key, item]) => ({ key, ...item }))
 }

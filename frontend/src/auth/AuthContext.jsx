@@ -17,9 +17,25 @@ function loadBrand(setBrand) {
     .catch(() => {})
 }
 
+// Muc 16 Phase 1 phan B (Prompt_Muc16_Phase1_ViTri_CauHinhMenu.md) - tai {role: [path bat,...]}
+// CHI cho cac vai tro DA duoc Admin cau hinh rieng; vai tro vang mat = "chua cau hinh", cac noi
+// doc (AppShell/Sidebar/config/menu.js) tu fallback ve mac dinh hardcode hien hanh, KHONG doi
+// hanh vi. Tai khoan hoc vien (role='employee') co pham vi API rieng (xem accounts.permissions.
+// EmployeeLearnerScope) - khong goi duoc endpoint nay, menu cua ho la danh sach co dinh.
+function loadRoleMenuConfig(role, setRoleMenuConfig) {
+  if ((role || '').toLowerCase() === 'employee') {
+    setRoleMenuConfig({})
+    return
+  }
+  api.get('/settings/role-menu/')
+    .then(({ data }) => setRoleMenuConfig(data || {}))
+    .catch(() => setRoleMenuConfig({}))
+}
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [brand, setBrand] = useState(null)
+  const [roleMenuConfig, setRoleMenuConfig] = useState({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -30,7 +46,11 @@ export function AuthProvider({ children }) {
     }
     api
       .get('/auth/me/')
-      .then(({ data }) => { setUser(data); loadBrand(setBrand) })
+      .then(({ data }) => {
+        setUser(data)
+        loadBrand(setBrand)
+        loadRoleMenuConfig(data.role, setRoleMenuConfig)
+      })
       .catch(() => {
         localStorage.removeItem('access_token')
         localStorage.removeItem('refresh_token')
@@ -44,6 +64,7 @@ export function AuthProvider({ children }) {
     localStorage.setItem('refresh_token', data.refresh)
     setUser(data.user)
     loadBrand(setBrand)
+    loadRoleMenuConfig(data.user.role, setRoleMenuConfig)
     return data.user
   }
 
@@ -54,7 +75,9 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, brand, loading, login, logout, setUser, setBrand }}>
+    <AuthContext.Provider
+      value={{ user, brand, roleMenuConfig, loading, login, logout, setUser, setBrand, setRoleMenuConfig }}
+    >
       {children}
     </AuthContext.Provider>
   )
