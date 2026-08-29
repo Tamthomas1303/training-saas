@@ -52,14 +52,15 @@ const ROLE_MENU = {
     'dashboardOverview',
   ],
   om: [
-    'hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'reports', 'examGrading',
+    'hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'reports',
     'employee360', 'dashboardOverview',
   ],
   bod: ['hub', 'dashboard', 'kpi', 'kpiDashboard', 'commission', 'documents', 'employee360', 'dashboardOverview'],
-  am: ['hub', 'home', 'kpi', 'documents', 'examGrading'],
-  kcs: ['hub', 'home', 'kpi', 'documents', 'examGrading'],
-  bql: ['hub', 'home', 'kpi', 'documents', 'examGrading'],
-  trainer: ['hub', 'home', 'documents', 'probationExamApproval'],
+  am: ['hub', 'home', 'kpi', 'documents'],
+  kcs: ['hub', 'home', 'kpi', 'documents'],
+  bql: ['hub', 'home', 'kpi', 'documents'],
+  // Prompt_Fix_DotA_29.08.md muc 5: "Cham bai" chi con Admin + Trainer (nhan su phong dao tao).
+  trainer: ['hub', 'home', 'documents', 'probationExamApproval', 'examGrading'],
   // Tai khoan hoc vien (module Khoa hoc/Ky thi/Noi he thong, MVP dot 1-3) - pham vi API chi
   // /api/courses/, /api/exams/, /api/integration/ + /api/auth/me (xem
   // accounts.permissions.EmployeeLearnerScope), nen menu CHI co 3 muc de tranh mo trang khac

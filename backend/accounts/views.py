@@ -1,3 +1,5 @@
+import re
+
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -38,6 +40,18 @@ def _require_admin(request):
         raise PermissionDenied('Chỉ Admin được thao tác Cài đặt.')
 
 
+# Prompt_Fix_DotA_29.08.md muc 3 - link Google Drive dang share ".../file/d/<ID>/view?..." KHONG
+# phai URL anh truc tiep nen <img> khong tai duoc; tu dong chuyen sang dang "uc?export=view&id=".
+_DRIVE_FILE_RE = re.compile(r'drive\.google\.com/file/d/([^/]+)')
+
+
+def _normalize_logo_url(url):
+    match = _DRIVE_FILE_RE.search(url)
+    if not match:
+        return url
+    return f'https://drive.google.com/uc?export=view&id={match.group(1)}'
+
+
 class LoginView(TokenObtainPairView):
     serializer_class = TenantAwareTokenObtainPairSerializer
 
@@ -63,10 +77,27 @@ class BrandSettingsView(APIView):
 
     def put(self, request):
         """PUT — chi Admin. Tao/cap nhat ban ghi BrandSettings cua tenant (khac GET, o day
-        THUC SU tao ban ghi trong DB de luu duoc gia tri da chinh)."""
+        THUC SU tao ban ghi trong DB de luu duoc gia tri da chinh).
+        Prompt_Fix_DotA_29.08.md muc 3: logo_url gui len co the la (a) data URL (anh upload tu may -
+        uu tien, dung lai storage nhu ChangeAvatarView), (b) link Google Drive dang share ("view") -
+        tu chuyen sang dang nhung truc tiep, hoac (c) URL thuong - giu nguyen."""
         _require_admin(request)
+        from checklist.storage import StorageError, is_data_url, upload_data_url
+
         settings_obj, _created = BrandSettings.objects.get_or_create(tenant=request.user.tenant)
-        serializer = BrandSettingsSerializer(settings_obj, data=request.data, partial=True)
+        data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+        logo_url = (data.get('logo_url') or '').strip()
+        if logo_url and is_data_url(logo_url):
+            try:
+                data['logo_url'] = upload_data_url(
+                    logo_url, f'brand-logo/{request.user.tenant_id}', f'logo_{request.user.tenant_id}',
+                )
+            except StorageError as exc:
+                return Response({'detail': str(exc)}, status=400)
+        elif logo_url:
+            data['logo_url'] = _normalize_logo_url(logo_url)
+
+        serializer = BrandSettingsSerializer(settings_obj, data=data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
@@ -208,7 +239,10 @@ class UserViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
     luu tru"). Muc C/D con them 3 action rieng: reset-password/archive/restore (huong duoi)."""
 
     serializer_class = UserAdminSerializer
-    queryset = User.objects.select_related('restaurant').all()
+    # Prompt_Fix_DotA_29.08.md muc 6 (#17b/#17c) - select_related them 'employee'/'employee__
+    # restaurant' de UserAdminSerializer.get_restaurant_name/get_position doc ho so nhan su lien
+    # ket khong bi N+1 query tren danh sach.
+    queryset = User.objects.select_related('restaurant', 'employee', 'employee__restaurant').all()
     pagination_class = DefaultPagination
     filterset_fields = ['role', 'status', 'restaurant']
     search_fields = ['username', 'full_name']

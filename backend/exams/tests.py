@@ -1641,12 +1641,25 @@ class A4EvidenceViewingTests(ProctoringBaseTestCase):
         self.assertEqual(timeline_resp.data['proctors'], [])
 
     def test_non_evaluator_cannot_view_timeline(self):
+        # Prompt_Fix_DotA_29.08.md muc 5: "Cham bai" (bao gom xem bang chung proctoring) tu 29/08
+        # chi con Admin + Trainer - dung 'om' lam vi du KHONG con quyen (truoc do om duoc phep,
+        # nay bi thu hep), thay vi 'trainer' (nay DA duoc phep, khong con la vi du "non-evaluator").
+        resp = self._start()
+        attempt_id = resp.data['attempt_id']
+        om_user = User.objects.create_user(username='om1', password='x', tenant=self.tenant, role='om')
+        self.client.force_authenticate(om_user)
+        timeline_resp = self.client.get(reverse('exam-attempt-proctoring', args=[attempt_id]))
+        self.assertEqual(timeline_resp.status_code, 403)
+
+    def test_trainer_can_view_timeline(self):
+        # Prompt_Fix_DotA_29.08.md muc 5: Trainer (nhan su phong dao tao) la 1 trong 2 vai tro
+        # duy nhat con lai duoc "Cham bai" - phai xem duoc bang chung proctoring.
         resp = self._start()
         attempt_id = resp.data['attempt_id']
         trainer = User.objects.create_user(username='trainer1', password='x', tenant=self.tenant, role='trainer')
         self.client.force_authenticate(trainer)
         timeline_resp = self.client.get(reverse('exam-attempt-proctoring', args=[attempt_id]))
-        self.assertEqual(timeline_resp.status_code, 403)
+        self.assertEqual(timeline_resp.status_code, 200)
 
     def test_evaluator_can_flag_and_unflag_attempt(self):
         resp = self._start()

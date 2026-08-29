@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import AppShell from '../components/AppShell'
 import Table from '../components/Table'
@@ -6,6 +6,7 @@ import api from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { applyBrand } from '../utils/color'
 import { BRAND_COLORS } from '../config/brandColors'
+import { compressImageFile } from '../utils/compressImage'
 import { DashboardConfigContent } from './DashboardConfigPage'
 import * as s from './listPageStyles'
 
@@ -37,6 +38,7 @@ function GeneralTab() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
+  const logoFileRef = useRef(null)
 
   useEffect(() => {
     api.get('/settings/brand/')
@@ -68,6 +70,26 @@ function GeneralTab() {
     }
   }
 
+  async function uploadLogoFile(e) {
+    const file = e.target.files[0]
+    e.target.value = ''
+    if (!file) return
+    setSaving(true)
+    setMsg('')
+    try {
+      const dataUrl = await compressImageFile(file)
+      const { data } = await api.put('/settings/brand/', { ...form, logo_url: dataUrl })
+      setForm((f) => ({ ...f, logo_url: data.logo_url }))
+      applyBrand(data.brand_hex)
+      setBrand(data)
+      setMsg('Đã tải logo lên và lưu.')
+    } catch (err) {
+      setMsg(err.response?.data?.detail || 'Tải logo lên thất bại.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (loading) return <p className="muted-note">Đang tải...</p>
 
   return (
@@ -78,10 +100,22 @@ function GeneralTab() {
           Tên hệ thống
           <input style={{ ...s.input, width: '100%' }} value={form.system_name} onChange={(e) => set('system_name', e.target.value)} />
         </label>
-        <label>
-          Logo (URL)
-          <input style={{ ...s.input, width: '100%' }} value={form.logo_url} onChange={(e) => set('logo_url', e.target.value)} placeholder="https://..." />
-        </label>
+        <div>
+          <div style={{ marginBottom: 6 }}>Logo</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+            {form.logo_url && (
+              <img src={form.logo_url} alt="Logo" style={{ height: 40, maxWidth: 120, objectFit: 'contain', border: '1px solid var(--card-border)', borderRadius: 6, background: '#fff' }} />
+            )}
+            <button type="button" className="btn-outline btn-sm" onClick={() => logoFileRef.current?.click()} disabled={saving}>
+              Tải logo lên
+            </button>
+            <input ref={logoFileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={uploadLogoFile} />
+          </div>
+          <label>
+            Hoặc dán URL logo (link Google Drive dạng chia sẻ sẽ tự chuyển sang link nhúng được)
+            <input style={{ ...s.input, width: '100%' }} value={form.logo_url} onChange={(e) => set('logo_url', e.target.value)} placeholder="https://..." />
+          </label>
+        </div>
         <label>
           Favicon (URL)
           <input style={{ ...s.input, width: '100%' }} value={form.favicon_url} onChange={(e) => set('favicon_url', e.target.value)} placeholder="https://..." />

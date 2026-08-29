@@ -67,7 +67,9 @@ function HomeRouter() {
   return isMobileRole(user.role) ? <HomePage /> : <DashboardPage />
 }
 
-// #1: LẦN ĐẦU truy cập hệ thống (mở tab mới / vào lại sau khi đóng) → ép về Dashboard.
+// #1 (sua o Prompt_Fix_DotA_29.08.md muc 2): LAN DAU truy cap he thong (mo tab moi / vao lai sau
+// khi dong) -> ep ve [Trang chu] ('/'), KHONG phai Dashboard ('/dashboard' - van con nguyen
+// trong nhom [Quan ly bao cao], chi khong con la trang mac dinh sau dang nhap).
 // Refresh khi đang làm việc (cùng tab) thì GIỮ trang hiện tại — dùng sessionStorage (sống qua
 // refresh trong 1 tab, mất khi đóng tab / mở tab mới). Không đụng các trang công khai (guest).
 const PUBLIC_PREFIXES = ['/login', '/council-guest', '/attend', '/event', '/set-password']
@@ -80,7 +82,7 @@ function InitialRedirect() {
     if (sessionStorage.getItem('entered')) return
     sessionStorage.setItem('entered', '1')
     if (PUBLIC_PREFIXES.some((p) => location.pathname.startsWith(p))) return
-    navigate('/dashboard', { replace: true })
+    navigate('/', { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, loading])
   return null
@@ -351,7 +353,8 @@ function App() {
           <Route
             path="/exam-grading"
             element={
-              <ProtectedRoute roles={['admin', 'om', 'am', 'kcs', 'bql']}>
+              // Prompt_Fix_DotA_29.08.md muc 5: chi con Admin + Trainer (phong dao tao).
+              <ProtectedRoute roles={['admin', 'trainer']}>
                 <ExamGradingPage />
               </ProtectedRoute>
             }

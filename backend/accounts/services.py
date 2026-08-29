@@ -159,7 +159,7 @@ def _user_delete_blockers():
     from checklist.models import TrainingProgress
     from courses.models import Enrollment
     from employees.models import Employee, LevelUpEnrollment, TalentReview
-    from evaluation.models import Evaluation
+    from evaluation.models import CouncilMember, Evaluation
     from exams.models import AssessmentAssignment, Answer
     from kpi.models import Commission, KpiSession
 
@@ -174,6 +174,11 @@ def _user_delete_blockers():
         (LevelUpEnrollment, 'registered_by', 'đã đăng ký lộ trình thăng tiến'),
         (Enrollment, 'assigned_by', 'đã gán khóa học'),
         (AssessmentAssignment, 'assigned_by', 'đã gán đề thi'),
+        # Prompt_Fix_DotA_29.08.md muc 6 (#17d) - phat hien khi ra soat lai: CouncilMember.user la
+        # on_delete=CASCADE (khac cac truong con lai deu SET_NULL) - neu KHONG chan, xoa cung se
+        # xoa luon ban ghi thanh vien hoi dong (diem da cham cap O) ma KHONG bao truoc, mat du lieu
+        # danh gia thay vi chi mat "ai la nguoi thao tac" nhu cac truong audit khac.
+        (CouncilMember, 'user', 'là thành viên hội đồng đánh giá cấp O'),
     ]
 
 

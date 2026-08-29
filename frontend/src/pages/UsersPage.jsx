@@ -143,6 +143,12 @@ export default function UsersPage() {
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [deleteError, setDeleteError] = useState('')
   const [deleting, setDeleting] = useState(false)
+  // Prompt_Fix_DotA_29.08.md muc 6 (#17a) - chon nhieu dong -> Luu tru/Xoa cac muc da chon.
+  const [selectedIds, setSelectedIds] = useState([])
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+  const [bulkDeleteConfirmText, setBulkDeleteConfirmText] = useState('')
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkResultMsg, setBulkResultMsg] = useState('')
 
   const { data: restaurantOptions } = usePaginatedList('/restaurants/', { page_size: 100 })
 
@@ -151,6 +157,10 @@ export default function UsersPage() {
     page, page_size: PAGE_SIZE, refreshKey,
   }
   const { data, loading, error } = usePaginatedList('/auth/users/', params)
+
+  useEffect(() => {
+    setSelectedIds([])
+  }, [search, role, page, showArchived, refreshKey])
 
   function onFilterChange(setter) {
     return (e) => {
@@ -287,6 +297,65 @@ export default function UsersPage() {
     }
   }
 
+  function toggleSelectOne(id) {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+
+  function toggleSelectAll() {
+    const pageIds = data.results.map((u) => u.id)
+    const allSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.includes(id))
+    setSelectedIds(allSelected ? [] : pageIds)
+  }
+
+  const selectedUsers = data.results.filter((u) => selectedIds.includes(u.id))
+
+  async function bulkArchiveSelected() {
+    setBulkBusy(true)
+    setBulkResultMsg('')
+    let ok = 0
+    for (const u of selectedUsers.filter((x) => !x.archived_at)) {
+      try {
+        await api.post(`/auth/users/${u.id}/archive/`)
+        ok += 1
+      } catch {
+        // bo qua, van tiep tuc voi cac tai khoan con lai
+      }
+    }
+    setBulkBusy(false)
+    setBulkResultMsg(`Đã lưu trữ ${ok}/${selectedUsers.length} tài khoản.`)
+    setSelectedIds([])
+    setRefreshKey((k) => k + 1)
+  }
+
+  function openBulkDelete() {
+    setBulkDeleteConfirmText('')
+    setBulkResultMsg('')
+    setBulkDeleteOpen(true)
+  }
+
+  async function confirmBulkDelete() {
+    setBulkBusy(true)
+    let ok = 0
+    const failReasons = []
+    for (const u of selectedUsers) {
+      try {
+        await api.delete(`/auth/users/${u.id}/`, { data: { confirm_username: u.username } })
+        ok += 1
+      } catch (err) {
+        failReasons.push(`${u.username}: ${err.response?.data?.detail || 'lỗi không xác định'}`)
+      }
+    }
+    setBulkBusy(false)
+    setBulkDeleteOpen(false)
+    setBulkResultMsg(
+      ok === selectedUsers.length
+        ? `Đã xóa cứng ${ok}/${selectedUsers.length} tài khoản.`
+        : `Đã xóa ${ok}/${selectedUsers.length} tài khoản. Bị chặn: ${failReasons.join(' | ')}`
+    )
+    setSelectedIds([])
+    setRefreshKey((k) => k + 1)
+  }
+
   return (
     <AppShell>
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
@@ -333,16 +402,46 @@ export default function UsersPage() {
       {loading && <p className="muted-note">Đang tải...</p>}
       {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
       {actionMsg && <p style={{ color: 'var(--danger)' }}>{actionMsg}</p>}
+      {bulkResultMsg && <p className="muted-note">{bulkResultMsg}</p>}
+
+      {selectedIds.length > 0 && (
+        <div
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10, margin: '8px 0', padding: '8px 12px',
+            background: 'var(--brand-soft)', borderRadius: 8,
+          }}
+        >
+          <span>Đã chọn {selectedIds.length} tài khoản</span>
+          <button className="btn-outline btn-sm" onClick={bulkArchiveSelected} disabled={bulkBusy}>
+            Lưu trữ đã chọn
+          </button>
+          <button className="btn-sm btn-danger" onClick={openBulkDelete} disabled={bulkBusy}>
+            Xóa các mục đã chọn
+          </button>
+          <button className="btn-outline btn-sm" onClick={() => setSelectedIds([])} disabled={bulkBusy}>
+            Bỏ chọn
+          </button>
+        </div>
+      )}
 
       {!loading && !error && (
         <>
+          <div className="table-sticky">
           <Table>
             <thead>
               <tr>
+                <th style={{ width: 36 }}>
+                  <input
+                    type="checkbox"
+                    checked={data.results.length > 0 && data.results.every((u) => selectedIds.includes(u.id))}
+                    onChange={toggleSelectAll}
+                  />
+                </th>
                 <th>Tài khoản</th>
                 <th>Họ tên</th>
                 <th>Vai trò</th>
-                <th>Nhà hàng</th>
+                <th>Nhà hàng / Phòng ban</th>
+                <th>Vị trí làm việc</th>
                 <th>Trạng thái</th>
                 <th></th>
               </tr>
@@ -350,10 +449,14 @@ export default function UsersPage() {
             <tbody>
               {data.results.map((u) => (
                 <tr key={u.id}>
+                  <td>
+                    <input type="checkbox" checked={selectedIds.includes(u.id)} onChange={() => toggleSelectOne(u.id)} />
+                  </td>
                   <td>{u.username}</td>
                   <td>{u.full_name}</td>
                   <td>{u.role}</td>
                   <td>{u.restaurant_name}</td>
+                  <td>{u.position}</td>
                   <td>
                     <Badge variant={STATUS_VARIANTS[u.status] || 'neutral'}>{u.status}</Badge>
                     {u.archived_at && <Badge variant="neutral">Đã lưu trữ</Badge>}
@@ -378,13 +481,14 @@ export default function UsersPage() {
               ))}
               {data.results.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="muted-note">
+                  <td colSpan={8} className="muted-note">
                     Không có dữ liệu.
                   </td>
                 </tr>
               )}
             </tbody>
           </Table>
+          </div>
           <Pager page={page} pageSize={PAGE_SIZE} count={data.count} onChange={setPage} />
         </>
       )}
@@ -412,7 +516,6 @@ export default function UsersPage() {
                 style={{ display: 'block', width: '100%' }}
                 value={form.username}
                 onChange={(e) => setForm({ ...form, username: e.target.value })}
-                disabled={!!form.id}
               />
             </label>
             <label>
@@ -577,6 +680,45 @@ export default function UsersPage() {
             {deleteError && <p style={{ color: 'var(--danger)', marginTop: 8 }}>{deleteError}</p>}
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={bulkDeleteOpen}
+        title="Xóa cứng các tài khoản đã chọn"
+        onClose={() => setBulkDeleteOpen(false)}
+        footer={
+          <>
+            <button className="btn-outline" onClick={() => setBulkDeleteOpen(false)}>Hủy</button>
+            <button
+              className="btn-danger"
+              onClick={confirmBulkDelete}
+              disabled={bulkBusy || bulkDeleteConfirmText.trim().toUpperCase() !== 'XÓA'}
+            >
+              Xóa vĩnh viễn {selectedUsers.length} tài khoản
+            </button>
+          </>
+        }
+      >
+        <div>
+          <p style={{ color: 'var(--danger)' }}>
+            Hành động này KHÔNG THỂ hoàn tác. Chỉ những tài khoản chưa phát sinh dữ liệu đào tạo/
+            thi/hoa hồng/đánh giá mới xóa được — các tài khoản còn vướng sẽ bị chặn (dùng "Lưu trữ"
+            thay thế) và được báo rõ lý do sau khi thực hiện.
+          </p>
+          <ul style={{ maxHeight: 160, overflowY: 'auto', margin: '8px 0' }}>
+            {selectedUsers.map((u) => (
+              <li key={u.id}>{u.username} — {u.full_name}</li>
+            ))}
+          </ul>
+          <label>
+            Gõ <b>XÓA</b> để xác nhận
+            <input
+              style={{ display: 'block', width: '100%' }}
+              value={bulkDeleteConfirmText}
+              onChange={(e) => setBulkDeleteConfirmText(e.target.value)}
+            />
+          </label>
+        </div>
       </Modal>
       </>
       )}

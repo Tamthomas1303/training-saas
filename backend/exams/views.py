@@ -9,7 +9,6 @@ from rest_framework.views import APIView
 
 from accounts.mixins import TenantScopedViewSetMixin
 from accounts.pagination import DefaultPagination
-from employees.permissions import ROLES_CAN_EVALUATE
 
 from .competency_assign import apply_competency_assignments, export_workbook, parse_import_workbook
 from .models import (
@@ -56,8 +55,15 @@ def _require_admin_write(request):
         raise PermissionDenied('Chỉ Admin được thêm/sửa/xóa dữ liệu thi.')
 
 
+# Prompt_Fix_DotA_29.08.md muc 5: rieng cho man "Cham bai" (xem bai/cham diem/xem bang chung
+# proctoring/danh dau nghi van) - chi Admin + Trainer. KHAC voi employees.permissions.
+# ROLES_CAN_EVALUATE (danh gia thu viec nhan su moi - om/am/kcs/bql van giu nguyen quyen do,
+# khong lien quan man Cham bai nay).
+ROLES_CAN_GRADE = {'admin', 'trainer'}
+
+
 def _require_evaluator(request):
-    if (request.user.role or '').lower() not in ROLES_CAN_EVALUATE:
+    if (request.user.role or '').lower() not in ROLES_CAN_GRADE:
         raise PermissionDenied('Bạn không có quyền chấm bài.')
 
 
@@ -393,11 +399,11 @@ class StartAttemptView(APIView):
 class AttemptDetailView(APIView):
     """GET /api/exams/attempts/<id>/ — chi tiet 1 lan lam bai: cau hoi + dap an da luu. Dung cho
     2 luong: (1) chinh nguoi thi bam 'Tiếp tục làm bài' - tra ve lai giong het response cua
-    StartAttemptView; (2) ROLES_CAN_EVALUATE xem bai de cham tay (doc cau essay + dap an nguoi
+    StartAttemptView; (2) ROLES_CAN_GRADE xem bai de cham tay (doc cau essay + dap an nguoi
     thi da nop, khong gioi han attempt cua rieng minh vi nguoi cham khong co Employee lien ket)."""
 
     def get(self, request, pk):
-        if (request.user.role or '').lower() in ROLES_CAN_EVALUATE:
+        if (request.user.role or '').lower() in ROLES_CAN_GRADE:
             attempt = get_object_or_404(Attempt, pk=pk, tenant=request.user.tenant)
             return Response(attempt_detail_payload(attempt))
         employee = _require_learner(request)
@@ -472,7 +478,7 @@ class ProctoringEventView(APIView):
 
 class AttemptProctoringView(APIView):
     """GET /api/exams/attempts/<id>/proctoring/ — man giam khao xem bang chung (A4): dong thoi
-    gian su kien + anh snapshot + chi so nghi van. Chi ROLES_CAN_EVALUATE."""
+    gian su kien + anh snapshot + chi so nghi van. Chi ROLES_CAN_GRADE."""
 
     def get(self, request, pk):
         _require_evaluator(request)
@@ -482,7 +488,7 @@ class AttemptProctoringView(APIView):
 
 class AttemptFlagView(APIView):
     """POST /api/exams/attempts/<id>/flag/ — body {flagged: true|false}. Giam khao danh dau
-    nghi van sau khi xem bang chung. Chi ROLES_CAN_EVALUATE."""
+    nghi van sau khi xem bang chung. Chi ROLES_CAN_GRADE."""
 
     def post(self, request, pk):
         _require_evaluator(request)
@@ -493,7 +499,7 @@ class AttemptFlagView(APIView):
 
 class GradingListView(APIView):
     """GET /api/exams/grading/ — danh sach bai cho cham tay (co cau essay, status=submitted).
-    Chi ROLES_CAN_EVALUATE."""
+    Chi ROLES_CAN_GRADE."""
 
     def get(self, request):
         _require_evaluator(request)
@@ -505,7 +511,7 @@ class GradingListView(APIView):
 
 class GradeAttemptView(APIView):
     """POST /api/exams/attempts/<id>/grade/ — body {scores: {question_id: diem, ...}} cho cac
-    cau essay. Chi ROLES_CAN_EVALUATE."""
+    cau essay. Chi ROLES_CAN_GRADE."""
 
     def post(self, request, pk):
         _require_evaluator(request)

@@ -57,4 +57,7 @@ export function applyBrand(brandHex) {
   root.style.setProperty('--brand', brandHex)
   root.style.setProperty('--brand-dark', shade(brandHex, -0.14))
   root.style.setProperty('--brand-soft', mix(brandHex, '#ffffff', 0.90))
+  // Prompt_Fix_DotA_29.08.md muc 4: mau dau gradient trang tri (thanh tien do/nut/the) - brand pha
+  // trang ~35%, thay cho --green co dinh #68BA7F khong doi theo brand truoc day.
+  root.style.setProperty('--brand-light', mix(brandHex, '#ffffff', 0.35))
 }

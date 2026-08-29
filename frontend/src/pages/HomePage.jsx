@@ -40,7 +40,7 @@ export default function HomePage() {
       <div
         className="card"
         style={{
-          background: 'linear-gradient(135deg, var(--forest), var(--green))',
+          background: 'linear-gradient(135deg, var(--forest), var(--brand-light))',
           color: '#fff', border: 'none', marginBottom: 16,
           display: 'flex', alignItems: 'center', gap: 12,
         }}

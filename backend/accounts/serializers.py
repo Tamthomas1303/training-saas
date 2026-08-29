@@ -10,20 +10,53 @@ class UserAdminSerializer(serializers.ModelSerializer):
     """Serializer cho man Nguoi dung (Admin quan tri). Port UserService.gs::upsertUser -
     mat khau mac dinh khi tao moi khong truyen password, ghi de bang set_password (hash)."""
 
-    restaurant_name = serializers.CharField(source='restaurant.name', read_only=True, default='')
+    restaurant_name = serializers.SerializerMethodField()
+    # Prompt_Fix_DotA_29.08.md muc 6 (#17b/#17c) - man Nguoi dung them cot Nha hang/Phong ban +
+    # Vi tri lam viec, lay tu ho so nhan su LIEN KET (Employee.user, tao qua onboarding tu dong/
+    # import) khi tai khoan (User) khong tu co san restaurant rieng (vd tai khoan trainer/admin
+    # dung chung, khong gan 1 nha hang co dinh).
+    position = serializers.SerializerMethodField()
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    # Prompt_Fix_DotA_29.08.md muc 1 - override tuong minh de TU TAY kiem tra trung (xem
+    # validate_username), thay vi de UniqueValidator tu dong cua DRF bao loi tieng Anh chung
+    # chung ("user with this username already exists."). username van sua duoc binh thuong qua
+    # PATCH (khong nam trong read_only_fields).
+    username = serializers.CharField(max_length=150)
 
     class Meta:
         model = User
         fields = [
             'id', 'username', 'password', 'full_name', 'role', 'job_title', 'restaurant',
-            'restaurant_name', 'trainer_zone', 'google_email', 'status',
+            'restaurant_name', 'position', 'trainer_zone', 'google_email', 'status',
             'must_change_password', 'archived_at',
         ]
         # must_change_password/archived_at CHI doi qua action rieng (reset-password/archive/
         # restore ben duoi) - khong cho sua truc tiep qua form Sua thong tin thuong, tranh Admin
         # vo tinh bat/tat co nay khi chi dinh sua ten/vai tro.
         read_only_fields = ['must_change_password', 'archived_at']
+
+    def get_restaurant_name(self, obj):
+        if obj.restaurant_id:
+            return obj.restaurant.name
+        employee = getattr(obj, 'employee', None)
+        if employee and employee.restaurant_id:
+            return employee.restaurant.name
+        return ''
+
+    def get_position(self, obj):
+        employee = getattr(obj, 'employee', None)
+        return employee.position if employee else ''
+
+    def validate_username(self, value):
+        value = (value or '').strip()
+        if not value:
+            raise serializers.ValidationError('Tên đăng nhập không được để trống.')
+        qs = User.objects.filter(username=value)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError('Tên đăng nhập đã được sử dụng, vui lòng chọn tên khác.')
+        return value
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

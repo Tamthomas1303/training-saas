@@ -9,7 +9,10 @@
   --brand-soft: #CFFFDC; /* JS tinh = brand pha nen trang gan nhu tron */
   --forest: var(--brand); /* PRIMARY: nut chinh, link, nav active, so lieu noi bat */
   --forest-dark: var(--brand-dark); /* chu dam/tieu de, hover nut, gradient toi */
-  --green: #68BA7F; /* phu/nhan: duoi gradient thanh tien do, vien nhan - KHONG doi theo brand */
+  --green: #68BA7F; /* phu/nhan: mang nghia "dat" (vd diem qua) - KHONG doi theo brand */
+  --brand-light: #68BA7F; /* Prompt_Fix_DotA_29.08.md muc 4: mau dau gradient trang tri (thanh tien
+  do/nut/the) - JS tinh = brand pha trang ~35% (xem utils/color.js::applyBrand); gia tri tinh o day
+  chi la fallback truoc khi JS chay. */
   --mint: var(--brand-soft); /* nen nhat: badge-soft, nen nav active, vung nhan nhe */
   --page-bg: #F2F7F3; /* nen trang (mint pha rat nhat) */
   --card: #FFFFFF;
@@ -257,7 +260,7 @@ textarea:focus {
 }
 .bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--forest), var(--green));
+  background: linear-gradient(90deg, var(--forest), var(--brand-light));
   transition: width 0.3s ease;
 }
 
@@ -681,7 +684,7 @@ table.themed tbody tr:hover {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 16px;
-  background: linear-gradient(135deg, var(--forest), var(--green));
+  background: linear-gradient(135deg, var(--forest), var(--brand-light));
   color: #fff;
 }
 .mobile-topstrip .topbar-user {
@@ -762,7 +765,7 @@ table.themed tbody tr:hover {
   align-items: center;
   justify-content: center;
   padding: 16px;
-  background: linear-gradient(135deg, var(--forest), var(--green));
+  background: linear-gradient(135deg, var(--forest), var(--brand-light));
 }
 .login-card {
   background: #fff;

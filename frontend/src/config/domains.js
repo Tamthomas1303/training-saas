@@ -26,7 +26,10 @@ export const DOMAINS = [
       { label: 'Ngân hàng đề thi', path: '/exams-admin', icon: FileText, roles: ['admin'], group: 'Nội dung' },
       { label: 'Kỳ thi', path: '/exam-sessions', icon: CalendarCheck, roles: ['admin'], group: 'Tổ chức đào tạo' },
       {
-        label: 'Chấm bài', path: '/exam-grading', icon: PencilLine, roles: ['admin', 'om', 'am', 'kcs', 'bql'],
+        // Prompt_Fix_DotA_29.08.md muc 5: chi con Admin + Trainer (trainer khong dung Hub/domains
+        // nay - shell mobile qua config/menu.js - nhung giu 'trainer' o day de nhat quan neu sau
+        // nay Hub mo cho ca mobile).
+        label: 'Chấm bài', path: '/exam-grading', icon: PencilLine, roles: ['admin', 'trainer'],
         group: 'Tổ chức đào tạo',
       },
       { label: 'Mẫu chứng chỉ', path: '/cert-templates', icon: Image, roles: ['admin'] },

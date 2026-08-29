@@ -50,7 +50,7 @@ export const ADMIN_NAV = [
     key: 'home',
     title: 'Trang chủ',
     icon: Home,
-    path: '/', // nhom don, khong co items con - bam thang vao Dashboard
+    path: '/', // nhom don, khong co items con
     roles: ALL,
   },
   {
@@ -82,7 +82,9 @@ export const ADMIN_NAV = [
     items: [
       { label: 'Khóa học', path: '/courses-admin', icon: GraduationCap, roles: ['admin'] },
       { label: 'Kỳ thi', path: '/exam-sessions', icon: CalendarCheck, roles: ['admin'] },
-      { label: 'Chấm bài', path: '/exam-grading', icon: PencilLine, roles: ['admin', 'om'] },
+      // Prompt_Fix_DotA_29.08.md muc 5: chi con Admin + Trainer (trainer dung shell mobile - xem
+      // config/menu.js, khong qua sidebar nay).
+      { label: 'Chấm bài', path: '/exam-grading', icon: PencilLine, roles: ['admin'] },
       // Nhom 3B (Prompt_Nhom3B_ThiThuViec_TuDong.md muc 5) - man "Cho duyet thi" (admin/trainer;
       // trainer dung shell mobile nen xem qua config/menu.js, khong qua sidebar nay).
       { label: 'Chờ duyệt thi', path: '/probation-exam-approval', icon: Clock, roles: ['admin'] },
