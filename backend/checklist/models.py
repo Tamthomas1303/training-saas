@@ -81,6 +81,10 @@ class Document(models.Model):
     position = models.CharField(max_length=255, blank=True)
     version = models.CharField(max_length=20, blank=True, default='v1.0')
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DONE)
+    # Muc 11 (Prompt_Muc11_KPI_Gio.md muc 2) - thoi luong CHUAN (phut) cho noi dung nay, chi dung
+    # khi GradingConfig.kpi_mode='hours' (tu dien vao kpi.KpiSession.duration_minutes khi chon
+    # noi dung nay - xem kpi/services.py::save_kpi_session). None/0 = chua gan.
+    standard_minutes = models.PositiveIntegerField(null=True, blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

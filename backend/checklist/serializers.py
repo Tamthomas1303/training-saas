@@ -8,7 +8,7 @@ class DocumentSerializer(serializers.ModelSerializer):
         model = Document
         fields = [
             'id', 'name', 'code', 'brand', 'position', 'category', 'version', 'status',
-            'file_url', 'uploaded_at',
+            'file_url', 'standard_minutes', 'uploaded_at',
         ]
         read_only_fields = ['id', 'uploaded_at']
 

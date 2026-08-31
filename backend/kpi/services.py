@@ -6,6 +6,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date
 
 from accounts.models import User
+from checklist.models import Document
 from checklist.storage import StorageError, is_data_url, upload_data_url, upload_pdf_bytes
 from employees.dashboard import scoped_employees
 from employees.models import Employee
@@ -13,7 +14,7 @@ from employees.permissions import can_access_restaurant, get_restaurant_scope
 from employees.services import probation_conditions, trainer_of
 from restaurants.models import Restaurant
 
-from .models import Commission, ExportedReport, KpiParticipant, KpiSession
+from .models import Commission, ExportedReport, KpiHourTarget, KpiParticipant, KpiSession
 from .pdf import build_allowance_pdf, build_kpi_report_pdf, build_kpi_session_pdf
 
 
@@ -21,9 +22,35 @@ class ValidationError(Exception):
     pass
 
 
+def _resolve_kpi_session_duration(tenant, payload, topic, document_id):
+    """Muc 11 (Prompt_Muc11_KPI_Gio.md muc 4): chi tinh khi kpi_mode='hours'. Uu tien so phut
+    nguoi dung nhap/override (payload['duration_minutes']); khong co thi tu dien tu
+    Document.standard_minutes cua noi dung da chon. Khong xac dinh duoc (khong chon noi dung/
+    noi dung chua gan thoi luong chuan) -> 0 phut + canh bao nhe (muc "Rang buoc": "khong lam
+    hong luong ghi buoi"). Tra ve (duration_minutes: int|None, warning: str)."""
+    from accounts.services import get_grading_config
+
+    if get_grading_config(tenant).kpi_mode != 'hours':
+        return None, ''
+
+    raw = payload.get('duration_minutes')
+    if raw not in (None, ''):
+        try:
+            return max(0, int(raw)), ''
+        except (TypeError, ValueError):
+            pass
+
+    document = Document.objects.filter(pk=document_id, tenant=tenant).first() if document_id else None
+    if document and document.standard_minutes:
+        return document.standard_minutes, ''
+
+    return 0, f'Nội dung "{topic}" chưa gán thời lượng chuẩn — buổi này tạm tính 0 phút.'
+
+
 def save_kpi_session(user, payload):
     """Ghi 1 buoi KPI dao tao. Port KPIService.gs::saveSession: bat buoc du 3 anh (tai lieu/
-    ly thuyet/thuc hanh) + moi nguoi tham gia phai ky, kiem tra quyen truy cap nha hang."""
+    ly thuyet/thuc hanh) + moi nguoi tham gia phai ky, kiem tra quyen truy cap nha hang.
+    Tra ve (session, warning) - warning la '' neu khong co gi can luu y (Muc 11 muc 4/5)."""
     tenant = user.tenant
 
     restaurant_id = payload.get('restaurant') or user.restaurant_id
@@ -71,17 +98,21 @@ def save_kpi_session(user, payload):
         else:
             uploaded[key] = value
 
+    document_id = payload.get('document') or None
+    duration_minutes, warning = _resolve_kpi_session_duration(tenant, payload, topic, document_id)
+
     session = KpiSession.objects.create(
         tenant=tenant,
         restaurant=restaurant,
         trainer=user,
         topic=topic,
-        document_id=payload.get('document') or None,
+        document_id=document_id,
         date=date,
         note=payload.get('note', '') or '',
         img_tailieu=uploaded['img_tailieu'],
         img_lythuyet=uploaded['img_lythuyet'],
         img_thuchanh=uploaded['img_thuchanh'],
+        duration_minutes=duration_minutes,
     )
 
     participant_rows = []
@@ -128,7 +159,7 @@ def save_kpi_session(user, payload):
     session.pdf_url = pdf_url
     session.save(update_fields=['pdf_url'])
 
-    return session
+    return session, warning
 
 
 def kpi_queryset_for_user(user):
@@ -176,11 +207,72 @@ def kpi_stats(user):
         for rid, days in by_restaurant.items()
     ]
 
+    from accounts.services import get_grading_config
+
     return {
+        'kpi_mode': get_grading_config(user.tenant).kpi_mode,
         'total_classes': total_classes,
         'total_joins': total_joins,
         'avg_per_class': avg_per_class,
         'top_topics': top_topics,
+        'per_restaurant': per_restaurant,
+        # Muc 11 muc 5 - "Giu SONG SONG ca 2 so lieu o backend (khong xoa logic dem buoi); UI chi
+        # doi cai hien thi chinh theo mode" - luon tinh ca hours du kpi_mode dang la gi.
+        'hours': kpi_hours_stats(user),
+    }
+
+
+def get_kpi_hour_target_minutes(tenant, position_label):
+    """Muc 11 muc 3/5 - target_minutes_per_month theo vi tri (position_label), fallback ve gia
+    tri MAC DINH CHUNG (position='') neu vi tri chua dat rieng/khong xac dinh duoc vi tri. Tra ve
+    None neu tenant CHUA cau hinh gi ca (chua co ca dong mac dinh) - UI tu hien 'chua dat muc
+    tieu' thay vi ep ve 0 gay hieu lam la muc tieu that su bang 0."""
+    if position_label:
+        specific = KpiHourTarget.objects.filter(tenant=tenant, position=position_label).first()
+        if specific:
+            return specific.target_minutes_per_month
+    default = KpiHourTarget.objects.filter(tenant=tenant, position='').first()
+    return default.target_minutes_per_month if default else None
+
+
+def kpi_hours_stats(user):
+    """Thong ke KPI theo GIO (Muc 11 muc 5) - tinh SONG SONG voi phan dem buoi o tren, KHONG thay
+    the. Tong hop THEO NHA HANG (dong bo cau truc voi per_restaurant o tren): done_minutes = tong
+    duration_minutes cac buoi trong THANG NAY tai nha hang do; target_minutes lay theo vi tri/
+    chuc danh (User.job_title) cua tai khoan BQL duoc gan cho nha hang do (Muc 11 muc 3: "Ap cho
+    vi tri/chuc danh cua nguoi dao tao (BQL)"), fallback muc tieu mac dinh chung neu vi tri chua
+    dat rieng hoac nha hang chua co tai khoan BQL."""
+    tenant = user.tenant
+    sessions = list(kpi_queryset_for_user(user).select_related('restaurant'))
+    now = timezone.now()
+    this_month = [s for s in sessions if s.date.month == now.month and s.date.year == now.year]
+
+    minutes_by_restaurant = defaultdict(int)
+    restaurant_names = {}
+    for s in this_month:
+        minutes_by_restaurant[s.restaurant_id] += s.duration_minutes or 0
+        restaurant_names[s.restaurant_id] = s.restaurant.name
+
+    bql_by_restaurant = {
+        u.restaurant_id: u
+        for u in User.objects.filter(tenant=tenant, role='bql', restaurant_id__in=list(minutes_by_restaurant.keys()))
+    }
+
+    per_restaurant = []
+    for rid, done_minutes in minutes_by_restaurant.items():
+        bql = bql_by_restaurant.get(rid)
+        position_label = bql.get_job_title_display() if bql and bql.job_title else ''
+        target_minutes = get_kpi_hour_target_minutes(tenant, position_label)
+        per_restaurant.append({
+            'restaurant_id': rid,
+            'restaurant_name': restaurant_names.get(rid, ''),
+            'done_minutes': done_minutes,
+            'target_minutes': target_minutes,
+            'achieved': target_minutes is not None and done_minutes >= target_minutes,
+        })
+
+    return {
+        'total_minutes_this_month': sum(minutes_by_restaurant.values()),
         'per_restaurant': per_restaurant,
     }
 

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import AppShell from '../components/AppShell'
 import Badge from '../components/Badge'
 import FilterBar from '../components/FilterBar'
@@ -15,7 +15,10 @@ const PAGE_SIZE = 20
 const STATUS_LABELS = { done: 'Hoàn thành', update: 'Cần cập nhật', digitize: 'Cần số hóa' }
 const STATUS_VARIANTS = { done: 'success', update: 'warning', digitize: 'neutral' }
 
-const EMPTY_FORM = { id: null, name: '', code: '', brand: '', position: '', version: 'v1.0', status: 'done', file_url: '' }
+const EMPTY_FORM = {
+  id: null, name: '', code: '', brand: '', position: '', version: 'v1.0', status: 'done',
+  file_url: '', standard_minutes: '',
+}
 
 export default function DocumentsPage() {
   const { user } = useAuth()
@@ -29,6 +32,12 @@ export default function DocumentsPage() {
   const [form, setForm] = useState(null)
   const [formError, setFormError] = useState('')
   const [saving, setSaving] = useState(false)
+  // Muc 11 muc 2 (Prompt_Muc11_KPI_Gio.md) - chi hien o thoi luong chuan khi kpi_mode='hours'.
+  const [kpiMode, setKpiMode] = useState('sessions')
+
+  useEffect(() => {
+    api.get('/kpi/mode/').then(({ data }) => setKpiMode(data.kpi_mode)).catch(() => {})
+  }, [])
 
   const { data: restaurantOptions } = usePaginatedList('/restaurants/', { page_size: 100 })
   const { data: checklistOptions } = usePaginatedList('/checklist/', { page_size: 200 })
@@ -64,6 +73,7 @@ export default function DocumentsPage() {
     setForm({
       id: d.id, name: d.name, code: d.code || '', brand: d.brand || '', position: d.position || '',
       version: d.version || 'v1.0', status: d.status, file_url: d.file_url,
+      standard_minutes: d.standard_minutes ?? '',
     })
     setFormError('')
   }
@@ -74,6 +84,9 @@ export default function DocumentsPage() {
     const payload = {
       name: form.name, code: form.code, brand: form.brand, position: form.position,
       version: form.version, status: form.status, file_url: form.file_url,
+    }
+    if (kpiMode === 'hours') {
+      payload.standard_minutes = form.standard_minutes === '' ? null : Number(form.standard_minutes)
     }
     try {
       if (form.id) {
@@ -140,6 +153,7 @@ export default function DocumentsPage() {
                 <th>Vị trí</th>
                 <th>Phiên bản</th>
                 <th>Trạng thái</th>
+                {kpiMode === 'hours' && <th>Thời lượng chuẩn</th>}
                 <th></th>
               </tr>
             </thead>
@@ -157,6 +171,9 @@ export default function DocumentsPage() {
                   <td>
                     <Badge variant={STATUS_VARIANTS[d.status] || 'neutral'}>{STATUS_LABELS[d.status] || d.status}</Badge>
                   </td>
+                  {kpiMode === 'hours' && (
+                    <td>{d.standard_minutes ? `${d.standard_minutes} phút` : '—'}</td>
+                  )}
                   <td style={{ display: 'flex', gap: 6 }}>
                     {isAdmin && (
                       <>
@@ -173,7 +190,7 @@ export default function DocumentsPage() {
               ))}
               {data.results.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="muted-note">
+                  <td colSpan={kpiMode === 'hours' ? 7 : 6} className="muted-note">
                     Không có dữ liệu.
                   </td>
                 </tr>
@@ -257,6 +274,18 @@ export default function DocumentsPage() {
                 {positionOptions.length === 0 && <span className="muted-note">Chưa có danh sách vị trí.</span>}
               </div>
             </label>
+            {kpiMode === 'hours' && (
+              <label>
+                Thời lượng chuẩn (phút)
+                <input
+                  type="number" min={0}
+                  style={{ display: 'block', width: '100%' }}
+                  value={form.standard_minutes}
+                  onChange={(e) => setForm({ ...form, standard_minutes: e.target.value })}
+                  placeholder="VD: 30"
+                />
+              </label>
+            )}
             <label>
               Phiên bản
               <input

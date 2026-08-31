@@ -15,7 +15,7 @@ import * as s from './listPageStyles'
 
 const SESSIONS_PAGE_SIZE = 20
 
-function KpiSessionForm({ restaurants, defaultRestaurantId, onSaved }) {
+function KpiSessionForm({ restaurants, defaultRestaurantId, onSaved, kpiMode }) {
   const [restaurantId, setRestaurantId] = useState(defaultRestaurantId || restaurants[0]?.id || '')
   const [topics, setTopics] = useState([])
   const [topic, setTopic] = useState('')
@@ -27,6 +27,12 @@ function KpiSessionForm({ restaurants, defaultRestaurantId, onSaved }) {
   const [participantSearch, setParticipantSearch] = useState('')
   const [participantResults, setParticipantResults] = useState([])
   const [photos, setPhotos] = useState({ img_tailieu: '', img_lythuyet: '', img_thuchanh: '' })
+  // Muc 11 muc 4 - chi dung khi kpiMode='hours'. durationMinutes la gia tri THUC SU gui len (co
+  // the go tay hoac tu tinh tu timeStart/timeEnd); 2 o gio vao/gio ra chi la tien ich nhap lieu,
+  // khong gui rieng len backend.
+  const [durationMinutes, setDurationMinutes] = useState('')
+  const [timeStart, setTimeStart] = useState('')
+  const [timeEnd, setTimeEnd] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
@@ -55,6 +61,24 @@ function KpiSessionForm({ restaurants, defaultRestaurantId, onSaved }) {
     const match = topics.find((t) => `${t.name}${t.category ? ` (${t.category})` : ''}` === value)
     setDocumentId(match ? match.id : null)
     setTopicDocUrl(match ? match.file_url || '' : '')
+    // Muc 11 muc 4 - tu dien thoi luong chuan cua noi dung vua chon (con cho override sau).
+    if (kpiMode === 'hours') {
+      setDurationMinutes(match?.standard_minutes ? String(match.standard_minutes) : '')
+      setTimeStart('')
+      setTimeEnd('')
+    }
+  }
+
+  function handleTimeChange(field, value) {
+    const nextStart = field === 'start' ? value : timeStart
+    const nextEnd = field === 'end' ? value : timeEnd
+    setTimeStart(nextStart)
+    setTimeEnd(nextEnd)
+    if (!nextStart || !nextEnd) return
+    const [sh, sm] = nextStart.split(':').map(Number)
+    const [eh, em] = nextEnd.split(':').map(Number)
+    const diff = (eh * 60 + em) - (sh * 60 + sm)
+    if (diff > 0) setDurationMinutes(String(diff))
   }
 
   function addParticipant(emp) {
@@ -80,6 +104,9 @@ function KpiSessionForm({ restaurants, defaultRestaurantId, onSaved }) {
     setNote('')
     setParticipants([])
     setPhotos({ img_tailieu: '', img_lythuyet: '', img_thuchanh: '' })
+    setDurationMinutes('')
+    setTimeStart('')
+    setTimeEnd('')
   }
 
   async function save() {
@@ -95,13 +122,17 @@ function KpiSessionForm({ restaurants, defaultRestaurantId, onSaved }) {
       participants: participants.map((p) => ({ employee: p.employee_id, sign: p.sign })),
       ...photos,
     }
+    if (kpiMode === 'hours') {
+      payload.duration_minutes = durationMinutes === '' ? undefined : Number(durationMinutes)
+    }
     await submitGuarded(
       'kpi',
       (p) => api.post('/kpi/sessions/save/', p).then((r) => r.data),
       payload,
       {
         onOk: (data) => {
-          setMessage(`Đã lưu buổi đào tạo (${data.participant_count} người tham gia).`)
+          const warningText = data.warning ? ` ⚠ ${data.warning}` : ''
+          setMessage(`Đã lưu buổi đào tạo (${data.participant_count} người tham gia).${warningText}`)
           setPdfUrl(data.pdf_url || '')
           resetForm()
           onSaved?.()
@@ -176,6 +207,29 @@ function KpiSessionForm({ restaurants, defaultRestaurantId, onSaved }) {
         <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)' }}>Ngày</label>
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={s.input} />
       </div>
+
+      {/* Muc 11 muc 4 (Prompt_Muc11_KPI_Gio.md) - chi hien khi che do KPI dang la 'hours'. */}
+      {kpiMode === 'hours' && (
+        <div style={{ marginBottom: 12 }}>
+          <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)' }}>Thời lượng (phút)</label>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input
+              type="number" min={0}
+              value={durationMinutes}
+              onChange={(e) => setDurationMinutes(e.target.value)}
+              placeholder="Số phút"
+              style={{ ...s.input, width: 120 }}
+            />
+            <span className="muted-note" style={{ fontSize: 12 }}>hoặc tính từ giờ vào–ra:</span>
+            <input type="time" value={timeStart} onChange={(e) => handleTimeChange('start', e.target.value)} style={s.input} />
+            <span className="muted-note">–</span>
+            <input type="time" value={timeEnd} onChange={(e) => handleTimeChange('end', e.target.value)} style={s.input} />
+          </div>
+          <div className="muted-note" style={{ fontSize: 12, marginTop: 2 }}>
+            Mặc định tự điền theo thời lượng chuẩn của nội dung đã chọn — có thể sửa lại.
+          </div>
+        </div>
+      )}
 
       <div style={{ marginBottom: 12 }}>
         <label style={{ display: 'block', fontSize: 13, color: 'var(--muted)' }}>Người tham gia</label>
@@ -303,9 +357,10 @@ function KpiStatsSummary() {
       )}
 
       {/* Prompt_Fix_DotB_KPI_29.08.md muc 9: gop khoi "Theo nha hang" tu KpiDashboardPage (da
-          xoa) vao day de /kpi la ban day du duy nhat, giong adminKPI cua Apps Script. */}
+          xoa) vao day de /kpi la ban day du duy nhat, giong adminKPI cua Apps Script. Muc 11
+          muc 5: giu nguyen khoi "so buoi" nay KHONG DOI GI (mac dinh kpi_mode='sessions'). */}
       <div className="stat-label" style={{ marginTop: 16, marginBottom: 6 }}>
-        Tiến độ KPI theo nhà hàng (tháng này)
+        Tiến độ KPI theo nhà hàng (tháng này) — số buổi
       </div>
       {(stats.per_restaurant?.length || 0) === 0 && (
         <p className="muted-note">Chưa có buổi đào tạo nào trong tháng.</p>
@@ -322,6 +377,35 @@ function KpiStatsSummary() {
           />
         </div>
       ))}
+
+      {/* Muc 11 muc 5 - khi kpi_mode='hours', them khoi Gio dao tao (giu SONG SONG voi khoi so
+          buoi o tren, khong thay the - "Giu song song ca 2 so lieu o backend... UI chi doi cai
+          hien thi chinh theo mode"). */}
+      {stats.kpi_mode === 'hours' && (
+        <>
+          <div className="stat-label" style={{ marginTop: 16, marginBottom: 6 }}>
+            Tiến độ KPI theo nhà hàng (tháng này) — giờ đào tạo
+          </div>
+          {(stats.hours?.per_restaurant?.length || 0) === 0 && (
+            <p className="muted-note">Chưa có buổi đào tạo nào trong tháng.</p>
+          )}
+          {stats.hours?.per_restaurant?.map((r) => (
+            <div key={r.restaurant_id} style={{ marginBottom: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                <span>{r.restaurant_name || `Nhà hàng #${r.restaurant_id}`}</span>
+                <span>
+                  {(r.done_minutes / 60).toFixed(1)}h
+                  {r.target_minutes != null ? ` / ${(r.target_minutes / 60).toFixed(1)}h` : ' (chưa đặt mục tiêu)'}
+                </span>
+              </div>
+              <ProgressBar
+                percent={r.target_minutes ? (r.done_minutes / r.target_minutes) * 100 : 0}
+                color={r.achieved ? undefined : 'var(--amber)'}
+              />
+            </div>
+          ))}
+        </>
+      )}
     </div>
   )
 }
@@ -543,6 +627,13 @@ export default function KpiPage() {
   const [restaurantFilter, setRestaurantFilter] = useState('')
   const [page, setPage] = useState(1)
   const [refreshKey, setRefreshKey] = useState(0)
+  // Muc 11 muc 1 - cong tac che do KPI. Form ghi buoi can biet gia tri nay du la vai tro nao
+  // (trainer/bql/am/kcs khong goi /kpi/stats/ - endpoint rieng, mo cho moi tai khoan dang nhap).
+  const [kpiMode, setKpiMode] = useState('sessions')
+
+  useEffect(() => {
+    api.get('/kpi/mode/').then(({ data }) => setKpiMode(data.kpi_mode)).catch(() => {})
+  }, [])
 
   const { data: restaurantOptions } = usePaginatedList('/restaurants/', { page_size: 100 })
   const { data: sessions, loading } = usePaginatedList('/kpi/sessions/', {
@@ -573,6 +664,7 @@ export default function KpiPage() {
           restaurants={restaurantOptions.results}
           defaultRestaurantId={user?.restaurant || null}
           onSaved={() => setRefreshKey((k) => k + 1)}
+          kpiMode={kpiMode}
         />
       )}
 
@@ -602,6 +694,7 @@ export default function KpiPage() {
               <th>Chủ đề</th>
               <th>Người ĐT</th>
               <th>SL</th>
+              {kpiMode === 'hours' && <th>Thời lượng</th>}
               <th>Biên bản</th>
             </tr>
           </thead>
@@ -613,6 +706,9 @@ export default function KpiPage() {
                 <td>{sess.topic}</td>
                 <td>{sess.trainer_name}</td>
                 <td>{sess.participant_count}</td>
+                {kpiMode === 'hours' && (
+                  <td>{sess.duration_minutes != null ? `${sess.duration_minutes} phút` : '—'}</td>
+                )}
                 <td>
                   {sess.pdf_url ? (
                     <a href={sess.pdf_url} target="_blank" rel="noreferrer">
@@ -626,7 +722,7 @@ export default function KpiPage() {
             ))}
             {sessions.results.length === 0 && (
               <tr>
-                <td colSpan={6} className="muted-note">
+                <td colSpan={kpiMode === 'hours' ? 7 : 6} className="muted-note">
                   Không có dữ liệu.
                 </td>
               </tr>

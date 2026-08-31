@@ -25,6 +25,10 @@ class KpiSession(models.Model):
     img_lythuyet = models.URLField(max_length=500, blank=True)
     img_thuchanh = models.URLField(max_length=500, blank=True)
     pdf_url = models.URLField(max_length=500, blank=True)
+    # Muc 11 (Prompt_Muc11_KPI_Gio.md muc 4) - chi duoc dien khi GradingConfig.kpi_mode='hours'
+    # luc tao buoi (xem kpi/services.py::save_kpi_session); None = buoi tao khi con o che do
+    # 'sessions' (khong tinh vao KPI gio, van tinh vao KPI so buoi nhu truoc).
+    duration_minutes = models.PositiveIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -45,6 +49,24 @@ class KpiParticipant(models.Model):
 
     def __str__(self):
         return f'{self.employee_id} @ {self.session_id}'
+
+
+class KpiHourTarget(models.Model):
+    """Muc 11 (Prompt_Muc11_KPI_Gio.md muc 3) - muc tieu GIO dao tao/thang, ap theo vi tri/chuc
+    danh cua nguoi to chuc (BQL - xem kpi.services.kpi_hours_stats, doi chieu qua
+    User.job_title). `position` la chuoi khop voi danh muc employees.Position.name (Muc 16 Phase
+    1); position='' = gia tri MAC DINH CHUNG dung khi vi tri chua dat rieng."""
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='kpi_hour_targets')
+    position = models.CharField(max_length=100, blank=True)
+    target_minutes_per_month = models.PositiveIntegerField()
+
+    class Meta:
+        unique_together = ('tenant', 'position')
+        ordering = ['position']
+
+    def __str__(self):
+        return f'{self.position or "(mặc định)"} - {self.target_minutes_per_month} phút/tháng'
 
 
 class Commission(models.Model):

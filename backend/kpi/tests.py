@@ -6,11 +6,13 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from accounts.models import Tenant, User, UserRestaurantAssignment
+from accounts.services import get_grading_config, update_grading_config
+from checklist.models import Document
 from employees.models import Employee
 from evaluation.models import Evaluation
 from restaurants.models import Restaurant
 
-from .models import Commission, ExportedReport
+from .models import Commission, ExportedReport, KpiHourTarget, KpiSession
 from .services import (
     _bql_cohort_stats,
     _is_boh_position,
@@ -19,9 +21,13 @@ from .services import (
     generate_allowance_pdf,
     generate_kpi_report_pdf,
     get_exported_report_url,
+    get_kpi_hour_target_minutes,
     kpi_bql_report_data,
     kpi_bql_totals,
+    kpi_hours_stats,
+    kpi_stats,
     recompute_commission,
+    save_kpi_session,
 )
 
 
@@ -506,4 +512,148 @@ class ExportedReportPersistenceTests(TestCase):
             get_exported_report_url(self.tenant, ExportedReport.Kind.ALLOWANCE, 8, 2026),
             'https://pub-x.r2.dev/allowance.pdf',
         )
+
+
+class KpiHoursModeSaveSessionTests(TestCase):
+    """Muc 11 (Prompt_Muc11_KPI_Gio.md) - kpi_mode='hours': tu dien/override duration_minutes,
+    canh bao khi noi dung chua gan thoi luong (khong lam hong luong ghi buoi). Mac dinh
+    'sessions' -> duration_minutes luon None (Rang buoc: "he chay khong doi gi")."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='NH1', name='NH Demo', brand='Kampong')
+        self.trainer = User.objects.create_user(
+            username='trainer1', password='x', tenant=self.tenant, role='trainer', restaurant=self.restaurant,
+        )
+        self.employee = Employee.objects.create(tenant=self.tenant, code='NV1', name='NV1', restaurant=self.restaurant)
+        self.document = Document.objects.create(
+            tenant=self.tenant, name='Quy trình phục vụ', file_url='https://x/doc.pdf', standard_minutes=30,
+        )
+
+    def _payload(self, **overrides):
+        payload = {
+            'restaurant': self.restaurant.id,
+            'topic': 'Quy trình phục vụ',
+            'document': self.document.id,
+            'date': '2026-08-20',
+            'participants': [{'employee': self.employee.id, 'sign': 'https://x/sign.png'}],
+            'img_tailieu': 'https://x/1.png',
+            'img_lythuyet': 'https://x/2.png',
+            'img_thuchanh': 'https://x/3.png',
+        }
+        payload.update(overrides)
+        return payload
+
+    @patch('kpi.services.upload_pdf_bytes', return_value='https://x/bienban.pdf')
+    def test_sessions_mode_leaves_duration_minutes_none(self, _mock_pdf):
+        session, warning = save_kpi_session(self.trainer, self._payload())
+        self.assertIsNone(session.duration_minutes)
+        self.assertEqual(warning, '')
+
+    @patch('kpi.services.upload_pdf_bytes', return_value='https://x/bienban.pdf')
+    def test_hours_mode_auto_fills_from_document_standard_minutes(self, _mock_pdf):
+        update_grading_config(self.tenant, self.trainer, {'kpi_mode': 'hours'})
+        session, warning = save_kpi_session(self.trainer, self._payload())
+        self.assertEqual(session.duration_minutes, 30)
+        self.assertEqual(warning, '')
+
+    @patch('kpi.services.upload_pdf_bytes', return_value='https://x/bienban.pdf')
+    def test_hours_mode_override_wins_over_standard_minutes(self, _mock_pdf):
+        update_grading_config(self.tenant, self.trainer, {'kpi_mode': 'hours'})
+        session, warning = save_kpi_session(self.trainer, self._payload(duration_minutes=45))
+        self.assertEqual(session.duration_minutes, 45)
+        self.assertEqual(warning, '')
+
+    @patch('kpi.services.upload_pdf_bytes', return_value='https://x/bienban.pdf')
+    def test_hours_mode_no_standard_minutes_zero_and_warns_without_failing(self, _mock_pdf):
+        update_grading_config(self.tenant, self.trainer, {'kpi_mode': 'hours'})
+        session, warning = save_kpi_session(self.trainer, self._payload(topic='Chủ đề mới', document=None))
+        self.assertEqual(session.duration_minutes, 0)
+        self.assertIn('chưa gán thời lượng chuẩn', warning)
+
+
+class KpiHourTargetServiceTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+
+    def test_specific_position_target_wins_over_default(self):
+        KpiHourTarget.objects.create(tenant=self.tenant, position='', target_minutes_per_month=600)
+        KpiHourTarget.objects.create(tenant=self.tenant, position='Quản lý nhà hàng', target_minutes_per_month=900)
+        self.assertEqual(get_kpi_hour_target_minutes(self.tenant, 'Quản lý nhà hàng'), 900)
+
+    def test_falls_back_to_default_when_position_not_set(self):
+        KpiHourTarget.objects.create(tenant=self.tenant, position='', target_minutes_per_month=600)
+        self.assertEqual(get_kpi_hour_target_minutes(self.tenant, 'Bếp trưởng'), 600)
+
+    def test_returns_none_when_nothing_configured(self):
+        self.assertIsNone(get_kpi_hour_target_minutes(self.tenant, 'Bếp trưởng'))
+
+
+class KpiHoursStatsTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='NH1', name='NH Demo', brand='Kampong')
+        self.bql = User.objects.create_user(
+            username='bql1', password='x', tenant=self.tenant, role='bql', restaurant=self.restaurant,
+            job_title=User.JobTitle.QLNH,
+        )
+        KpiHourTarget.objects.create(tenant=self.tenant, position='Quản lý nhà hàng', target_minutes_per_month=600)
+        today = datetime.date.today()
+        KpiSession.objects.create(
+            tenant=self.tenant, restaurant=self.restaurant, trainer=self.bql, topic='A',
+            date=today.replace(day=1), duration_minutes=200,
+        )
+        KpiSession.objects.create(
+            tenant=self.tenant, restaurant=self.restaurant, trainer=self.bql, topic='B',
+            date=today.replace(day=min(today.day, 28)), duration_minutes=150,
+        )
+
+    def test_sums_duration_and_applies_position_target(self):
+        result = kpi_hours_stats(self.bql)
+        self.assertEqual(result['total_minutes_this_month'], 350)
+        row = result['per_restaurant'][0]
+        self.assertEqual(row['done_minutes'], 350)
+        self.assertEqual(row['target_minutes'], 600)
+        self.assertFalse(row['achieved'])
+
+    def test_kpi_stats_includes_both_sessions_and_hours_side_by_side(self):
+        data = kpi_stats(self.bql)
+        self.assertEqual(data['kpi_mode'], 'sessions')
+        self.assertIn('hours', data)
+        self.assertEqual(data['hours']['total_minutes_this_month'], 350)
+        # Muc 11 Rang buoc: mac dinh sessions -> khoi dem buoi van y nguyen (khong bi anh huong).
+        self.assertEqual(data['total_classes'], 2)
+
+
+class KpiModeAndHourTargetPermissionTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.trainer = User.objects.create_user(username='trainer1', password='x', tenant=self.tenant, role='trainer')
+        self.client = APIClient()
+
+    def test_kpi_mode_view_open_to_non_admin(self):
+        self.client.force_authenticate(self.trainer)
+        resp = self.client.get(reverse('kpi-mode'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['kpi_mode'], 'sessions')
+
+    def test_any_authenticated_role_can_list_hour_targets(self):
+        KpiHourTarget.objects.create(tenant=self.tenant, position='', target_minutes_per_month=600)
+        self.client.force_authenticate(self.trainer)
+        resp = self.client.get(reverse('kpi-hour-target-list'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['results'][0]['target_minutes_per_month'], 600)
+
+    def test_non_admin_cannot_create_hour_target(self):
+        self.client.force_authenticate(self.trainer)
+        resp = self.client.post(reverse('kpi-hour-target-list'), {'position': '', 'target_minutes_per_month': 600})
+        self.assertEqual(resp.status_code, 403)
+
+    def test_admin_can_create_and_duplicate_position_is_rejected(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(reverse('kpi-hour-target-list'), {'position': '', 'target_minutes_per_month': 600})
+        self.assertEqual(resp.status_code, 201)
+        dup = self.client.post(reverse('kpi-hour-target-list'), {'position': '', 'target_minutes_per_month': 900})
+        self.assertEqual(dup.status_code, 400)
         self.assertEqual(get_exported_report_url(self.tenant, ExportedReport.Kind.KPI_BQL, 8, 2026), '')

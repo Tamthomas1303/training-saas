@@ -3,11 +3,17 @@ from rest_framework import viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from accounts.mixins import TenantScopedViewSetMixin
 from accounts.pagination import DefaultPagination
 from checklist.models import Document
 
-from .models import Commission, ExportedReport
-from .serializers import CommissionSerializer, KpiSessionSerializer, KpiTopicSerializer
+from .models import Commission, ExportedReport, KpiHourTarget
+from .serializers import (
+    CommissionSerializer,
+    KpiHourTargetSerializer,
+    KpiSessionSerializer,
+    KpiTopicSerializer,
+)
 from .services import (
     ValidationError,
     allowance_report_data,
@@ -75,16 +81,46 @@ class KpiSessionSaveView(APIView):
 
     def post(self, request):
         try:
-            session = save_kpi_session(request.user, request.data)
+            session, warning = save_kpi_session(request.user, request.data)
         except ValidationError as exc:
             return Response({'detail': str(exc)}, status=400)
-        return Response(KpiSessionSerializer(session).data)
+        data = KpiSessionSerializer(session).data
+        data['warning'] = warning
+        return Response(data)
 
 
 class KpiStatsView(APIView):
 
     def get(self, request):
         return Response(kpi_stats(request.user))
+
+
+class KpiModeView(APIView):
+    """GET /api/kpi/mode/ — Muc 11 muc 1: kpi_mode hien hanh cua tenant, mo cho MOI tai khoan da
+    dang nhap (khac /api/settings/grading/ chi Admin) - man ghi buoi KPI (KpiPage.jsx) can biet
+    mode nay de quyet dinh co hien o thoi luong hay khong, ke ca vai tro khong phai Admin
+    (trainer/bql/am/kcs)."""
+
+    def get(self, request):
+        from accounts.services import get_grading_config
+
+        return Response({'kpi_mode': get_grading_config(request.user.tenant).kpi_mode})
+
+
+class KpiHourTargetViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
+    """CRUD muc tieu GIO dao tao/thang theo vi tri (Muc 11 muc 3). Moi tai khoan da dang nhap
+    DOC duoc; chi Admin GHI (them/sua/xoa)."""
+
+    serializer_class = KpiHourTargetSerializer
+    queryset = KpiHourTarget.objects.all()
+    pagination_class = DefaultPagination
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        if request.method not in ('GET', 'HEAD', 'OPTIONS') and (request.user.role or '').lower() != 'admin':
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied('Chỉ Admin được quản trị mục tiêu giờ đào tạo.')
 
 
 class CommissionListView(APIView):

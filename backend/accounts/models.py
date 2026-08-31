@@ -150,7 +150,17 @@ class GradingConfig(models.Model):
     ban ghi dau tien - de dung voi MOI deployment, ke ca deployment da tung chinh .env khac
     mac dinh trong settings.py (xem accounts/services.py)."""
 
+    class KpiMode(models.TextChoices):
+        SESSIONS = 'sessions', 'Đếm số buổi'
+        HOURS = 'hours', 'Đếm giờ đào tạo'
+
     tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name='grading_config')
+
+    # Muc 11 (Prompt_Muc11_KPI_Gio.md muc 1) - cong tac che do KPI. Mac dinh 'sessions' = dem so
+    # buoi (hanh vi HIEN HANH, khong doi gi). 'hours' kich hoat kpi.services.kpi_hours_stats +
+    # cac field standard_minutes (checklist.Document)/duration_minutes (kpi.KpiSession)/
+    # kpi.KpiHourTarget - xem kpi/services.py.
+    kpi_mode = models.CharField(max_length=10, choices=KpiMode.choices, default=KpiMode.SESSIONS)
 
     # Nhom "Thi" - Chấm thi đạt/không (exams: employees.services.exam_pass/batch_lms_marks,
     # cls_sync, integration 'course_exam', career.py, employees/detail.py).

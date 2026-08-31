@@ -285,6 +285,134 @@ const GRADING_FIELDS = [
   { key: 'cert_positions_required', label: 'Số vị trí tối thiểu để đạt chứng chỉ', group: 'Chứng chỉ' },
 ]
 
+// Muc 11 muc 3 (Prompt_Muc11_KPI_Gio.md) - bang "vi tri -> muc tieu gio/thang", hien khi
+// GradingConfig.kpi_mode='hours'. position='' = gia tri MAC DINH CHUNG.
+function KpiHourTargetsPanel() {
+  const [positions, setPositions] = useState([])
+  const [targets, setTargets] = useState([])
+  const [form, setForm] = useState({ id: null, position: '', target_minutes_per_month: '' })
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  function load() {
+    api.get('/employees/positions-catalog/', { params: { page_size: 200 } })
+      .then(({ data }) => setPositions(data.results || []))
+      .catch(() => {})
+    api.get('/kpi/hour-targets/', { params: { page_size: 200 } })
+      .then(({ data }) => setTargets(data.results || []))
+      .catch(() => {})
+  }
+  useEffect(load, [])
+
+  function openCreate() {
+    setForm({ id: null, position: '', target_minutes_per_month: '' })
+    setMsg('')
+  }
+
+  function openEdit(t) {
+    setForm({ id: t.id, position: t.position, target_minutes_per_month: t.target_minutes_per_month })
+    setMsg('')
+  }
+
+  async function save() {
+    setSaving(true)
+    setMsg('')
+    const payload = {
+      position: form.position,
+      target_minutes_per_month: Number(form.target_minutes_per_month) || 0,
+    }
+    try {
+      if (form.id) {
+        await api.patch(`/kpi/hour-targets/${form.id}/`, payload)
+      } else {
+        await api.post('/kpi/hour-targets/', payload)
+      }
+      openCreate()
+      load()
+    } catch (err) {
+      setMsg(
+        err.response?.data?.detail ||
+          Object.values(err.response?.data || {}).flat().join(' ') ||
+          'Không lưu được mục tiêu.'
+      )
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function removeTarget(t) {
+    if (!window.confirm(`Xóa mục tiêu giờ cho "${t.position || '(mặc định chung)'}"?`)) return
+    await api.delete(`/kpi/hour-targets/${t.id}/`)
+    load()
+  }
+
+  return (
+    <div className="card" style={{ marginBottom: 16 }}>
+      <h3 style={{ marginTop: 0 }}>Mục tiêu giờ đào tạo/tháng theo vị trí</h3>
+      <p className="muted-note">
+        Áp theo vị trí/chức danh của người tổ chức buổi (BQL). Thêm 1 dòng để trống "Vị trí" làm
+        giá trị mặc định chung, dùng khi vị trí chưa đặt riêng.
+      </p>
+      <Table>
+        <thead>
+          <tr>
+            <th>Vị trí</th>
+            <th>Mục tiêu (phút/tháng)</th>
+            <th>≈ Giờ/tháng</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {targets.map((t) => (
+            <tr key={t.id}>
+              <td>{t.position || <span className="muted-note">(mặc định chung)</span>}</td>
+              <td>{t.target_minutes_per_month}</td>
+              <td>{(t.target_minutes_per_month / 60).toFixed(1)}h</td>
+              <td style={{ display: 'flex', gap: 6 }}>
+                <button className="btn-outline btn-sm" onClick={() => openEdit(t)}>Sửa</button>
+                <button className="btn-danger btn-sm" onClick={() => removeTarget(t)}>Xóa</button>
+              </td>
+            </tr>
+          ))}
+          {targets.length === 0 && (
+            <tr>
+              <td colSpan={4} className="muted-note">Chưa có mục tiêu nào.</td>
+            </tr>
+          )}
+        </tbody>
+      </Table>
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', marginTop: 12 }}>
+        <label style={{ fontSize: 13 }}>
+          Vị trí
+          <select
+            style={{ ...s.select, display: 'block' }}
+            value={form.position}
+            onChange={(e) => setForm({ ...form, position: e.target.value })}
+          >
+            <option value="">(mặc định chung)</option>
+            {positions.map((p) => (
+              <option key={p.id} value={p.name}>{p.name}</option>
+            ))}
+          </select>
+        </label>
+        <label style={{ fontSize: 13 }}>
+          Mục tiêu (phút/tháng)
+          <input
+            type="number" min={0}
+            style={{ ...s.input, display: 'block', width: 140 }}
+            value={form.target_minutes_per_month}
+            onChange={(e) => setForm({ ...form, target_minutes_per_month: e.target.value })}
+          />
+        </label>
+        <button onClick={save} disabled={saving}>{form.id ? 'Cập nhật' : '+ Thêm'}</button>
+        {form.id && <button className="btn-outline" onClick={openCreate}>Hủy sửa</button>}
+      </div>
+      {msg && <p style={{ color: 'var(--danger)' }}>{msg}</p>}
+    </div>
+  )
+}
+
 function GradingTab() {
   const [config, setConfig] = useState(null)
   const [form, setForm] = useState({})
@@ -331,6 +459,28 @@ function GradingTab() {
           và điều kiện chứng chỉ trên toàn hệ thống. Mỗi lần lưu, thay đổi từng trường được ghi lại
           ở lịch sử bên dưới.
         </p>
+
+        {/* Muc 11 (Prompt_Muc11_KPI_Gio.md muc 1) - cong tac che do KPI. Mac dinh 'sessions'
+            (dem so buoi) - giu nguyen hanh vi hien tai; chi bat 'hours' khi can theo doi GIO. */}
+        <div className="card" style={{ background: 'var(--brand-soft, #f4f6f5)', marginBottom: 16 }}>
+          <label style={{ fontSize: 13, fontWeight: 'bold' }}>
+            Chế độ KPI đào tạo
+            <select
+              style={{ ...s.select, width: '100%', marginTop: 4 }}
+              value={form.kpi_mode || 'sessions'}
+              onChange={(e) => set('kpi_mode', e.target.value)}
+            >
+              <option value="sessions">Đếm số buổi (mặc định)</option>
+              <option value="hours">Đếm giờ đào tạo</option>
+            </select>
+          </label>
+          <p className="muted-note" style={{ marginTop: 6, marginBottom: 0 }}>
+            Bật "Đếm giờ đào tạo" sẽ kích hoạt: thời lượng chuẩn cho nội dung (tab Tài liệu), mục
+            tiêu giờ/tháng theo vị trí (bảng bên dưới, hiện sau khi lưu), và ô thời lượng khi ghi
+            buổi KPI. Không xóa số liệu đếm buổi hiện có.
+          </p>
+        </div>
+
         {groups.map((groupName) => (
           <div key={groupName} style={{ marginBottom: 16 }}>
             <h4 style={{ marginBottom: 8 }}>{groupName}</h4>
@@ -364,6 +514,8 @@ function GradingTab() {
         </div>
       </div>
 
+      {config.kpi_mode === 'hours' && <KpiHourTargetsPanel />}
+
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Lịch sử thay đổi</h3>
         {history.length === 0 && <p className="muted-note">Chưa có thay đổi nào.</p>}
@@ -377,7 +529,11 @@ function GradingTab() {
                 <tr key={row.id}>
                   <td>{new Date(row.changed_at).toLocaleString('vi-VN')}</td>
                   <td>{row.changed_by_name || '—'}</td>
-                  <td>{GRADING_FIELDS.find((f) => f.key === row.field)?.label || row.field}</td>
+                  <td>
+                    {row.field === 'kpi_mode'
+                      ? 'Chế độ KPI'
+                      : GRADING_FIELDS.find((f) => f.key === row.field)?.label || row.field}
+                  </td>
                   <td>{row.old_value}</td>
                   <td>{row.new_value}</td>
                 </tr>
