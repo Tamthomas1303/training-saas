@@ -465,6 +465,10 @@ def talent_pool_employees(tenant):
 # G6 — chuỗi tiên quyết đào tạo BQL (mô tả mục 3): Train-the-trainer trước; QL cần nội dung GS;
 # Bếp trưởng cần nội dung Bếp phó. Đối chiếu với nội dung đã học (topics) của Daotao_BQL.
 PREREQ_TRAIN_TOPIC = 'Kỹ năng đào tạo'
+# Khung noi dung cap O - Buoc 1 (Prompt_KhungNoiDung_CapO_Buoc1.md muc 3): danh sach hardcode
+# nay GIU LAM MAC DINH/FALLBACK khi 1 vi tri O CHUA duoc Admin cau hinh khung rieng qua
+# CurriculumItem (xem _content_topics_for_role duoi day) - dam bao KHONG doi hanh vi cho toi
+# khi admin nhap xong danh muc.
 GS_CONTENT_TOPICS = {'Xử lý tình huống', 'Kỹ năng mềm', 'VSATTP', 'Kỹ năng Office', 'Dinh dưỡng', 'Vận hành'}
 BP_CONTENT_TOPICS = {'Kiểm soát chi phí', 'Kiểm soát chất lượng', 'Kỹ năng mềm', 'VSATTP', 'Vận hành'}
 PREREQ_BY_TARGET = {
@@ -474,9 +478,35 @@ PREREQ_BY_TARGET = {
     'BTr': [('train', None), ('content', 'BP')],
 }
 
+# Anh xa ma tien quyet (role trong PREREQ_BY_TARGET) <-> vi tri O (job_title cua User/vi tri
+# CurriculumItem.position). Vi tri O hop le cho khung noi dung Buoc 1 = 4 gia tri nay.
+O_POSITIONS = {'qlnh', 'giam_sat', 'bep_truong', 'bep_pho'}
+PREREQ_ROLE_TO_POSITION = {
+    'GS': 'giam_sat',
+    'BP': 'bep_pho',
+}
 
-def prerequisite_status(target_code, topics, assessments):
-    """Trả trạng thái tiên quyết cho vị trí đích: Train-the-trainer + nội dung role trước đó."""
+
+def _content_topics_for_role(tenant, role):
+    """Muc 3 (Prompt_KhungNoiDung_CapO_Buoc1.md) - danh sach TEN tai lieu (CurriculumItem.
+    document.name) da cau hinh cho vi tri O ung voi role tien quyet ('GS'/'BP'). Tra ve None neu
+    vi tri do CHUA duoc cau hinh khung nao (fallback ve GS/BP_CONTENT_TOPICS hardcode - xem
+    prerequisite_status)."""
+    from .models import CurriculumItem
+
+    position = PREREQ_ROLE_TO_POSITION.get(role)
+    if not position or not tenant:
+        return None
+    items = CurriculumItem.objects.filter(tenant=tenant, position=position).select_related('document')
+    if not items.exists():
+        return None
+    return {item.document.name for item in items}
+
+
+def prerequisite_status(tenant, target_code, topics, assessments):
+    """Trả trạng thái tiên quyết cho vị trí đích: Train-the-trainer + nội dung role trước đó.
+    `tenant` dùng để đọc khung nội dung CurriculumItem đã cấu hình (Buoc 1 muc 3) - fallback về
+    GS/BP_CONTENT_TOPICS hardcode nếu vị trí tiên quyết chưa được cấu hình khung."""
     topics = set(topics or [])
     done_train = (PREREQ_TRAIN_TOPIC in topics) or ((assessments or {}).get('Kỹ năng đào tạo') == 'Đạt')
     items = []
@@ -487,7 +517,8 @@ def prerequisite_status(target_code, topics, assessments):
                 'ok': done_train, 'missing': [] if done_train else ['Kỹ năng đào tạo'],
             })
         else:
-            need = GS_CONTENT_TOPICS if role == 'GS' else BP_CONTENT_TOPICS
+            configured = _content_topics_for_role(tenant, role)
+            need = configured if configured is not None else (GS_CONTENT_TOPICS if role == 'GS' else BP_CONTENT_TOPICS)
             missing = sorted(need - topics)
             items.append({'label': f'Hoàn thành nội dung {role}', 'ok': not missing, 'missing': missing})
     return {'ok': all(i['ok'] for i in items) if items else True, 'items': items}

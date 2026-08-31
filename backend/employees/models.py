@@ -100,6 +100,35 @@ class Position(models.Model):
         return self.name
 
 
+class CurriculumItem(models.Model):
+    """Khung noi dung dao tao CAP O - Buoc 1 (Prompt_KhungNoiDung_CapO_Buoc1.md, PA C cua
+    Spec_KhungNoiDungDaoTao_TheoViTri.md muc 8). 1 dong = 1 tai lieu (checklist.Document) duoc
+    gan vao khung cua 1 vi tri quan ly (O). Noi dung CHUNG/tap trung (is_shared=True) gan cho
+    NHIEU vi tri = tao NHIEU dong (moi vi tri 1 dong, CUNG 1 document) - don gian hoa so voi M2M
+    scope=shared cua spec goc de CRUD/API di thang, unique_together de kiem soat trung.
+
+    `position` la CHUOI MA job_title cap O (career.O_POSITIONS: qlnh/giam_sat/bep_truong/
+    bep_pho) - KHONG phai Position.name tu do - vi career.py::prerequisite_status can doi chieu
+    THANG voi User.job_title/PREREQ_ROLE_TO_POSITION (xem career.py). Validate o serializer."""
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='curriculum_items')
+    position = models.CharField(max_length=20)
+    document = models.ForeignKey(
+        'checklist.Document', on_delete=models.CASCADE, related_name='curriculum_items',
+    )
+    is_shared = models.BooleanField(default=False)
+    order = models.PositiveIntegerField(default=0)
+    # De trong o cap O (Buoc 1) - danh rieng cho cap S (core/completion) lam sau, xem Spec muc 8.
+    phase = models.CharField(max_length=20, blank=True, null=True)
+
+    class Meta:
+        unique_together = ('tenant', 'position', 'document')
+        ordering = ['position', 'order']
+
+    def __str__(self):
+        return f'{self.position} - {self.document_id}'
+
+
 class RecruitmentSource(models.Model):
     """Link CSV nguồn tuyển dụng cấu hình trên giao diện (Cách 3) — 1 dòng/tenant.
     Lệnh sync_recruitment và nút 'Đồng bộ ngay' đọc link từ đây (không cần vào GitHub)."""

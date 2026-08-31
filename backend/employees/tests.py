@@ -10,10 +10,11 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from accounts.models import Tenant, User
-from checklist.models import Checklist, TrainingProgress
+from checklist.models import Checklist, Document, TrainingProgress
 from cls_sync.models import ExamResult, ExamScoreAdjustment
+from employees.career import prerequisite_status
 from employees.dashboard import _month_end, _s_pass_rate_this_month
-from employees.models import Employee, Position
+from employees.models import CurriculumItem, Employee, Position
 from employees.services import best_exam_score, change_employee_status, emp_type, exam_pass, recompute_final_result
 from employees.management.commands.import_july_data import (
     Command as ImportJulyDataCommand,
@@ -2045,3 +2046,122 @@ class PositionCatalogTests(TestCase):
         resp = self.client.get('/api/employees/positions/')
         self.assertIn('Bếp trưởng', resp.data)
         self.assertIn('Quản lý nhà hàng', resp.data)  # vi tri cap O chuan van con trong fallback
+
+
+class PrerequisiteStatusCurriculumTests(TestCase):
+    """Khung noi dung cap O - Buoc 1 (Prompt_KhungNoiDung_CapO_Buoc1.md muc 3) -
+    prerequisite_status doc CurriculumItem khi vi tri tien quyet DA cau hinh, fallback ve
+    GS/BP_CONTENT_TOPICS hardcode khi CHUA cau hinh (khong doi hanh vi)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+
+    def test_falls_back_to_hardcode_when_position_not_configured(self):
+        # 'QL' can noi dung 'GS' - giam_sat CHUA co CurriculumItem nao -> dung GS_CONTENT_TOPICS.
+        result = prerequisite_status(self.tenant, 'QL', ['Kỹ năng đào tạo'], {})
+        content_item = next(i for i in result['items'] if i['label'] == 'Hoàn thành nội dung GS')
+        self.assertFalse(content_item['ok'])
+        self.assertIn('VSATTP', content_item['missing'])
+
+    def test_reads_from_configured_curriculum_instead_of_hardcode(self):
+        doc = Document.objects.create(tenant=self.tenant, name='Kỹ năng riêng', file_url='https://x/doc.pdf')
+        CurriculumItem.objects.create(tenant=self.tenant, position='giam_sat', document=doc)
+
+        # Da hoc dung 1 noi dung duy nhat trong khung moi (khac han GS_CONTENT_TOPICS hardcode).
+        result_done = prerequisite_status(self.tenant, 'QL', ['Kỹ năng đào tạo', 'Kỹ năng riêng'], {})
+        content_item = next(i for i in result_done['items'] if i['label'] == 'Hoàn thành nội dung GS')
+        self.assertTrue(content_item['ok'])
+        self.assertEqual(content_item['missing'], [])
+
+        # Chua hoc noi dung khung moi (nhung co du GS_CONTENT_TOPICS cu) -> van thieu, vi khung
+        # cau hinh la nguon duy nhat khi DA cau hinh (khong con doi chieu voi hardcode nua).
+        result_not_done = prerequisite_status(
+            self.tenant, 'QL', sorted({'Kỹ năng đào tạo'} | {'Xử lý tình huống', 'Kỹ năng mềm', 'VSATTP', 'Kỹ năng Office', 'Dinh dưỡng', 'Vận hành'}), {},
+        )
+        content_item2 = next(i for i in result_not_done['items'] if i['label'] == 'Hoàn thành nội dung GS')
+        self.assertFalse(content_item2['ok'])
+        self.assertEqual(content_item2['missing'], ['Kỹ năng riêng'])
+
+    def test_btr_target_reads_bep_pho_curriculum(self):
+        doc = Document.objects.create(tenant=self.tenant, name='Quản lý bếp', file_url='https://x/doc.pdf')
+        CurriculumItem.objects.create(tenant=self.tenant, position='bep_pho', document=doc)
+        result = prerequisite_status(self.tenant, 'BTr', ['Kỹ năng đào tạo', 'Quản lý bếp'], {})
+        content_item = next(i for i in result['items'] if i['label'] == 'Hoàn thành nội dung BP')
+        self.assertTrue(content_item['ok'])
+
+
+class CurriculumItemApiTests(TestCase):
+    """Khung noi dung cap O - Buoc 1 (Prompt_KhungNoiDung_CapO_Buoc1.md muc 2)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.om = User.objects.create_user(username='om1', password='x', tenant=self.tenant, role='om')
+        self.trainer = User.objects.create_user(username='trainer1', password='x', tenant=self.tenant, role='trainer')
+        self.doc1 = Document.objects.create(tenant=self.tenant, name='VSATTP', file_url='https://x/1.pdf')
+        self.doc2 = Document.objects.create(tenant=self.tenant, name='Sự cố', file_url='https://x/2.pdf')
+        self.client = APIClient()
+
+    def test_om_can_read_but_trainer_cannot(self):
+        CurriculumItem.objects.create(tenant=self.tenant, position='giam_sat', document=self.doc1)
+        self.client.force_authenticate(self.om)
+        resp = self.client.get('/api/curriculum/', {'position': 'giam_sat'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['results'][0]['document_name'], 'VSATTP')
+
+        self.client.force_authenticate(self.trainer)
+        resp2 = self.client.get('/api/curriculum/')
+        self.assertEqual(resp2.status_code, 403)
+
+    def test_om_cannot_write(self):
+        self.client.force_authenticate(self.om)
+        resp = self.client.post('/api/curriculum/', {'position': 'giam_sat', 'document': self.doc1.id})
+        self.assertEqual(resp.status_code, 403)
+
+    def test_admin_create_rejects_invalid_position(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post('/api/curriculum/', {'position': 'bep_truong_phu', 'document': self.doc1.id})
+        self.assertEqual(resp.status_code, 400)
+
+    def test_admin_create_rejects_duplicate(self):
+        self.client.force_authenticate(self.admin)
+        self.client.post('/api/curriculum/', {'position': 'giam_sat', 'document': self.doc1.id})
+        dup = self.client.post('/api/curriculum/', {'position': 'giam_sat', 'document': self.doc1.id})
+        self.assertEqual(dup.status_code, 400)
+
+    def test_bulk_assign_creates_for_each_position_and_marks_shared(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post('/api/curriculum/bulk/', {
+            'document_ids': [self.doc1.id, self.doc2.id],
+            'positions': ['giam_sat', 'qlnh'],
+            'is_shared': True,
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['created'], 4)
+        rows = CurriculumItem.objects.filter(tenant=self.tenant)
+        self.assertEqual(rows.count(), 4)
+        self.assertTrue(all(r.is_shared for r in rows))
+
+    def test_bulk_assign_is_idempotent_skips_existing(self):
+        CurriculumItem.objects.create(tenant=self.tenant, position='giam_sat', document=self.doc1)
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post('/api/curriculum/bulk/', {
+            'document_ids': [self.doc1.id], 'positions': ['giam_sat'], 'is_shared': True,
+        }, format='json')
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data['created'], 0)
+        self.assertEqual(CurriculumItem.objects.count(), 1)
+
+    def test_bulk_assign_rejects_invalid_position(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post('/api/curriculum/bulk/', {
+            'document_ids': [self.doc1.id], 'positions': ['ceo'],
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_non_admin_cannot_bulk_assign(self):
+        self.client.force_authenticate(self.om)
+        resp = self.client.post('/api/curriculum/bulk/', {
+            'document_ids': [self.doc1.id], 'positions': ['giam_sat'],
+        }, format='json')
+        self.assertEqual(resp.status_code, 403)

@@ -14,6 +14,7 @@ import KpiPage from './pages/KpiPage'
 import CommissionPage from './pages/CommissionPage'
 import UsersPage from './pages/UsersPage'
 import PositionsPage from './pages/PositionsPage'
+import CurriculumPage from './pages/CurriculumPage'
 import DocumentsPage from './pages/DocumentsPage'
 import GuestCouncilPage from './pages/GuestCouncilPage'
 import GuestAttendPage from './pages/GuestAttendPage'
@@ -216,6 +217,16 @@ function App() {
             element={
               <ProtectedRoute roles={['admin']}>
                 <PositionsPage />
+              </ProtectedRoute>
+            }
+          />
+          {/* Prompt_KhungNoiDung_CapO_Buoc1.md - chi Admin thao tac (man khac vd MgmtDev chi doc
+              qua API rieng, khong qua route nay). */}
+          <Route
+            path="/curriculum"
+            element={
+              <ProtectedRoute roles={['admin']}>
+                <CurriculumPage />
               </ProtectedRoute>
             }
           />

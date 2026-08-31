@@ -52,6 +52,9 @@ urlpatterns = [
     path('api/push/unsubscribe/', PushUnsubscribeView.as_view(), name='push-unsubscribe'),
     path('api/restaurants/', include('restaurants.urls')),
     path('api/employees/', include('employees.urls')),
+    # Buoc 1 (Prompt_KhungNoiDung_CapO_Buoc1.md muc 2) - dung DUNG duong dan "/api/curriculum/"
+    # prompt yeu cau, KHONG nam duoi "/api/employees/".
+    path('api/curriculum/', include('employees.curriculum_urls')),
     path('api/checklist/', include('checklist.urls')),
     path('api/evaluation/', include('evaluation.urls')),
     path('api/kpi/', include('kpi.urls')),

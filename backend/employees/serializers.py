@@ -3,8 +3,10 @@ from rest_framework import serializers
 from accounts.models import User
 from restaurants.models import Restaurant
 
+from .career import O_POSITIONS
 from .models import (
     AutomationSettings,
+    CurriculumItem,
     Employee,
     LevelUpEnrollment,
     OnboardingCourseRule,
@@ -169,6 +171,42 @@ class PositionSerializer(serializers.ModelSerializer):
         if tenant and qs.exists():
             raise serializers.ValidationError('Vị trí này đã tồn tại.')
         return value
+
+
+class CurriculumItemSerializer(serializers.ModelSerializer):
+    """Khung noi dung dao tao cap O - Buoc 1 (Prompt_KhungNoiDung_CapO_Buoc1.md)."""
+
+    document_name = serializers.CharField(source='document.name', read_only=True)
+    document_category = serializers.CharField(source='document.category', read_only=True, default='')
+    document_file_url = serializers.CharField(source='document.file_url', read_only=True, default='')
+
+    class Meta:
+        model = CurriculumItem
+        fields = [
+            'id', 'position', 'document', 'document_name', 'document_category',
+            'document_file_url', 'is_shared', 'order', 'phase',
+        ]
+
+    def validate_position(self, value):
+        value = (value or '').strip()
+        if value not in O_POSITIONS:
+            raise serializers.ValidationError(
+                'Vị trí không hợp lệ (Bước 1 chỉ áp dụng cấp O: qlnh/giam_sat/bep_truong/bep_pho).'
+            )
+        return value
+
+    def validate(self, attrs):
+        position = attrs.get('position') or getattr(self.instance, 'position', None)
+        document = attrs.get('document') or getattr(self.instance, 'document', None)
+        request = self.context.get('request')
+        tenant = getattr(request.user, 'tenant', None) if request else None
+        if tenant and position and document:
+            qs = CurriculumItem.objects.filter(tenant=tenant, position=position, document=document)
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError('Tài liệu này đã có trong khung của vị trí này.')
+        return attrs
 
 
 class OnboardingCourseRuleSerializer(serializers.ModelSerializer):

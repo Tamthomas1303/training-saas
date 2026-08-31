@@ -61,6 +61,8 @@ export const ADMIN_NAV = [
       { label: 'Người dùng', path: '/users', icon: Users, roles: ['admin'] },
       // Muc 16 Phase 1 phan A (Prompt_Muc16_Phase1_ViTri_CauHinhMenu.md).
       { label: 'Vị trí chức danh', path: '/positions', icon: IdCard, roles: ['admin'] },
+      // Prompt_KhungNoiDung_CapO_Buoc1.md - khung noi dung dao tao cap O (quan ly).
+      { label: 'Khung nội dung đào tạo (cấp O)', path: '/curriculum', icon: GraduationCap, roles: ['admin'] },
       { label: 'Mẫu chứng chỉ', path: '/cert-templates', icon: FileBadge, roles: ['admin'] },
       { label: 'Chứng chỉ đã cấp', path: '/certificates', icon: Award, roles: ['admin'] },
       { label: 'Chương trình chứng chỉ', path: '/cert-programs', icon: ScrollText, roles: ['admin'] },

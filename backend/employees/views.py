@@ -8,11 +8,13 @@ from rest_framework.views import APIView
 from accounts.mixins import TenantScopedViewSetMixin
 from accounts.pagination import DefaultPagination
 
+from .career import O_POSITIONS
 from .dashboard import dashboard_payload
 from .detail import export_probation_result_pdf, student_detail
 from .home import home_payload
-from .models import Employee, OnboardingCourseRule, Position, ProbationExamCandidate, ProbationExamRule
+from .models import CurriculumItem, Employee, OnboardingCourseRule, Position, ProbationExamCandidate, ProbationExamRule
 from .serializers import (
+    CurriculumItemSerializer,
     EmployeeSerializer,
     OnboardingCourseRuleSerializer,
     PositionSerializer,
@@ -20,6 +22,10 @@ from .serializers import (
     ProbationExamRuleSerializer,
 )
 from .services import change_employee_status
+
+# Buoc 1 (Prompt_KhungNoiDung_CapO_Buoc1.md muc 2) - doc khung noi dung cap O: giong doi tuong
+# duoc xem man "MgmtDev" (MgmtDevelopmentListView) - admin/om/bod. Ghi: chi admin.
+CURRICULUM_VIEW_ROLES = {'admin', 'om', 'bod'}
 
 STUDENT_ADMIN_ROLES = {'admin', 'om', 'bql', 'trainer'}
 
@@ -209,6 +215,76 @@ class PositionViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
             from rest_framework.exceptions import PermissionDenied
 
             raise PermissionDenied('Chỉ Admin được quản trị danh mục vị trí.')
+
+
+class CurriculumItemViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
+    """CRUD khung noi dung dao tao CAP O - Buoc 1 (Prompt_KhungNoiDung_CapO_Buoc1.md muc 2).
+    Doc: CURRICULUM_VIEW_ROLES (admin/om/bod - giong man MgmtDev chi doc). Ghi: chi Admin.
+    Filter ?position=<ma vi tri O> theo dung yeu cau prompt (GET /api/curriculum/?position=...)."""
+
+    serializer_class = CurriculumItemSerializer
+    queryset = CurriculumItem.objects.select_related('document').all()
+    pagination_class = DefaultPagination
+    filterset_fields = ['position', 'is_shared']
+    ordering = ['position', 'order']
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        role = (request.user.role or '').lower()
+        from rest_framework.exceptions import PermissionDenied
+
+        if role not in CURRICULUM_VIEW_ROLES:
+            raise PermissionDenied('Chỉ Admin/OM/BOD được xem khung nội dung đào tạo.')
+        if request.method not in ('GET', 'HEAD', 'OPTIONS') and role != 'admin':
+            raise PermissionDenied('Chỉ Admin được sửa khung nội dung đào tạo.')
+
+
+class CurriculumBulkAssignView(APIView):
+    """POST /api/curriculum/bulk/ — Buoc 1 muc 2: gan 1 hoac nhieu Document cho 1 hoac nhieu vi
+    tri O CUNG LUC (phuc vu "tich chon nội dung chung gán cho nhiều vị trí"). Body:
+    {document_ids: [...], positions: [...], is_shared: bool, order: int (tuy chon)}. Bo qua
+    (khong loi) cac cap (position, document) DA TON TAI - cho phep bam lai an toan (idempotent),
+    dung y "tich chon" co the sua/bam lai nhieu lan."""
+
+    def post(self, request):
+        if (request.user.role or '').lower() != 'admin':
+            return Response({'detail': 'Chỉ Admin được gán khung nội dung.'}, status=403)
+
+        tenant = request.user.tenant
+        document_ids = request.data.get('document_ids') or []
+        positions = request.data.get('positions') or []
+        is_shared = bool(request.data.get('is_shared'))
+        try:
+            order = int(request.data.get('order') or 0)
+        except (TypeError, ValueError):
+            order = 0
+
+        if not document_ids or not positions:
+            return Response({'detail': 'Cần chọn ít nhất 1 tài liệu và 1 vị trí.'}, status=400)
+        invalid_positions = sorted(set(positions) - O_POSITIONS)
+        if invalid_positions:
+            return Response(
+                {'detail': f'Vị trí không hợp lệ: {", ".join(invalid_positions)}'}, status=400,
+            )
+
+        from checklist.models import Document
+
+        documents = list(Document.objects.filter(tenant=tenant, id__in=document_ids))
+        if not documents:
+            return Response({'detail': 'Không tìm thấy tài liệu đã chọn.'}, status=400)
+
+        existing = set(
+            CurriculumItem.objects.filter(
+                tenant=tenant, position__in=positions, document__in=documents,
+            ).values_list('position', 'document_id')
+        )
+        to_create = [
+            CurriculumItem(tenant=tenant, position=p, document=d, is_shared=is_shared, order=order)
+            for p in positions for d in documents
+            if (p, d.id) not in existing
+        ]
+        CurriculumItem.objects.bulk_create(to_create)
+        return Response({'created': len(to_create), 'skipped_existing': len(documents) * len(positions) - len(to_create)}, status=201)
 
 
 def _require_data_admin(request):
@@ -425,7 +501,7 @@ class MgmtDevelopmentListView(APIView):
                 'source': d.employee_source if d else '',
                 'topics': topics, 'scores': data.get('scores', {}),
                 'assessments': assessments,
-                'prerequisites': prerequisite_status(target_code, topics, assessments),
+                'prerequisites': prerequisite_status(tenant, target_code, topics, assessments),
                 'courses_attended': courses_by_emp.get(e.id, 0),
                 'sessions_attended': sessions_by_emp.get(e.id, 0),
             })
