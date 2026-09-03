@@ -5,6 +5,10 @@ from employees.models import Employee
 
 
 class Checklist(models.Model):
+    class Phase(models.TextChoices):
+        CORE = 'core', 'Cơ bản (thử việc)'
+        COMPLETION = 'completion', 'Hoàn thiện'
+
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name='checklists')
     brand = models.CharField(max_length=100, blank=True)
     position = models.CharField(max_length=100, blank=True)
@@ -15,6 +19,10 @@ class Checklist(models.Model):
     doc_url = models.URLField(blank=True)
     level_group = models.CharField(max_length=20, blank=True)
     order = models.IntegerField(default=0)
+    # Khung noi dung cap S - Buoc 2 (Prompt_KhungNoiDung_CapS_Buoc2.md muc 1). Mac dinh 'core' de
+    # MOI muc CU deu la core -> hanh vi KHONG doi (100% toan bo cu == 100% core moi) cho toi khi
+    # admin phan loai rieng tung muc/nhom. Xem employees.services.checklist_progress_by_phase.
+    phase = models.CharField(max_length=20, choices=Phase.choices, default=Phase.CORE)
     # Ma checklist ben ngoai (CL-xxxxx, sheet "DB_Dao tao"::position_checklists) - cau noi de
     # cac Drive import/ETL (vd import_july_data) tim dung Checklist v2.1 tuong ung.
     code = models.CharField(max_length=20, blank=True, db_index=True)

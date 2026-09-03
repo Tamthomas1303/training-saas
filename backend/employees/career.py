@@ -96,6 +96,18 @@ def achieved_positions(employee):
     return positions
 
 
+def _current_position_needs_completion_gate(employee):
+    """Khung noi dung cap S - Buoc 2 muc 5 (Prompt_KhungNoiDung_CapS_Buoc2.md): CHI bat cong 2
+    (vi tri hien tai phai hoan thien) khi vi tri hien tai DA duoc Admin phan loai phase that su
+    (co it nhat 1 muc checklist phase='completion') - tranh "chan oan" cac tenant/vi tri CHUA
+    dung toi tinh nang phan loai (hanh vi cu: khong co dieu kien nay o registration_status).
+    Vi tri khong co checklist nao -> tra ve False (bo qua dieu kien, dung y "khong chan oan")."""
+    from .services import matching_checklist_items
+
+    items = matching_checklist_items(employee)
+    return any(c.phase == 'completion' for c in items)
+
+
 def registration_status(employee):
     """Trạng thái cho việc đăng ký vị trí tiếp: can(bool) + reason + level hiện tại/đích."""
     current = major_level(employee.job_level)
@@ -114,6 +126,23 @@ def registration_status(employee):
     if months is not None and months < MIN_MONTHS_BETWEEN:
         return {'can': False, 'reason': f'Chưa đủ 3 tháng ở vị trí hiện tại (mới ~{months:.1f} tháng).',
                 'current_level': current, 'next_level': nxt}
+
+    # Khung noi dung cap S - Buoc 2 muc 5: Cong 2 - vi tri HIEN TAI phai HOAN THIEN (checklist
+    # toan bo = 100%) moi duoc dang ky vi tri ke, khi GradingConfig.sequential_positions=True
+    # (mac dinh True = tuan tu, da chot thiet ke). CHI enforce khi vi tri hien tai DA duoc phan
+    # loai phase that su (xem _current_position_needs_completion_gate) - dam bao KHONG doi hanh
+    # vi cho cac tenant/vi tri chua dung toi tinh nang nay.
+    from accounts.services import get_grading_config
+
+    if get_grading_config(employee.tenant).sequential_positions and _current_position_needs_completion_gate(employee):
+        from .services import checklist_progress_by_phase
+
+        if checklist_progress_by_phase(employee)['full_pct'] < 100:
+            return {
+                'can': False, 'reason': 'Chưa hoàn thiện toàn bộ nội dung vị trí hiện tại.',
+                'current_level': current, 'next_level': nxt,
+            }
+
     return {'can': True, 'reason': '', 'current_level': current, 'next_level': nxt}
 
 

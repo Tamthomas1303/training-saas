@@ -180,7 +180,7 @@ def check_probation_exam_eligibility(employee):
     ghi (du dang pending/approved/rejected). Tra ve ProbationExamCandidate MOI TAO, hoac None
     neu chua du dieu kien / da co san / cong tac tat / nhan su cu."""
     from .models import Employee, ProbationExamCandidate
-    from .services import checklist_progress_percent, lms_done
+    from .services import lms_done, probation_checklist_ok
 
     if getattr(employee, 'is_legacy', False):
         return None
@@ -192,7 +192,10 @@ def check_probation_exam_eligibility(employee):
         return None
     if not lms_done(employee):
         return None
-    if checklist_progress_percent(employee) != 100:
+    # Khung noi dung cap S - Buoc 2 muc 4 (Prompt_KhungNoiDung_CapS_Buoc2.md): "checklist dat
+    # 100%" nay dung probation_checklist_ok (core 100% khi has_probation=True - mac dinh MOI muc
+    # = core nen TUONG DUONG 100% toan bo cu; bo qua hoan toan khi has_probation=False).
+    if not probation_checklist_ok(employee):
         return None
 
     rule = _find_probation_exam_rule(employee.tenant, employee.position)

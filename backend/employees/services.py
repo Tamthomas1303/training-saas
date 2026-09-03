@@ -116,6 +116,58 @@ def checklist_progress_percent(employee, position=None):
     return round(done_count / len(items) * 100)
 
 
+def checklist_progress_by_phase(employee, position=None):
+    """Khung noi dung cap S - Buoc 2 (Prompt_KhungNoiDung_CapS_Buoc2.md muc 3) - tach 2 tien do
+    theo Checklist.phase: 'core' (thu viec) va 'full' (toan bo, GIONG HET
+    checklist_progress_percent hien co). Khong xoa/doi checklist_progress_percent - noi khac
+    van goi ham do binh thuong; ham nay chi dung o noi CAN tach core/full (cong 1/cong 2).
+
+    Tra ve {core_done, core_total, core_pct, full_done, full_total, full_pct}. `core_pct` = 100
+    khi core_total=0 (vi tri khong co muc core nao - vd tat ca da phan loai completion, hoac
+    chua co checklist gi) - "khong chan oan", coi nhu da dat dieu kien core (khong co gi de hoc)."""
+    if position is None and getattr(employee, 'is_legacy', False):
+        return {'core_done': 0, 'core_total': 0, 'core_pct': 100, 'full_done': 0, 'full_total': 0, 'full_pct': 100}
+
+    from checklist.models import TrainingProgress
+
+    items = matching_checklist_items(employee, position)
+    full_total = len(items)
+    if full_total == 0:
+        return {'core_done': 0, 'core_total': 0, 'core_pct': 100, 'full_done': 0, 'full_total': 0, 'full_pct': 0}
+
+    core_ids = {c.id for c in items if c.phase == 'core'}
+    all_ids = [c.id for c in items]
+    done_ids = set(
+        TrainingProgress.objects.filter(
+            employee=employee, checklist_id__in=all_ids, status=TrainingProgress.Status.DONE,
+        ).values_list('checklist_id', flat=True)
+    )
+    core_total = len(core_ids)
+    core_done = len(done_ids & core_ids)
+    full_done = len(done_ids)
+
+    return {
+        'core_done': core_done, 'core_total': core_total,
+        'core_pct': round(core_done / core_total * 100) if core_total else 100,
+        'full_done': full_done, 'full_total': full_total,
+        'full_pct': round(full_done / full_total * 100),
+    }
+
+
+def probation_checklist_ok(employee, position=None):
+    """Khung noi dung cap S - Buoc 2 muc 4 - dieu kien CHECKLIST cua 'cong 1' (du dieu kien thi
+    ket thuc thu viec / dat thu viec). GradingConfig.has_probation=True (mac dinh): can CORE
+    100% - vi mac dinh MOI muc = core, dieu nay TUONG DUONG "100% toan bo" cu cho toi khi admin
+    phan loai rieng (regression an toan). has_probation=False: BO dieu kien nay (luon coi la dat
+    - "xac nhan tiep tuc theo quy che DN", cac dieu kien khac cua cong 1 - LMS/thi/ky nang -
+    KHONG doi, van duoc kiem doc lap o noi goi ham nay)."""
+    from accounts.services import get_grading_config
+
+    if not get_grading_config(employee.tenant).has_probation:
+        return True
+    return checklist_progress_by_phase(employee, position)['core_pct'] >= 100
+
+
 def batch_checklist_progress_percent(employees):
     """Nhu checklist_progress_percent nhung tinh cho nhieu nhan su cung luc bang vai truy
     van co dinh (thay vi ~2 truy van/nhan su) - tranh N+1 khi liet ke danh sach nhan su."""
@@ -353,10 +405,13 @@ def compute_final_result(employee):
 
     # Cấp O (mục 7): PASS = LMS + thi + đào tạo tại điểm 100% + vận hành ca đạt (AM/KCS)
     # + tay nghề đạt (hội đồng) + phỏng vấn đạt (hội đồng).
+    # Khung noi dung cap S - Buoc 2 muc 4: "dao tao tai diem 100%" nay dung probation_checklist_ok
+    # (core 100% khi has_probation=True - mac dinh MOI muc = core nen TUONG DUONG "100% toan bo"
+    # cu cho toi khi admin phan loai; bo qua hoan toan khi has_probation=False).
     if is_bep_truong_pho or is_quan_ly_giam_sat:
         ok = (
             eligible and exam_pass(employee)
-            and checklist_progress_percent(employee) >= 100
+            and probation_checklist_ok(employee)
             and employee.shift_ops == 'Đạt'
             and employee.skill_result == 'Đạt'
             and employee.interview_result == 'Đạt'
@@ -367,7 +422,7 @@ def compute_final_result(employee):
     # ∧ đánh giá thực hành đạt (phản hồi #7 mục 2). Bỏ công thức trung bình 0.4/0.6 của ĐỢT 2.
     if not eligible:
         return 'Tiếp tục thử việc'
-    if checklist_progress_percent(employee) < 100:
+    if not probation_checklist_ok(employee):
         return 'Tiếp tục thử việc'
     if not exam_pass(employee):
         return 'Tiếp tục thử việc'

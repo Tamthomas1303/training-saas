@@ -12,10 +12,20 @@ from rest_framework.test import APIClient
 from accounts.models import Tenant, User
 from checklist.models import Checklist, Document, TrainingProgress
 from cls_sync.models import ExamResult, ExamScoreAdjustment
-from employees.career import prerequisite_status
+from accounts.services import update_grading_config
+from employees.career import prerequisite_status, registration_status
 from employees.dashboard import _month_end, _s_pass_rate_this_month
 from employees.models import CurriculumItem, Employee, Position
-from employees.services import best_exam_score, change_employee_status, emp_type, exam_pass, recompute_final_result
+from employees.services import (
+    best_exam_score,
+    change_employee_status,
+    checklist_progress_by_phase,
+    compute_final_result,
+    emp_type,
+    exam_pass,
+    probation_checklist_ok,
+    recompute_final_result,
+)
 from employees.management.commands.import_july_data import (
     Command as ImportJulyDataCommand,
 )
@@ -462,7 +472,7 @@ class ComputeFinalResultSkillThresholdGradingConfigTests(TestCase):
         from employees.services import compute_final_result
 
         with patch('employees.services.lms_done', return_value=True), \
-             patch('employees.services.checklist_progress_percent', return_value=100), \
+             patch('employees.services.probation_checklist_ok', return_value=True), \
              patch('employees.services.exam_pass', return_value=True):
             return compute_final_result(self.employee)
 
@@ -1359,7 +1369,7 @@ class AutomationSettingsApiTests(TestCase):
 
 class ProbationExamEligibilityTests(TestCase):
     """Nhom 3B (Prompt_Nhom3B_ThiThuViec_TuDong.md muc 2): check_probation_exam_eligibility -
-    dieu kien vao hang doi "Cho duyet thi". Mock lms_done/checklist_progress_percent (da co test
+    dieu kien vao hang doi "Cho duyet thi". Mock lms_done/probation_checklist_ok (da co test
     rieng o noi khac) de tap trung vao logic cong tac/rule/idempotency cua ham nay."""
 
     def setUp(self):
@@ -1382,7 +1392,7 @@ class ProbationExamEligibilityTests(TestCase):
         )
         ProbationExamRule.objects.create(tenant=self.tenant, position='NV Phục vụ', assessment=self.assessment)
 
-    @patch('employees.services.checklist_progress_percent', return_value=100)
+    @patch('employees.services.probation_checklist_ok', return_value=True)
     @patch('employees.services.lms_done', return_value=True)
     def test_eligible_employee_creates_pending_candidate_not_yet_assigned(self, mock_lms, mock_checklist):
         from employees.automation import check_probation_exam_eligibility
@@ -1395,7 +1405,7 @@ class ProbationExamEligibilityTests(TestCase):
         self.assertEqual(ProbationExamCandidate.objects.filter(employee=self.employee).count(), 1)
         self.assertFalse(AssessmentAssignment.objects.filter(employee=self.employee).exists())
 
-    @patch('employees.services.checklist_progress_percent', return_value=100)
+    @patch('employees.services.probation_checklist_ok', return_value=True)
     @patch('employees.services.lms_done', return_value=True)
     def test_idempotent_no_duplicate_candidate(self, mock_lms, mock_checklist):
         from employees.automation import check_probation_exam_eligibility
@@ -1407,21 +1417,21 @@ class ProbationExamEligibilityTests(TestCase):
         self.assertIsNone(second)
         self.assertEqual(ProbationExamCandidate.objects.filter(employee=self.employee).count(), 1)
 
-    @patch('employees.services.checklist_progress_percent', return_value=60)
+    @patch('employees.services.probation_checklist_ok', return_value=False)
     @patch('employees.services.lms_done', return_value=True)
     def test_checklist_below_100_percent_not_eligible(self, mock_lms, mock_checklist):
         from employees.automation import check_probation_exam_eligibility
 
         self.assertIsNone(check_probation_exam_eligibility(self.employee))
 
-    @patch('employees.services.checklist_progress_percent', return_value=100)
+    @patch('employees.services.probation_checklist_ok', return_value=True)
     @patch('employees.services.lms_done', return_value=False)
     def test_lms_not_done_not_eligible(self, mock_lms, mock_checklist):
         from employees.automation import check_probation_exam_eligibility
 
         self.assertIsNone(check_probation_exam_eligibility(self.employee))
 
-    @patch('employees.services.checklist_progress_percent', return_value=100)
+    @patch('employees.services.probation_checklist_ok', return_value=True)
     @patch('employees.services.lms_done', return_value=True)
     def test_toggle_off_auto_assign_skips(self, mock_lms, mock_checklist):
         self.settings_obj.auto_assign_probation_exam = False
@@ -1430,7 +1440,7 @@ class ProbationExamEligibilityTests(TestCase):
 
         self.assertIsNone(check_probation_exam_eligibility(self.employee))
 
-    @patch('employees.services.checklist_progress_percent', return_value=100)
+    @patch('employees.services.probation_checklist_ok', return_value=True)
     @patch('employees.services.lms_done', return_value=True)
     def test_legacy_employee_never_enters_queue(self, mock_lms, mock_checklist):
         legacy = Employee.objects.create(
@@ -1441,7 +1451,7 @@ class ProbationExamEligibilityTests(TestCase):
 
         self.assertIsNone(check_probation_exam_eligibility(legacy))
 
-    @patch('employees.services.checklist_progress_percent', return_value=100)
+    @patch('employees.services.probation_checklist_ok', return_value=True)
     @patch('employees.services.lms_done', return_value=True)
     def test_no_matching_rule_not_eligible(self, mock_lms, mock_checklist):
         from employees.automation import check_probation_exam_eligibility
@@ -1452,7 +1462,7 @@ class ProbationExamEligibilityTests(TestCase):
         )
         self.assertIsNone(check_probation_exam_eligibility(other))
 
-    @patch('employees.services.checklist_progress_percent', return_value=100)
+    @patch('employees.services.probation_checklist_ok', return_value=True)
     @patch('employees.services.lms_done', return_value=True)
     def test_not_in_probation_status_not_eligible(self, mock_lms, mock_checklist):
         self.employee.employee_status = Employee.EmployeeStatus.ACTIVE
@@ -1461,7 +1471,7 @@ class ProbationExamEligibilityTests(TestCase):
 
         self.assertIsNone(check_probation_exam_eligibility(self.employee))
 
-    @patch('employees.services.checklist_progress_percent', return_value=100)
+    @patch('employees.services.probation_checklist_ok', return_value=True)
     @patch('employees.services.lms_done', return_value=True)
     def test_require_approval_false_auto_approves_immediately(self, mock_lms, mock_checklist):
         self.settings_obj.require_approval_before_exam = False
@@ -2165,3 +2175,259 @@ class CurriculumItemApiTests(TestCase):
             'document_ids': [self.doc1.id], 'positions': ['giam_sat'],
         }, format='json')
         self.assertEqual(resp.status_code, 403)
+
+
+# ==================================================================== Khung noi dung cap S -
+# Buoc 2 (Prompt_KhungNoiDung_CapS_Buoc2.md). BAT BUOC co regression day du: khi CHUA phan loai
+# checklist (moi muc = 'core' mac dinh), moi ket qua nghiep vu (dat thu viec, dang ky/len level,
+# du dieu kien thi thu viec) phai GIONG HET truoc day.
+
+class ChecklistProgressByPhaseTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='NH1', name='NH Demo', brand='Kampong')
+        self.employee = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='NV1', position='Phục vụ', restaurant=self.restaurant,
+        )
+
+    def _checklist(self, task_name, phase='core'):
+        return Checklist.objects.create(
+            tenant=self.tenant, brand='Kampong', position='Phục vụ', task_name=task_name, phase=phase,
+        )
+
+    def test_no_checklist_for_position_is_vacuously_satisfied(self):
+        stats = checklist_progress_by_phase(self.employee)
+        self.assertEqual(stats, {'core_done': 0, 'core_total': 0, 'core_pct': 100, 'full_done': 0, 'full_total': 0, 'full_pct': 0})
+
+    def test_unclassified_checklist_core_pct_equals_full_pct(self):
+        c1 = self._checklist('Việc 1')
+        self._checklist('Việc 2')
+        TrainingProgress.objects.create(tenant=self.tenant, employee=self.employee, checklist=c1, status=TrainingProgress.Status.DONE)
+        stats = checklist_progress_by_phase(self.employee)
+        self.assertEqual(stats['full_total'], 2)
+        self.assertEqual(stats['core_total'], 2)  # moi muc deu la core mac dinh
+        self.assertEqual(stats['core_pct'], stats['full_pct'])
+        self.assertEqual(stats['full_pct'], 50)
+
+    def test_classified_core_and_completion_tracked_separately(self):
+        core1 = self._checklist('Core 1', phase='core')
+        self._checklist('Core 2', phase='core')
+        self._checklist('Completion 1', phase='completion')
+        TrainingProgress.objects.create(tenant=self.tenant, employee=self.employee, checklist=core1, status=TrainingProgress.Status.DONE)
+        stats = checklist_progress_by_phase(self.employee)
+        self.assertEqual(stats['core_total'], 2)
+        self.assertEqual(stats['core_done'], 1)
+        self.assertEqual(stats['core_pct'], 50)
+        self.assertEqual(stats['full_total'], 3)
+        self.assertEqual(stats['full_pct'], 33)
+
+    def test_legacy_employee_shortcut_unchanged(self):
+        legacy = Employee.objects.create(tenant=self.tenant, code='NVCU', name='Cũ', is_legacy=True)
+        stats = checklist_progress_by_phase(legacy)
+        self.assertEqual(stats['core_pct'], 100)
+        self.assertEqual(stats['full_pct'], 100)
+
+
+class ProbationChecklistOkTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='NH1', name='NH Demo', brand='Kampong')
+        self.employee = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='NV1', position='Phục vụ', restaurant=self.restaurant,
+        )
+
+    def _checklist(self, task_name, phase='core'):
+        return Checklist.objects.create(
+            tenant=self.tenant, brand='Kampong', position='Phục vụ', task_name=task_name, phase=phase,
+        )
+
+    def test_default_has_probation_true_unclassified_needs_full_100(self):
+        c1 = self._checklist('Việc 1')
+        self._checklist('Việc 2')
+        # 1/2 chua xong -> khong dat, dung y "100% toan bo" cu (moi muc deu la core mac dinh).
+        self.assertFalse(probation_checklist_ok(self.employee))
+        TrainingProgress.objects.create(tenant=self.tenant, employee=self.employee, checklist=c1, status=TrainingProgress.Status.DONE)
+        self.assertFalse(probation_checklist_ok(self.employee))  # 1/2 - van chua du 100%
+
+    def test_classified_position_only_needs_core_done(self):
+        core1 = self._checklist('Core 1', phase='core')
+        TrainingProgress.objects.create(tenant=self.tenant, employee=self.employee, checklist=core1, status=TrainingProgress.Status.DONE)
+        self._checklist('Completion 1', phase='completion')  # CHUA lam, khong quan trong voi core
+        self.assertTrue(probation_checklist_ok(self.employee))
+
+    def test_has_probation_false_always_ok_regardless_of_checklist(self):
+        self._checklist('Việc 1')  # 0% - se FAIL neu has_probation=True
+        update_grading_config(self.tenant, None, {'has_probation': False})
+        self.assertTrue(probation_checklist_ok(self.employee))
+
+
+class ComputeFinalResultRegressionTests(TestCase):
+    """BAT BUOC: khi CHUA phan loai checklist, ket qua dat/khong dat thu viec phai GIONG HET
+    truoc day (Prompt_KhungNoiDung_CapS_Buoc2.md, phan 'Backward-compat & regression')."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='NH1', name='NH Demo', brand='Kampong')
+        self.employee = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='A', position='Phục vụ', restaurant=self.restaurant,
+            operation_unit=Employee.OperationUnit.RESTAURANT, skill_score=Decimal('0.90'),
+        )
+        self.checklist = Checklist.objects.create(
+            tenant=self.tenant, brand='Kampong', position='Phục vụ', task_name='Việc 1',
+        )
+
+    def _mark_checklist_done(self):
+        TrainingProgress.objects.create(
+            tenant=self.tenant, employee=self.employee, checklist=self.checklist, status=TrainingProgress.Status.DONE,
+        )
+
+    def test_unclassified_all_conditions_met_passes_same_as_before(self):
+        self._mark_checklist_done()
+        with patch('employees.services.lms_done', return_value=True), \
+             patch('employees.services.exam_pass', return_value=True):
+            self.assertEqual(compute_final_result(self.employee), 'Pass thử việc')
+
+    def test_unclassified_checklist_not_done_fails_same_as_before(self):
+        # checklist con 1 muc chua Hoan thanh -> 0%
+        with patch('employees.services.lms_done', return_value=True), \
+             patch('employees.services.exam_pass', return_value=True):
+            self.assertEqual(compute_final_result(self.employee), 'Tiếp tục thử việc')
+
+    def test_has_probation_false_bypasses_checklist_gate_only(self):
+        update_grading_config(self.tenant, None, {'has_probation': False})
+        # checklist VAN chua xong (0%), nhung has_probation=False -> bo qua rieng dieu kien nay.
+        with patch('employees.services.lms_done', return_value=True), \
+             patch('employees.services.exam_pass', return_value=True):
+            self.assertEqual(compute_final_result(self.employee), 'Pass thử việc')
+
+    def test_has_probation_false_still_requires_other_conditions(self):
+        update_grading_config(self.tenant, None, {'has_probation': False})
+        # LMS chua xong -> van "Tiep tuc thu viec" du checklist gate da bo qua.
+        with patch('employees.services.lms_done', return_value=False), \
+             patch('employees.services.exam_pass', return_value=True):
+            self.assertEqual(compute_final_result(self.employee), 'Tiếp tục thử việc')
+
+
+class RegistrationStatusSequentialGateTests(TestCase):
+    """Cong 2 - Buoc 2 muc 5. BAT BUOC regression: chua phan loai gi -> dang ky vi tri ke KHONG
+    bi chan boi checklist (dung hanh vi cu, chi co dieu kien 3 thang + khong co dot mo)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.restaurant = Restaurant.objects.create(tenant=self.tenant, code='NH1', name='NH Demo', brand='Kampong')
+        self.employee = Employee.objects.create(
+            tenant=self.tenant, code='NV1', name='A', position='Phục vụ', restaurant=self.restaurant,
+            job_level='S1.1', start_date=timezone.now().date() - datetime.timedelta(days=200),
+        )
+
+    def _checklist(self, task_name, phase='core'):
+        return Checklist.objects.create(
+            tenant=self.tenant, brand='Kampong', position='Phục vụ', task_name=task_name, phase=phase,
+        )
+
+    def test_regression_no_classification_registration_not_blocked_by_checklist(self):
+        # Checklist con do dang (0% - truoc day KHONG co dieu kien checklist o registration_status).
+        self._checklist('Việc 1')
+        status = registration_status(self.employee)
+        self.assertTrue(status['can'])
+        self.assertEqual(status['reason'], '')
+
+    def test_regression_no_checklist_at_all_registration_not_blocked(self):
+        status = registration_status(self.employee)
+        self.assertTrue(status['can'])
+
+    def test_classified_position_blocks_until_full_100_percent(self):
+        core1 = self._checklist('Core 1', phase='core')
+        self._checklist('Completion 1', phase='completion')
+        TrainingProgress.objects.create(tenant=self.tenant, employee=self.employee, checklist=core1, status=TrainingProgress.Status.DONE)
+        # Core xong (100%) nhung completion CHUA -> full < 100% -> bi chan dang ky vi tri ke.
+        status = registration_status(self.employee)
+        self.assertFalse(status['can'])
+        self.assertEqual(status['reason'], 'Chưa hoàn thiện toàn bộ nội dung vị trí hiện tại.')
+
+    def test_classified_position_allows_when_full_100_percent(self):
+        core1 = self._checklist('Core 1', phase='core')
+        completion1 = self._checklist('Completion 1', phase='completion')
+        TrainingProgress.objects.create(tenant=self.tenant, employee=self.employee, checklist=core1, status=TrainingProgress.Status.DONE)
+        TrainingProgress.objects.create(tenant=self.tenant, employee=self.employee, checklist=completion1, status=TrainingProgress.Status.DONE)
+        status = registration_status(self.employee)
+        self.assertTrue(status['can'])
+
+    def test_sequential_positions_false_disables_gate(self):
+        self._checklist('Core 1', phase='core')
+        self._checklist('Completion 1', phase='completion')  # 0% full, se chan neu con bat
+        update_grading_config(self.tenant, None, {'sequential_positions': False})
+        status = registration_status(self.employee)
+        self.assertTrue(status['can'])
+
+
+class ChecklistBulkAssignPhaseApiTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.om = User.objects.create_user(username='om1', password='x', tenant=self.tenant, role='om')
+        self.c1 = Checklist.objects.create(tenant=self.tenant, task_name='Việc 1', category='Nhóm A')
+        self.c2 = Checklist.objects.create(tenant=self.tenant, task_name='Việc 2', category='Nhóm A')
+        self.client = APIClient()
+
+    def test_admin_bulk_assign_by_ids(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post('/api/checklist/bulk-assign-phase/', {
+            'ids': [self.c1.id, self.c2.id], 'phase': 'completion',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['updated'], 2)
+        self.c1.refresh_from_db()
+        self.assertEqual(self.c1.phase, 'completion')
+
+    def test_admin_bulk_assign_by_category(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post('/api/checklist/bulk-assign-phase/', {
+            'category': 'Nhóm A', 'phase': 'completion',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data['updated'], 2)
+
+    def test_invalid_phase_rejected(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post('/api/checklist/bulk-assign-phase/', {
+            'ids': [self.c1.id], 'phase': 'invalid',
+        }, format='json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_non_admin_cannot_bulk_assign_phase(self):
+        self.client.force_authenticate(self.om)
+        resp = self.client.post('/api/checklist/bulk-assign-phase/', {
+            'ids': [self.c1.id], 'phase': 'completion',
+        }, format='json')
+        self.assertEqual(resp.status_code, 403)
+
+
+class GradingConfigNewFieldsTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name='Demo Tenant')
+        self.admin = User.objects.create_user(username='admin1', password='x', tenant=self.tenant, role='admin')
+        self.client = APIClient()
+
+    def test_defaults_match_current_behavior(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.get('/api/settings/grading/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.data['has_probation'])
+        self.assertTrue(resp.data['sequential_positions'])
+        self.assertEqual(resp.data['probation_window_days'], 15)
+        self.assertEqual(resp.data['roadmap_window_days'], 90)
+
+    def test_put_updates_and_logs_history(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.put('/api/settings/grading/', {
+            'has_probation': False, 'sequential_positions': False,
+        }, format='json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.data['has_probation'])
+        self.assertFalse(resp.data['sequential_positions'])
+
+        history = self.client.get('/api/settings/grading/history/')
+        fields_changed = {row['field'] for row in history.data}
+        self.assertIn('has_probation', fields_changed)
+        self.assertIn('sequential_positions', fields_changed)

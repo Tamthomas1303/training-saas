@@ -57,6 +57,26 @@ class ChecklistViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
         updated = qs.update(competency_id=competency_id)
         return Response({'updated': updated})
 
+    @action(detail=False, methods=['post'], url_path='bulk-assign-phase')
+    def bulk_assign_phase(self, request):
+        """POST /api/checklist/bulk-assign-phase/ {ids: [...]} HOAC {category: 'X'} +
+        {phase: 'core'|'completion'} - gan phase cho NHIEU dong checklist cung luc (Khung noi
+        dung cap S - Buoc 2, Prompt_KhungNoiDung_CapS_Buoc2.md muc 1), cung mau voi
+        bulk-assign-competency o tren."""
+        ids = request.data.get('ids')
+        category = (request.data.get('category') or '').strip()
+        if not ids and not category:
+            return Response({'detail': "Cần 'ids' (danh sách id) hoặc 'category' (tên nhóm)."}, status=400)
+
+        phase = request.data.get('phase')
+        if phase not in dict(Checklist.Phase.choices):
+            return Response({'detail': "'phase' phải là 'core' hoặc 'completion'."}, status=400)
+
+        qs = Checklist.objects.filter(tenant=request.user.tenant)
+        qs = qs.filter(id__in=ids) if ids else qs.filter(category=category)
+        updated = qs.update(phase=phase)
+        return Response({'updated': updated})
+
 
 class DocumentViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
     """CRUD tai lieu - man 5.8. Doc: moi role dang nhap. Ghi (them/sua/xoa): chi Admin. Port

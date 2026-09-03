@@ -285,6 +285,16 @@ const GRADING_FIELDS = [
   { key: 'cert_positions_required', label: 'Số vị trí tối thiểu để đạt chứng chỉ', group: 'Chứng chỉ' },
 ]
 
+// Cac field khong nam trong GRADING_FIELDS (khong phai o nhap so trong luoi tren) - dung lam
+// nhan hien thi rieng cho bang Lich su thay doi.
+const NON_NUMERIC_FIELD_LABELS = {
+  kpi_mode: 'Chế độ KPI',
+  has_probation: 'Có thử việc',
+  probation_window_days: 'Cửa sổ thử việc (ngày)',
+  roadmap_window_days: 'Cửa sổ lộ trình (ngày)',
+  sequential_positions: 'Học vị trí tuần tự',
+}
+
 // Muc 11 muc 3 (Prompt_Muc11_KPI_Gio.md) - bang "vi tri -> muc tieu gio/thang", hien khi
 // GradingConfig.kpi_mode='hours'. position='' = gia tri MAC DINH CHUNG.
 function KpiHourTargetsPanel() {
@@ -481,6 +491,50 @@ function GradingTab() {
           </p>
         </div>
 
+        {/* Khung noi dung dao tao cap S - Buoc 2 (Prompt_KhungNoiDung_CapS_Buoc2.md muc 2). Mac
+            dinh dung HANH VI HIEN HANH (co cong thu viec, lo trinh tuan tu) - khong doi gi cho
+            toi khi Admin sua. */}
+        <div className="card" style={{ background: 'var(--brand-soft, #f4f6f5)', marginBottom: 16 }}>
+          <h4 style={{ marginTop: 0, marginBottom: 8 }}>Cửa sổ thời gian & cổng thử việc/lộ trình (cấp S)</h4>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 10 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+              <input
+                type="checkbox"
+                checked={form.has_probation ?? true}
+                onChange={(e) => set('has_probation', e.target.checked)}
+              />
+              Có thử việc (cổng "đào tạo tại điểm" xét theo core khi bật)
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+              <input
+                type="checkbox"
+                checked={form.sequential_positions ?? true}
+                onChange={(e) => set('sequential_positions', e.target.checked)}
+              />
+              Học vị trí tuần tự (phải hoàn thiện vị trí hiện tại mới đăng ký vị trí kế)
+            </label>
+            <label style={{ fontSize: 13 }}>
+              Cửa sổ thử việc (ngày)
+              <input
+                style={{ ...s.input, width: '100%' }} type="number" step="1"
+                value={form.probation_window_days ?? ''} onChange={(e) => set('probation_window_days', e.target.value)}
+              />
+            </label>
+            <label style={{ fontSize: 13 }}>
+              Cửa sổ lộ trình (ngày)
+              <input
+                style={{ ...s.input, width: '100%' }} type="number" step="1"
+                value={form.roadmap_window_days ?? ''} onChange={(e) => set('roadmap_window_days', e.target.value)}
+              />
+            </label>
+          </div>
+          <p className="muted-note" style={{ marginTop: 6, marginBottom: 0 }}>
+            Tắt "Có thử việc" = bỏ cổng thử việc theo checklist (đạt = xác nhận tiếp tục theo quy
+            chế). Tắt "Học vị trí tuần tự" = cho học song song nhiều vị trí, không chặn theo mức
+            hoàn thiện vị trí hiện tại.
+          </p>
+        </div>
+
         {groups.map((groupName) => (
           <div key={groupName} style={{ marginBottom: 16 }}>
             <h4 style={{ marginBottom: 8 }}>{groupName}</h4>
@@ -530,9 +584,8 @@ function GradingTab() {
                   <td>{new Date(row.changed_at).toLocaleString('vi-VN')}</td>
                   <td>{row.changed_by_name || '—'}</td>
                   <td>
-                    {row.field === 'kpi_mode'
-                      ? 'Chế độ KPI'
-                      : GRADING_FIELDS.find((f) => f.key === row.field)?.label || row.field}
+                    {NON_NUMERIC_FIELD_LABELS[row.field] ||
+                      GRADING_FIELDS.find((f) => f.key === row.field)?.label || row.field}
                   </td>
                   <td>{row.old_value}</td>
                   <td>{row.new_value}</td>

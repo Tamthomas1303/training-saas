@@ -20,7 +20,7 @@ class ChecklistSerializer(serializers.ModelSerializer):
         model = Checklist
         fields = [
             'id', 'brand', 'position', 'day', 'category', 'task_name', 'description',
-            'doc_url', 'level_group', 'order', 'competency', 'competency_name',
+            'doc_url', 'level_group', 'order', 'competency', 'competency_name', 'phase',
         ]
 
 

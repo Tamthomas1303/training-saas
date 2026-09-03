@@ -261,15 +261,41 @@ export default function StudentDetailPage() {
           </div>
           <Badge variant={resultBadgeVariant(info.probation_result)}>{info.probation_result || 'Chưa có kết quả'}</Badge>
         </div>
-        <div style={{ marginTop: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-            <span>Tiến độ đào tạo</span>
-            <span>
-              {progress.done}/{progress.total} ({progress.percent}%)
-            </span>
+        {/* Khung noi dung cap S - Buoc 2 (Prompt_KhungNoiDung_CapS_Buoc2.md muc 6) - 2 thanh
+            tien do rieng: Co ban (thu viec, chi mục phase='core') va Hoan thien (toan bo, giu
+            nguyen progress.percent/done/total cu). progress.phase co the chua co (an toan). */}
+        {progress.phase ? (
+          <>
+            <div style={{ marginTop: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                <span>Cơ bản (thử việc)</span>
+                <span>
+                  {progress.phase.core_done}/{progress.phase.core_total} ({progress.phase.core_pct}%)
+                </span>
+              </div>
+              <ProgressBar percent={progress.phase.core_pct} />
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                <span>Hoàn thiện vị trí</span>
+                <span>
+                  {progress.done}/{progress.total} ({progress.percent}%)
+                </span>
+              </div>
+              <ProgressBar percent={progress.percent} />
+            </div>
+          </>
+        ) : (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+              <span>Tiến độ đào tạo</span>
+              <span>
+                {progress.done}/{progress.total} ({progress.percent}%)
+              </span>
+            </div>
+            <ProgressBar percent={progress.percent} />
           </div>
-          <ProgressBar percent={progress.percent} />
-        </div>
+        )}
         <div style={{ marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Badge variant={lms.course_done ? 'success' : 'neutral'}>
             LMS: {lms.course_done ? 'Đã hoàn thành khóa' : 'Chưa xong khóa'}
@@ -413,6 +439,9 @@ export default function StudentDetailPage() {
                 <tr key={c.checklist_id}>
                   <td>
                     {c.name}
+                    {c.phase === 'completion' && (
+                      <span style={{ marginLeft: 6 }}><Badge variant="neutral">Hoàn thiện</Badge></span>
+                    )}
                     <div className="muted-note" style={{ fontSize: 12 }}>
                       {c.category}
                     </div>

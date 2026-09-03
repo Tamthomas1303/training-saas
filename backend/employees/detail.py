@@ -3,7 +3,7 @@
 Gop du lieu tu nhieu app (checklist/evaluation/cls_sync) - import tre trong ham de tranh
 vong lap import giua cac app.
 """
-from .services import checklist_progress_percent, matching_checklist_items
+from .services import checklist_progress_by_phase, checklist_progress_percent, matching_checklist_items
 
 
 def student_info(employee):
@@ -44,7 +44,7 @@ def student_checklist(employee):
         p = progress_by_checklist.get(c.id)
         rows.append({
             'checklist_id': c.id, 'name': c.task_name, 'category': c.category, 'day': c.day,
-            'doc_url': c.doc_url,
+            'doc_url': c.doc_url, 'phase': c.phase,
             'status': p.status if p else 'pending',
             'trainer_name': p.trainer.full_name if p and p.trainer else '',
             'completed_at': p.completed_at if p else None,
@@ -219,7 +219,13 @@ def student_detail(employee):
 
     return {
         'info': student_info(employee),
-        'progress': {'percent': progress_percent, 'done': done, 'total': len(items)},
+        'progress': {
+            'percent': progress_percent, 'done': done, 'total': len(items),
+            # Khung noi dung cap S - Buoc 2 muc 6 (Prompt_KhungNoiDung_CapS_Buoc2.md): them tach
+            # core/full BEN CANH percent/done/total cu (KHONG doi 3 truong do) de man Ho so hien
+            # 2 thanh tien do rieng.
+            'phase': checklist_progress_by_phase(employee),
+        },
         'checklist': student_checklist(employee),
         'lms': student_lms(employee),
         'evaluations': student_evaluations(employee),

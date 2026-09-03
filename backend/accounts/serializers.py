@@ -127,7 +127,8 @@ class GradingConfigSerializer(serializers.ModelSerializer):
         fields = [
             'kpi_mode', 'exam_pass_percent', 'skill_pass_percent', 'weight_exam', 'weight_practice',
             'weight_theory', 'weight_practical', 'days_staff', 'days_supervisor_deputy',
-            'days_manager_chef', 'probation_pass_rule', 'allowance_per_person',
+            'days_manager_chef', 'has_probation', 'probation_window_days', 'roadmap_window_days',
+            'sequential_positions', 'probation_pass_rule', 'allowance_per_person',
             'allowance_exam_min', 'allowance_skill_min', 'allowance_scope',
             'cert_positions_required', 'cert_program_rule', 'updated_at',
         ]

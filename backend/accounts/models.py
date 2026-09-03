@@ -185,6 +185,14 @@ class GradingConfig(models.Model):
     days_supervisor_deputy = models.PositiveIntegerField(default=30)
     days_manager_chef = models.PositiveIntegerField(default=60)
 
+    # Khung noi dung cap S - Buoc 2 (Prompt_KhungNoiDung_CapS_Buoc2.md muc 2) - cua so thoi gian
+    # THEO CAP S CHUNG (khong override theo vi tri, da chot thiet ke). Gia tri mac dinh = hanh vi
+    # HIEN HANH (co cong thu viec, dung lo trinh tuan tu) - KHONG doi gi cho toi khi Admin sua.
+    has_probation = models.BooleanField(default=True)
+    probation_window_days = models.PositiveIntegerField(default=15)  # = days_staff mac dinh
+    roadmap_window_days = models.PositiveIntegerField(default=90)
+    sequential_positions = models.BooleanField(default=True)
+
     # Mo ta ngưỡng thu viec (khong dung tinh toan tu dong o dot nay - chi de tham chieu/ghi chu
     # quy che, xem prompt muc B "probation_pass_rule (mo ta/nguong)").
     probation_pass_rule = models.TextField(

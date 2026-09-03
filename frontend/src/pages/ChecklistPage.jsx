@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import AppShell from '../components/AppShell'
+import Badge from '../components/Badge'
 import CompetencySelect from '../components/CompetencySelect'
 import FilterBar from '../components/FilterBar'
 import Modal from '../components/Modal'
@@ -13,9 +14,17 @@ import * as s from './listPageStyles'
 
 const PAGE_SIZE = 20
 
+// Khung noi dung cap S - Buoc 2 (Prompt_KhungNoiDung_CapS_Buoc2.md muc 1).
+const PHASE_OPTIONS = [
+  { value: 'core', label: 'Cơ bản (thử việc)' },
+  { value: 'completion', label: 'Hoàn thiện' },
+]
+const PHASE_LABELS = { core: 'Cơ bản', completion: 'Hoàn thiện' }
+const PHASE_VARIANTS = { core: 'neutral', completion: 'success' }
+
 const EMPTY_FORM = {
   id: null, brand: '', position: '', day: '', category: '', task_name: '', description: '',
-  doc_url: '', level_group: '', order: 0, competency: null,
+  doc_url: '', level_group: '', order: 0, competency: null, phase: 'core',
 }
 
 export default function ChecklistPage() {
@@ -35,6 +44,8 @@ export default function ChecklistPage() {
   const [selected, setSelected] = useState(new Set())
   const [bulkCompetency, setBulkCompetency] = useState('')
   const [bulkMsg, setBulkMsg] = useState('')
+  const [bulkPhase, setBulkPhase] = useState('core')
+  const [bulkPhaseMsg, setBulkPhaseMsg] = useState('')
 
   const params = {
     search, brand: brand || undefined, position: position || undefined, category: category || undefined,
@@ -74,6 +85,20 @@ export default function ChecklistPage() {
     }
   }
 
+  async function bulkAssignPhase(target) {
+    setBulkPhaseMsg('')
+    try {
+      const { data: result } = await api.post('/checklist/bulk-assign-phase/', {
+        ...target, phase: bulkPhase,
+      })
+      setBulkPhaseMsg(`Đã gán "${PHASE_LABELS[bulkPhase]}" cho ${result.updated} mục checklist.`)
+      setSelected(new Set())
+      setRefreshKey((k) => k + 1)
+    } catch (err) {
+      setBulkPhaseMsg(err.response?.data?.detail || 'Gán hàng loạt thất bại.')
+    }
+  }
+
   function openCreate() {
     setForm({ ...EMPTY_FORM })
     setFormError('')
@@ -84,7 +109,7 @@ export default function ChecklistPage() {
       id: c.id, brand: c.brand || '', position: c.position || '', day: c.day ?? '',
       category: c.category || '', task_name: c.task_name, description: c.description || '',
       doc_url: c.doc_url || '', level_group: c.level_group || '', order: c.order ?? 0,
-      competency: c.competency,
+      competency: c.competency, phase: c.phase || 'core',
     })
     setFormError('')
   }
@@ -96,7 +121,7 @@ export default function ChecklistPage() {
       brand: form.brand, position: form.position, day: form.day === '' ? null : Number(form.day),
       category: form.category, task_name: form.task_name, description: form.description,
       doc_url: form.doc_url, level_group: form.level_group, order: Number(form.order) || 0,
-      competency: form.competency,
+      competency: form.competency, phase: form.phase,
     }
     try {
       if (form.id) {
@@ -167,6 +192,30 @@ export default function ChecklistPage() {
         </div>
       )}
 
+      {/* Khung noi dung cap S - Buoc 2 (Prompt_KhungNoiDung_CapS_Buoc2.md muc 1). */}
+      {isAdmin && (
+        <div className="card" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+          <span style={{ fontSize: 13, color: 'var(--muted)' }}>Gán hàng loạt phân loại:</span>
+          <select style={s.select} value={bulkPhase} onChange={(e) => setBulkPhase(e.target.value)}>
+            {PHASE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+          <button
+            className="btn-sm btn-outline" disabled={selected.size === 0}
+            onClick={() => bulkAssignPhase({ ids: [...selected] })}
+          >
+            Gán cho {selected.size} mục đã chọn
+          </button>
+          <button
+            className="btn-sm btn-outline" disabled={!category}
+            onClick={() => bulkAssignPhase({ category })}
+            title={!category ? 'Nhập tên danh mục ở ô lọc để gán cho cả nhóm' : ''}
+          >
+            Gán cho cả danh mục "{category || '...'}"
+          </button>
+          {bulkPhaseMsg && <span className="muted-note">{bulkPhaseMsg}</span>}
+        </div>
+      )}
+
       {loading && <p className="muted-note">Đang tải...</p>}
       {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
 
@@ -196,6 +245,7 @@ export default function ChecklistPage() {
                 <th>Đầu việc</th>
                 <th>Cấp</th>
                 <th>Năng lực</th>
+                <th>Phân loại</th>
                 <th>Tài liệu</th>
                 {isAdmin && <th></th>}
               </tr>
@@ -214,6 +264,7 @@ export default function ChecklistPage() {
                   <td>{c.task_name}</td>
                   <td>{c.level_group}</td>
                   <td className="muted-note">{c.competency_name || '—'}</td>
+                  <td><Badge variant={PHASE_VARIANTS[c.phase] || 'neutral'}>{PHASE_LABELS[c.phase] || c.phase}</Badge></td>
                   <td>
                     {c.doc_url ? (
                       <a href={c.doc_url} target="_blank" rel="noreferrer">
@@ -234,7 +285,7 @@ export default function ChecklistPage() {
               ))}
               {data.results.length === 0 && (
                 <tr>
-                  <td colSpan={isAdmin ? 11 : 9} className="muted-note">
+                  <td colSpan={isAdmin ? 12 : 10} className="muted-note">
                     Không có dữ liệu.
                   </td>
                 </tr>
@@ -310,6 +361,16 @@ export default function ChecklistPage() {
                 value={form.category}
                 onChange={(e) => setForm({ ...form, category: e.target.value })}
               />
+            </label>
+            <label>
+              Phân loại (Khung nội dung cấp S)
+              <select
+                style={{ display: 'block', width: '100%' }}
+                value={form.phase}
+                onChange={(e) => setForm({ ...form, phase: e.target.value })}
+              >
+                {PHASE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
             </label>
             <label>
               Năng lực (dùng để tính điểm Hồ sơ 360)
